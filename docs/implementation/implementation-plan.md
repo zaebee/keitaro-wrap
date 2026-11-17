@@ -59,7 +59,7 @@ Notes: Campaign creation does not depend on allocation. Fetch/reconciliation dep
 - Tests: remote add/remove/reappear/share change, conflict detection, no silent overwrite.
 - Completion: Fetch updates committed cache and marks conflicts.
 
-### Slice 5 — Local draft editing
+### Slice 5 — Local draft editing (implemented, issue #31)
 - Capability: stage add/remove/restore/pin/share; Cancel restores committed.
 - Modules: application draft service, persistence draft repo.
 - Prerequisites: Slice 4.
@@ -79,12 +79,13 @@ Notes: Campaign creation does not depend on allocation. Fetch/reconciliation dep
 | pinned_sum > 100% | confirmed invalid | Safely deferred (validation already specified) |
 | active total == 100%? | open | Provisional seam (S6) |
 | empty offers array | open | Safely deferred (S3/S6) |
-| manual share implies pinning? | open | Provisional seam (S5) |
+| manual share implies pinning? | Resolved by owner (#31): D19 A, share edit auto-pins; explicit Unpin returns to redistribution | S5 stages the pin with the share edit |
 | pin preservation on reappear | Resolved by owner (#29): D9 A, preserve `is_pinned` on reactivation | S4 preserves committed pin |
 | duplicate bindings | Resolved by owner (#29): D8 A, UNIQUE(stream_ref, offer_id) and explicit whole-Fetch failure on duplicate remote offer ids | S4 fails before any local write; no occurrence-based identity |
-| zero/one active offers | open | Provisional seam (S2/S6) |
-| all-pinned remainder | open | Provisional seam (S2/S6) |
-| manual pinned-share changes | open | Provisional seam (S5) |
+| zero/one active offers | Resolved for staging by owner (#31): D21 B, allow and surface `policy_cases`; Push policy remains S6 | S5 does not block these states |
+| all-pinned remainder | Resolved for staging by owner (#31): D21 B, surface `unallocated`; Push policy remains S6 | S5 does not normalise or discard the remainder |
+| manual pinned-share changes | Resolved by owner (#31): D19/D20, integer 0..100, auto-pin, invalid input rejected before write | S5 validates input and stages fixed share + pin |
+| editing a stale/conflicted draft | Resolved by owner (#31): D22 B, edits blocked, local Cancel allowed, conflict data preserved | S5 rejects edits on stale drafts but permits local discard |
 | duplicate archived offers | Resolved by owner (#29): same as duplicate bindings, Fetch fails explicitly | S4 rejects any duplicate offer id in one remote stream |
 | remote share changes during draft | Resolved by owner (#29): cache/baseline update plus sticky conflict marker, no staged overwrite | S4 writes only `is_stale` and `conflict_details` |
 | Cancel after partial Push | open | Provisional seam (S6) |

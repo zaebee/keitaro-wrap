@@ -86,6 +86,9 @@ class StreamRefModel(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     schema: Mapped[str] = mapped_column(String(40), nullable=False)
     comments: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    draft_version_counter: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=func.now(), onupdate=func.now()
@@ -155,6 +158,7 @@ class StreamDraftModel(Base):
         Integer, ForeignKey(STREAM_REF_FK), nullable=False
     )
     baseline_snapshot_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    baseline_bindings_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     baseline_captured_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True
     )

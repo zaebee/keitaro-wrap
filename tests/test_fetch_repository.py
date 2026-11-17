@@ -227,18 +227,18 @@ def test_share_conflict_is_sticky_and_draft_state_is_untouched(session_factory):
     repository = SqlAlchemyStreamReconciliationRepository(session_factory)
 
     changed = repository.reconcile(
-        snapshot(remote_stream(12, (offer(5, 45), offer(8, 70))))
+        snapshot(remote_stream(12, (offer(5, 30), offer(8, 85))))
     )
     assert changed.conflicted_drafts == 1
     cached = repository.get_remote_snapshot(12)
     draft = repository.get_draft(12)
     assert cached is not None
     assert draft is not None
-    assert cached.offers[0].share == 45
-    assert draft.baseline_offers[0].share == 30
+    assert cached.offers[1].share == 85
+    assert draft.baseline_offers[1].share == 70
     assert draft.is_stale is True
     assert draft.conflicts == (
-        ConflictDetail(12, 5, "share", 30, 45, "remote_share_changed"),
+        ConflictDetail(12, 8, "share", 70, 85, "remote_share_changed"),
     )
     assert draft.staged_changes == {"share_edits": {"5": 55}}
     assert (draft.version, draft.is_dirty) == (7, True)

@@ -7,6 +7,9 @@ from app.application.dto import (
     CampaignDTO,
     ConfiguredResources,
     DomainDTO,
+    DraftCommandBase,
+    DraftCommandResult,
+    DraftView,
     FetchOutcome,
     FetchSnapshot,
     GroupDTO,
@@ -29,6 +32,7 @@ from app.domain.campaign_creation import (
     CreationStage,
     OperationStatus,
 )
+from app.domain.draft import DraftCommand
 
 
 class KeitaroClientPort(Protocol):
@@ -185,4 +189,20 @@ class StreamReconciliationRepository(Protocol):
 
     def get_draft(self, stream_ref: int) -> StreamDraftView | None:
         """Load the staged state for one remote stream, if one exists."""
+        ...
+
+
+class StreamDraftRepository(Protocol):
+    """Synchronous store for local staged edits; no external I/O."""
+
+    def apply(
+        self,
+        command: DraftCommandBase,
+        intent: DraftCommand,
+    ) -> DraftCommandResult:
+        """Apply one command atomically with optimistic concurrency."""
+        ...
+
+    def get_view(self, stream_ref: int) -> DraftView | None:
+        """Load the derived staged view for one stream, if it has a draft."""
         ...

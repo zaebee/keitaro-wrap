@@ -4,7 +4,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from app.domain.allocation import PolicyCase
 from app.domain.campaign_creation import OperationStatus
+from app.domain.draft import DraftCommand, DraftCommandKind, StagedOffer
 from app.domain.reconciliation import ConflictDetail, RemoteOffer
 
 
@@ -298,3 +300,104 @@ class StreamDraftView:
     is_dirty: bool
     is_stale: bool
     conflicts: tuple[ConflictDetail, ...]
+
+
+@dataclass(frozen=True)
+class DraftCommandBase:
+    """Common identity and optimistic-concurrency fields of a draft command."""
+
+    campaign_id: int
+    stream_ref: int
+    expected_version: int
+
+
+@dataclass(frozen=True)
+class AddOfferCommand(DraftCommandBase):
+    """Stage one offer addition."""
+
+    offer_id: int
+
+
+@dataclass(frozen=True)
+class RemoveOfferCommand(DraftCommandBase):
+    """Stage one offer archive."""
+
+    offer_id: int
+
+
+@dataclass(frozen=True)
+class RestoreOfferCommand(DraftCommandBase):
+    """Stage one archived offer reactivation."""
+
+    offer_id: int
+
+
+@dataclass(frozen=True)
+class SetPinCommand(DraftCommandBase):
+    """Stage one pin or unpin intent."""
+
+    offer_id: int
+    is_pinned: bool
+
+
+@dataclass(frozen=True)
+class SetShareCommand(DraftCommandBase):
+    """Stage one manual share edit."""
+
+    offer_id: int
+    share: int
+
+
+@dataclass(frozen=True)
+class CancelDraftCommand(DraftCommandBase):
+    """Discard unpublished staged intent without resolving conflicts."""
+
+
+@dataclass(frozen=True)
+class DraftView:
+    """Effective staged view returned to the application caller."""
+
+    stream_ref: int
+    offers: tuple[StagedOffer, ...]
+    baseline_offers: tuple[RemoteOffer, ...]
+    staged_changes: Mapping[str, object]
+    version: int
+    is_dirty: bool
+    is_stale: bool
+    conflicts: tuple[ConflictDetail, ...]
+    policy_cases: tuple[PolicyCase, ...]
+    unallocated: int
+
+
+@dataclass(frozen=True)
+class DraftCommandResult:
+    """Outcome of one local draft command."""
+
+    view: DraftView
+    created: bool = False
+    noop: bool = False
+
+
+def to_domain_command(command: DraftCommandBase) -> DraftCommand:
+    """Convert an application command to the pure domain representation."""
+    if isinstance(command, AddOfferCommand):
+        return DraftCommand(DraftCommandKind.ADD, offer_id=command.offer_id)
+    if isinstance(command, RemoveOfferCommand):
+        return DraftCommand(DraftCommandKind.REMOVE, offer_id=command.offer_id)
+    if isinstance(command, RestoreOfferCommand):
+        return DraftCommand(DraftCommandKind.RESTORE, offer_id=command.offer_id)
+    if isinstance(command, SetPinCommand):
+        return DraftCommand(
+            DraftCommandKind.SET_PIN,
+            offer_id=command.offer_id,
+            value=command.is_pinned,
+        )
+    if isinstance(command, SetShareCommand):
+        return DraftCommand(
+            DraftCommandKind.SET_SHARE,
+            offer_id=command.offer_id,
+            value=command.share,
+        )
+    if isinstance(command, CancelDraftCommand):
+        return DraftCommand(DraftCommandKind.CANCEL)
+    raise ValueError(f"unsupported draft command {type(command).__name__}")

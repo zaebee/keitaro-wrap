@@ -13,6 +13,15 @@
 - Mocked HTTP contract: full `/campaigns/{id}/streams` response including a stream without offers and ordered offer entries; no Keitaro write request; an offer missing `share` fails Fetch with the HTTP status preserved and leaves local state unchanged.
 - Migration: upgrade/downgrade/upgrade with the four new tables, binding uniqueness and draft uniqueness/indexes.
 
+## Executed for Slice 5 (issue #31)
+- Pure draft planner: integer share validation (bool rejected), LRM reuse/tie-break, auto-pin and explicit Unpin, D9 restore pin preservation, zero/one/all-pinned policy surfacing, `pinned_sum > 100` rejection, and semantic no-op normalisation (archive→restore, pin→unpin, share→baseline).
+- Application service: all six commands dispatch to pure intents, optimistic-concurrency fields validated before persistence, D14 thread assertion, no Keitaro client dependency.
+- Real temporary SQLite: lazy draft creation from snapshot + immutable binding baseline, staged intent without touching bindings/snapshot, no-op without row/version change, stale-version rejection, sticky-conflict preservation with Cancel-only access, restart durability across repositories, stream isolation, rollback on invalid input, legacy draft without binding baseline rejected.
+- S4/S5 integration correction: remote share changes conflict for add/archive/restore/pin intents and other offers alongside share edits, but not for an offer with a manual share edit (its local fixed share replaces the remote input); `expected` comes from the immutable draft baseline and `observed` from the new remote value; no conflict for a clean draft or a locally archived offer; sticky de-duplication, stale-edit blocking and Cancel conflict preservation verified.
+- `IntegrityError` handling: only a lazy-create unique race maps to `DraftVersionConflict`; other integrity failures propagate unchanged.
+- Clean-draft lifecycle: SetShare → Unpin removes the draft; a Fetch between cleanup and the next edit rebases from the new snapshot; empty-intent stale/conflicted drafts are retained; true no-ops leave rows and versions unchanged; optimistic concurrency remains safe across cleanup/recreation.
+- Migration: `stream_drafts.baseline_bindings_json` and `stream_refs.draft_version_counter` added and verified on upgrade/downgrade/upgrade.
+
 ## Committed vs staged tests
 - Staged changes do not overwrite committed binding state until Push commits.
 - Cancel restores committed state and discards staged changes.

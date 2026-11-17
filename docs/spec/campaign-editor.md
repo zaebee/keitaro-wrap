@@ -13,7 +13,13 @@ Core workflow supported by demo video (2026-11-17). Edge cases listed under "Unr
 - Every stream with a non-empty offers array is reconciled independently; stream `type` does not decide whether a stream is offer-bearing.
 - Fetch conflict markers are sticky until an explicit later-slice resolution; a repeated Fetch never clears them.
 
-These decisions do not settle flow type/priority, manual share constraints, or other unresolved items below.
+## Owner decisions resolved for local editing (issue #31)
+- A manual share edit is an integer 0..100, rejects `bool` and out-of-range values before any write, and automatically pins the offer (D19/D20). Explicit Unpin returns the offer to redistribution.
+- Staging allows zero/one active offers, all-pinned states and unallocated remainders; these are surfaced as `policy_cases`/`unallocated`, not resolved as Push policy (D21).
+- Editing commands are blocked while a draft is stale/conflicted; local Cancel is allowed and preserves sticky conflict data unchanged (D22).
+- The staged view is reproducible from immutable offer/binding baselines captured at first edit, not from mutable current bindings.
+
+These decisions do not settle flow type/priority or other unresolved items below.
 
 ## Confirmed constraints
 - Allocation uses Largest Remainder Method with deterministic offer_id ascending tie-break.
@@ -64,8 +70,8 @@ These decisions do not settle flow type/priority, manual share constraints, or o
 1. Keitaro flow type and priority: exact `regular` vs `default` and how fallback relationship is configured/guaranteed.
 2. Multiple offer-bearing streams: resolved for Fetch by issue #29 (independent, no target selection); later-slice editing/publication policy remains as scoped in implementation-plan.md.
 3. Google destination configurability: campaign creation always uses fixed Google URL from assignment? (wrapper does not parse/edit redirect URLs)
-4. Manual share input constraints: permitted range, integer/decimal entry, validation. (pinned_sum > 100% is confirmed invalid and blocks Push.)
-6. Edge cases: zero active offers, one active offer, removing/restoring last offer, all offers pinned, no remaining unpinned offers.
+4. Manual share input constraints: resolved for staging by issue #31 (integer 0..100, auto-pin); Push validation remains a later-slice concern.
+6. Edge cases: staging behaviour resolved by issue #31 (allow and surface); Push eligibility remains open for Slice 6.
 7. Duplicate offers: Fetch rejection is resolved by issue #29; UI selection policy remains open.
 8. Push/Cancel failure semantics: partial success across multiple modified streams and Push fail/timeout are specified. Remaining genuinely unresolved: exact Cancel availability after partial Push, if not specified elsewhere.
 9. Persistence boundary: RESOLVED — durable (see persistence.md). Remaining: storage mechanism details (SQLite) only.

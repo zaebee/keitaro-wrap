@@ -7,11 +7,13 @@ from fastapi import FastAPI, Request
 
 from app.api.routes import router
 from app.application.campaign_creation import CampaignCreationService
+from app.application.draft import DraftService
 from app.application.fetch import FetchService
 from app.core.config import settings
 from app.db.repositories import (
     SqlAlchemyCampaignCreationOperations,
     SqlAlchemySettingsRepository,
+    SqlAlchemyStreamDraftRepository,
     SqlAlchemyStreamReconciliationRepository,
 )
 from app.db.session import engine
@@ -35,6 +37,9 @@ async def lifespan(app: FastAPI):
     app.state.fetch_service = FetchService(
         client=app.state.keitaro_client,
         repository=SqlAlchemyStreamReconciliationRepository(),
+    )
+    app.state.draft_service = DraftService(
+        repository=SqlAlchemyStreamDraftRepository(),
     )
     try:
         yield

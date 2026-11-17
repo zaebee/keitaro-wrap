@@ -45,6 +45,12 @@ def test_alembic_upgrade_head(tmp_path):
         item["name"] for item in inspector.get_unique_constraints("stream_drafts")
     }
     assert "uq_stream_drafts_stream" in draft_uniques
+    assert "baseline_bindings_json" in {
+        item["name"] for item in inspector.get_columns("stream_drafts")
+    }
+    assert "draft_version_counter" in {
+        item["name"] for item in inspector.get_columns("stream_refs")
+    }
 
     # downgrade and upgrade again
     subprocess.run(
@@ -60,4 +66,11 @@ def test_alembic_upgrade_head(tmp_path):
         env=env,
         cwd=cwd,
     )
-    assert S4_TABLES.issubset(inspect(engine).get_table_names())
+    final_inspector = inspect(engine)
+    assert S4_TABLES.issubset(final_inspector.get_table_names())
+    assert "baseline_bindings_json" in {
+        item["name"] for item in final_inspector.get_columns("stream_drafts")
+    }
+    assert "draft_version_counter" in {
+        item["name"] for item in final_inspector.get_columns("stream_refs")
+    }

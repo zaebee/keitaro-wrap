@@ -127,42 +127,47 @@ def test_draft_conflicts_cover_add_remove_and_reappear():
     ]
 
 
-def test_share_conflict_requires_a_staged_share_edit():
-    """Only staged share edits turn a remote share change into a conflict."""
-    remote = (RemoteOffer(7, 45),)
-    bindings = (binding(7, share=30),)
-    no_edit = DraftState((RemoteOffer(7, 30),), {}, False, ())
-    with_edit = DraftState((RemoteOffer(7, 30),), {"share_edits": {"7": 55}}, False, ())
-    assert (
-        plan_reconciliation(
-            stream_ref=42,
-            remote_offers=remote,
-            previous_bindings=bindings,
-            draft=no_edit,
-        ).conflicts
-        == ()
-    )
-    conflicts = plan_reconciliation(
+@pytest.mark.parametrize(
+    "staged_changes, expected_conflict",
+    [
+        ({}, False),
+        ({"share_edits": {"7": 55}}, False),
+        ({"share_edits": {7: 55}}, False),
+        ({"pin_toggles": {"7": True}}, True),
+        ({"additions": [9]}, True),
+        ({"archives": [7]}, False),
+    ],
+)
+def test_share_conflict_tracks_allocation_inputs(staged_changes, expected_conflict):
+    """Only intents whose allocation depends on a share create a conflict."""
+    plan = plan_reconciliation(
         stream_ref=42,
-        remote_offers=remote,
-        previous_bindings=bindings,
-        draft=with_edit,
-    ).conflicts
-    assert conflicts == (
-        ConflictDetail(42, 7, "share", 30, 45, "remote_share_changed"),
+        remote_offers=(RemoteOffer(7, 45),),
+        previous_bindings=(binding(7, share=30),),
+        draft=DraftState((RemoteOffer(7, 30),), staged_changes, False, ()),
     )
+    expected = (
+        (ConflictDetail(42, 7, "share", 30, 45, "remote_share_changed"),)
+        if expected_conflict
+        else ()
+    )
+    assert plan.conflicts == expected
 
 
 def test_share_edits_accept_integer_and_string_keys():
-    """Both JSON-derived and in-memory share-edit keys identify the same offer."""
+    """Both JSON-derived and in-memory share-edit keys exclude the offer."""
     remote = (RemoteOffer(7, 45),)
-    draft = DraftState((RemoteOffer(7, 30),), {"share_edits": {7: 55}}, False, ())
-    assert plan_reconciliation(
-        stream_ref=42,
-        remote_offers=remote,
-        previous_bindings=(binding(7, share=30),),
-        draft=draft,
-    ).conflicts == (ConflictDetail(42, 7, "share", 30, 45, "remote_share_changed"),)
+    for keys in ({"7": 55}, {7: 55}):
+        draft = DraftState((RemoteOffer(7, 30),), {"share_edits": keys}, False, ())
+        assert (
+            plan_reconciliation(
+                stream_ref=42,
+                remote_offers=remote,
+                previous_bindings=(binding(7, share=30),),
+                draft=draft,
+            ).conflicts
+            == ()
+        )
 
 
 def test_conflicts_are_sticky_and_deduplicated():
