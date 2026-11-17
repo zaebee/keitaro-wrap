@@ -13,6 +13,12 @@
 - Mocked HTTP contract: full `/campaigns/{id}/streams` response including a stream without offers and ordered offer entries; no Keitaro write request; an offer missing `share` fails Fetch with the HTTP status preserved and leaves local state unchanged.
 - Migration: upgrade/downgrade/upgrade with the four new tables, binding uniqueness and draft uniqueness/indexes.
 
+## Executed for Slice 5 (issue #31)
+- Pure draft planner: integer share validation (bool rejected), LRM reuse/tie-break, auto-pin and explicit Unpin, D9 restore pin preservation, zero/one/all-pinned policy surfacing, `pinned_sum > 100` rejection, and semantic no-op normalisation (archive→restore, pin→unpin, share→baseline).
+- Application service: all six commands dispatch to pure intents, optimistic-concurrency fields validated before persistence, D14 thread assertion, no Keitaro client dependency.
+- Real temporary SQLite: lazy draft creation from snapshot + immutable binding baseline, staged intent without touching bindings/snapshot, no-op without row/version change, stale-version rejection, sticky-conflict preservation with Cancel-only access, restart durability across repositories, stream isolation, rollback on invalid input, legacy draft without binding baseline rejected.
+- Migration: `stream_drafts.baseline_bindings_json` added and verified on upgrade/downgrade/upgrade.
+
 ## Committed vs staged tests
 - Staged changes do not overwrite committed binding state until Push commits.
 - Cancel restores committed state and discards staged changes.

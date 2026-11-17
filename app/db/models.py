@@ -155,6 +155,7 @@ class StreamDraftModel(Base):
         Integer, ForeignKey(STREAM_REF_FK), nullable=False
     )
     baseline_snapshot_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    baseline_bindings_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     baseline_captured_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True
     )

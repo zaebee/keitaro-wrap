@@ -43,16 +43,25 @@ Constraint: UNIQUE(stream_ref_id, offer_id), accepted as D8 in issue #29. Duplic
 Ownership: committed wrapper state + remote share cache. `is_pinned` is wrapper-owned and is preserved on reactivation (D9).
 
 ### StreamDraft (staged)
-Fields: id, stream_ref_id (unique FK), baseline_snapshot (JSON remote offer array), baseline_captured_at, staged_changes (JSON: additions, archives, restores, pin toggles, share edits), version (wrapper-side optimistic concurrency), is_dirty, is_stale (bool), conflict_details (JSON nullable: field, expected, observed, reason), created_at, updated_at.
-Ownership: local draft state. Does not overwrite committed binding state. Slice 4 only prepares this table and writes `is_stale` / `conflict_details` on an existing draft; it adds no draft creation, editing or conflict resolution workflow.
+Fields: id, stream_ref_id (unique FK), baseline_snapshot (JSON remote offer array), baseline_bindings (JSON committed lifecycle/pin baseline at draft creation), baseline_captured_at, staged_changes (JSON intent: additions, archives, restores, pin_toggles, share_edits), version (wrapper-side optimistic concurrency), is_dirty, is_stale (bool), conflict_details (JSON nullable: field, expected, observed, reason), created_at, updated_at.
+`baseline_bindings` holds `{offer_id, lifecycle, is_pinned}` from `stream_offer_bindings` at first edit; `last_remote_share` is excluded because it is a remote cache value. Together with the immutable offer baseline it makes the staged view reproducible without reading mutable committed bindings as historical data. A pre-existing draft without this baseline fails explicitly rather than falling back to current bindings.
+The canonical `staged_changes` shape keeps `share_edits` as a mapping so Slice 4 conflict detection keeps working:
+```json
+{"additions": [9], "archives": [7], "restores": [8],
+ "pin_toggles": {"8": true}, "share_edits": {"7": 55}}
+```
+Ownership: local draft state. Does not overwrite committed binding state. Slice 4 only prepared the table and wrote `is_stale` / `conflict_details`; Slice 5 adds lazy creation, staging commands and local Cancel.
 
 ### StreamPublication (publication)
 Fields: id, stream_ref, campaign_creation_operation_id (nullable), status (pending|in_progress|succeeded|failed|ambiguous|abandoned), attempt_count, correlation_marker, request_payload (redacted JSON), remote_baseline_before (JSON), remote_baseline_after (JSON nullable), error, started_at, finished_at.
 Ownership: publication state.
 
 ## Committed vs staged semantics
-- Committed binding state (lifecycle, is_pinned) persists independently.
-- Staged changes are stored in StreamDraft.staged_changes and never silently overwrite committed state.
+- Committed binding state (lifecycle, is_pinned) persists independently. Its immutable copy in `baseline_bindings` is the historical input for the staged view.
+- Staged changes are stored in StreamDraft.staged_changes and never silently overwrite committed state or the remote snapshot cache.
+- A manual share edit also stages `is_pinned=true` (D19). Unpin removes that pin and its fixed share so redistribution resumes.
+- No-op is semantic: after applying accumulated intent, an effective state equal to the baseline normalises `staged_changes` to `{}`, `is_dirty=false`, with no version increment.
+- Stale drafts (D17/D22) block editing commands; local Cancel discards staged intent only and preserves `is_stale`/`conflict_details` unchanged. It never implies conflict resolution.
 - Cancel restores committed state by discarding staged_changes (draft becomes empty/non-dirty). Committed state unchanged.
 - Confirmed Push commits staged changes to committed state and advances remote baseline.
 - Failed/ambiguous Push retains draft.
@@ -106,7 +115,8 @@ Failed vs ambiguous:
 - Zero matches under incomplete pagination or uncertain read-after-write consistency does not establish absence.
 
 ## Concurrency
-- StreamDraft.version optimistic concurrency (wrapper-side only, not Keitaro version); Fetch does not change it.
+- StreamDraft.version optimistic concurrency (wrapper-side only, not Keitaro version); Fetch does not change it. No draft is version 0; the first edit creates version 1, each effective edit/Cancel increments by one, and a semantic no-op does not.
+- Commands carry `expected_version`; a conditional update with a mismatched version is rejected, so concurrent edits cannot overwrite each other.
 - Binding identity is protected by UNIQUE(stream_ref_id, offer_id); conditional updates and a bounded local retry keep concurrent Fetches from creating duplicate rows. A losing Fetch can fail without leaving a partial snapshot.
 - Local DB transaction per user action; Keitaro calls outside transaction; one complete reconciliation per Fetch transaction.
 
@@ -119,6 +129,7 @@ Failed vs ambiguous:
 - First Fetch creates refs, ordered remote snapshot and bindings; streams without offers stay refs only.
 - Remote add/delete/reappearance/share change, repeated Fetch idempotency, multi-stream isolation, duplicate-id rollback and concurrent Fetch uniqueness (Slice 4 executed).
 - Stale draft conflict on Fetch remote change; staged changes, baseline, version and dirty flag stay untouched; conflict is sticky (Slice 4 executed).
+- Lazy draft creation, every staging command, semantic no-op normalisation, stale-draft edit blocking with Cancel-only access, optimistic concurrency, restart durability and stream isolation (Slice 5 executed).
 - Restart preserves drafts/archive/pin/publication state.
 - Partial Push recovery.
 - Ambiguous publication reconciliation.
@@ -134,3 +145,4 @@ Failed vs ambiguous:
 - D10: Committed vs staged separation.
 - D17: Fetch conflicts are sticky until explicit resolution (accepted, issue #29).
 - D18: All offer-bearing streams are reconciled independently (accepted, issue #29).
+- D19–D22: auto-pin on manual share, integer share 0..100, surface allocation policy cases, and stale-draft edit blocking with local Cancel allowed (accepted, issue #31).

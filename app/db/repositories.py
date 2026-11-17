@@ -1,14 +1,20 @@
 """Synchronous SQLAlchemy adapters for application-owned repository ports."""
 
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
+from typing import cast
 
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.application.draft import DraftStaleError, DraftVersionConflict
 from app.application.dto import (
     ConfiguredResources,
+    DraftCommandBase,
+    DraftCommandResult,
+    DraftView,
     FetchedStream,
     FetchOutcome,
     FetchSnapshot,
@@ -34,6 +40,20 @@ from app.domain.campaign_creation import (
     OperationStatus,
     StepState,
     get_step,
+)
+from app.domain.draft import (
+    BaselineBinding,
+    DraftBaselineUnavailable,
+    DraftCommand,
+    DraftCommandKind,
+    DraftContext,
+    DraftInputError,
+    DraftIntent,
+    DraftViewData,
+    baseline_view,
+    load_baseline_bindings,
+    plan_edit,
+    staged_view,
 )
 from app.domain.reconciliation import (
     BindingLifecycle,
@@ -677,4 +697,304 @@ class SqlAlchemyStreamReconciliationRepository:
                 is_dirty=draft.is_dirty,
                 is_stale=draft.is_stale,
                 conflicts=_load_conflicts(draft.conflict_details_json),
+            )
+
+
+def _dump_bindings(values: tuple[BaselineBinding, ...]) -> str:
+    """Serialise the immutable committed-state baseline of a draft."""
+    return json.dumps(
+        [
+            {
+                "offer_id": item.offer_id,
+                "lifecycle": item.lifecycle.value,
+                "is_pinned": item.is_pinned,
+            }
+            for item in values
+        ],
+        separators=(",", ":"),
+    )
+
+
+def _load_bindings_baseline(raw: str) -> tuple[BaselineBinding, ...]:
+    """Deserialise the immutable committed-state baseline of a draft."""
+    data = json.loads(raw)
+    if not isinstance(data, list):
+        raise ValueError("draft binding baseline is not a list")
+    return load_baseline_bindings(
+        tuple(
+            BaselineBinding(
+                offer_id=item["offer_id"],
+                lifecycle=BindingLifecycle(item["lifecycle"]),
+                is_pinned=item["is_pinned"],
+            )
+            for item in data
+        )
+    )
+
+
+def _load_intent(raw: str) -> DraftIntent:
+    """Deserialise staged intent without changing its meaning."""
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise ValueError("draft staged changes are not an object")
+
+    def ids(key: str) -> tuple[int, ...]:
+        """Read a list of integer offer ids."""
+        values = data.get(key, [])
+        if not isinstance(values, list) or any(
+            type(item) is not int for item in values
+        ):
+            raise ValueError(f"draft {key} must be a list of ints")
+        return tuple(values)
+
+    def mapping(key: str, expected: type) -> dict[int, object]:
+        """Read an offer-id keyed mapping with checked value types."""
+        values = data.get(key, {})
+        if not isinstance(values, dict):
+            raise ValueError(f"draft {key} must be an object")
+        result: dict[int, object] = {}
+        for key_value, value in values.items():
+            if not isinstance(key_value, str) or not key_value.isdigit():
+                raise ValueError(f"draft {key} has an invalid offer id")
+            if type(value) is not expected:
+                raise ValueError(f"draft {key} has an invalid value")
+            result[int(key_value)] = value
+        return result
+
+    pin_values = mapping("pin_toggles", bool)
+    share_values = mapping("share_edits", int)
+    return DraftIntent(
+        additions=ids("additions"),
+        archives=ids("archives"),
+        restores=ids("restores"),
+        pin_toggles={key: bool(value) for key, value in pin_values.items()},
+        share_edits={key: cast(int, value) for key, value in share_values.items()},
+    )
+
+
+def _draft_view(
+    stream_ref: int,
+    context: DraftContext,
+    view: DraftViewData,
+    staged: DraftIntent,
+    version: int,
+    is_stale: bool,
+    conflicts: tuple[ConflictDetail, ...],
+) -> DraftView:
+    """Combine derived data with persisted draft metadata."""
+    data: DraftViewData = view
+    return DraftView(
+        stream_ref=stream_ref,
+        offers=data.offers,
+        baseline_offers=context.baseline_offers,
+        staged_changes=staged.to_json(),
+        version=version,
+        is_dirty=staged.has_changes,
+        is_stale=is_stale,
+        conflicts=conflicts,
+        policy_cases=data.policy_cases,
+        unallocated=data.unallocated,
+    )
+
+
+class SqlAlchemyStreamDraftRepository:
+    """Apply local draft commands atomically with optimistic concurrency."""
+
+    def __init__(self, session_factory: sessionmaker[Session] = SessionLocal):
+        """Use an injectable session factory so tests can use a temporary DB."""
+        self._session_factory = session_factory
+
+    def apply(
+        self, command: DraftCommandBase, intent: DraftCommand
+    ) -> DraftCommandResult:
+        """Apply one staging command inside one local transaction."""
+        with self._session_factory() as session:
+            try:
+                return self._apply(session, command, intent)
+            except IntegrityError as exc:
+                session.rollback()
+                raise DraftVersionConflict("concurrent draft creation") from exc
+            except Exception:
+                session.rollback()
+                raise
+
+    def _apply(
+        self, session: Session, command: DraftCommandBase, intent: DraftCommand
+    ) -> DraftCommandResult:
+        """Load immutable baselines, plan the edit and write conditionally."""
+        ref = (
+            session.query(StreamRefModel)
+            .filter_by(keitaro_stream_id=command.stream_ref)
+            .one_or_none()
+        )
+        if ref is None or ref.campaign_id != command.campaign_id:
+            raise DraftInputError("stream does not belong to the requested campaign")
+        cached = (
+            session.query(RemoteOfferSnapshotModel)
+            .filter_by(stream_ref_id=ref.id)
+            .one_or_none()
+        )
+        draft = (
+            session.query(StreamDraftModel)
+            .filter_by(stream_ref_id=ref.id)
+            .one_or_none()
+        )
+        conflicts = _load_conflicts(draft.conflict_details_json) if draft else ()
+        is_stale = draft.is_stale if draft else False
+        if (
+            draft is not None
+            and is_stale
+            and intent.kind is not DraftCommandKind.CANCEL
+        ):
+            raise DraftStaleError(command.stream_ref, conflicts)
+
+        if draft is None:
+            if cached is None or not _load_offers(cached.offers_json):
+                raise DraftInputError("stream has no remote offer snapshot to baseline")
+            if command.expected_version != 0:
+                raise DraftVersionConflict("a new draft requires expected_version 0")
+            baseline_offers = _load_offers(cached.offers_json)
+            bindings = (
+                session.query(StreamOfferBindingModel)
+                .filter_by(stream_ref_id=ref.id)
+                .all()
+            )
+            baseline_bindings = load_baseline_bindings(
+                tuple(
+                    BaselineBinding(
+                        offer_id=row.offer_id,
+                        lifecycle=BindingLifecycle(row.lifecycle),
+                        is_pinned=row.is_pinned,
+                    )
+                    for row in bindings
+                )
+            )
+            baseline_captured_at = cached.captured_at
+            current_intent = DraftIntent()
+            version = 0
+        else:
+            if command.expected_version != draft.version:
+                raise DraftVersionConflict("draft version changed")
+            if (
+                draft.baseline_snapshot_json is None
+                or draft.baseline_bindings_json is None
+            ):
+                raise DraftBaselineUnavailable("draft baselines are missing")
+            baseline_offers = _load_offers(draft.baseline_snapshot_json)
+            baseline_bindings = _load_bindings_baseline(draft.baseline_bindings_json)
+            baseline_captured_at = draft.baseline_captured_at
+            current_intent = _load_intent(draft.staged_changes_json)
+            version = draft.version
+
+        context = DraftContext(
+            command.stream_ref, baseline_offers, baseline_bindings, current_intent
+        )
+        plan = plan_edit(context, intent)
+        view = _draft_view(
+            command.stream_ref,
+            context,
+            plan.view,
+            plan.intent,
+            version,
+            is_stale,
+            conflicts,
+        )
+
+        if plan.noop:
+            if draft is not None and plan.intent.to_json() != current_intent.to_json():
+                result = session.execute(
+                    update(StreamDraftModel)
+                    .where(StreamDraftModel.id == draft.id)
+                    .where(StreamDraftModel.version == command.expected_version)
+                    .values(
+                        staged_changes_json=json.dumps(
+                            plan.intent.to_json(), separators=(",", ":")
+                        ),
+                        is_dirty=False,
+                    )
+                )
+                if getattr(result, "rowcount", 0) != 1:
+                    raise DraftVersionConflict("draft version changed")
+            session.commit()
+            return DraftCommandResult(view=view, created=False, noop=True)
+
+        serialized = json.dumps(plan.intent.to_json(), separators=(",", ":"))
+        if draft is None:
+            session.add(
+                StreamDraftModel(
+                    stream_ref_id=ref.id,
+                    baseline_snapshot_json=_dump_offers(baseline_offers),
+                    baseline_bindings_json=_dump_bindings(baseline_bindings),
+                    baseline_captured_at=baseline_captured_at,
+                    staged_changes_json=serialized,
+                    version=1,
+                    is_dirty=plan.intent.has_changes,
+                    is_stale=False,
+                )
+            )
+            new_version = 1
+            created = True
+        else:
+            result = session.execute(
+                update(StreamDraftModel)
+                .where(StreamDraftModel.id == draft.id)
+                .where(StreamDraftModel.version == command.expected_version)
+                .values(
+                    staged_changes_json=serialized,
+                    version=command.expected_version + 1,
+                    is_dirty=plan.intent.has_changes,
+                )
+            )
+            if getattr(result, "rowcount", 0) != 1:
+                raise DraftVersionConflict("draft version changed")
+            new_version = command.expected_version + 1
+            created = False
+        session.commit()
+        return DraftCommandResult(
+            view=replace(view, version=new_version),
+            created=created,
+            noop=False,
+        )
+
+    def get_view(self, stream_ref: int) -> DraftView | None:
+        """Load the derived staged view for one stream."""
+        with self._session_factory() as session:
+            ref = (
+                session.query(StreamRefModel)
+                .filter_by(keitaro_stream_id=stream_ref)
+                .one_or_none()
+            )
+            if ref is None:
+                return None
+            draft = (
+                session.query(StreamDraftModel)
+                .filter_by(stream_ref_id=ref.id)
+                .one_or_none()
+            )
+            if draft is None:
+                return None
+            if (
+                draft.baseline_snapshot_json is None
+                or draft.baseline_bindings_json is None
+            ):
+                raise DraftBaselineUnavailable("draft baselines are missing")
+            baseline_offers = _load_offers(draft.baseline_snapshot_json)
+            baseline_bindings = _load_bindings_baseline(draft.baseline_bindings_json)
+            current_intent = _load_intent(draft.staged_changes_json)
+            context = DraftContext(
+                stream_ref, baseline_offers, baseline_bindings, current_intent
+            )
+            view = (
+                staged_view(context, current_intent)
+                if current_intent.has_changes
+                else baseline_view(context)
+            )
+            return _draft_view(
+                stream_ref,
+                context,
+                view,
+                current_intent,
+                draft.version,
+                draft.is_stale,
+                _load_conflicts(draft.conflict_details_json),
             )
