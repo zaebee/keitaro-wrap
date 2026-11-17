@@ -95,6 +95,8 @@ Preserve these unless the assigned task explicitly changes them:
 
 ## 7. PR discipline
 
+- Use English for PR titles/bodies, issues and review comments; chat with the repository
+  owner is in Russian.
 - Keep PRs focused and traceable to the assigned issue; for documentation-only changes,
   state explicitly that no application behavior, dependencies, migrations or CI changed.
 - Do not merge unless explicitly authorized by the owner.
