@@ -230,27 +230,32 @@ class CampaignCreationService:
             if state is StepState.CONFIRMED:
                 continue
             if state is StepState.NOT_STARTED:
-                claimed = await asyncio.to_thread(
-                    self._operations.claim_step, current.operation_uuid, stage
-                )
-                if claimed is None:
-                    fresh = await self._reload(current)
-                    if fresh is None:
-                        return self._to_result(current)
-                    self._copy_state(current, fresh)
-                    if get_step(current, stage) is StepState.CONFIRMED:
-                        continue
-                    if get_step(current, stage) is StepState.IN_FLIGHT:
-                        if not await self._recover_step(current, stage):
-                            return self._to_result(current)
-                        continue
-                    return self._to_result(current)
-                set_step(current, stage, StepState.IN_FLIGHT)
-                if not await self._post_and_confirm(current, stage):
+                if not await self._start_step(current, stage):
                     return self._to_result(current)
             elif not await self._recover_step(current, stage):
                 return self._to_result(current)
         return await self._verify_and_complete(current)
+
+    async def _start_step(
+        self, operation: CampaignCreationOperation, stage: CreationStage
+    ) -> bool:
+        """Claim a step; a losing worker reloads and reconciles without mutating."""
+        claimed = await asyncio.to_thread(
+            self._operations.claim_step, operation.operation_uuid, stage
+        )
+        if claimed is not None:
+            set_step(operation, stage, StepState.IN_FLIGHT)
+            return await self._post_and_confirm(operation, stage)
+        fresh = await self._reload(operation)
+        if fresh is None:
+            return False
+        self._copy_state(operation, fresh)
+        state = get_step(operation, stage)
+        if state is StepState.CONFIRMED:
+            return True
+        if state is StepState.IN_FLIGHT:
+            return await self._recover_step(operation, stage)
+        return False
 
     async def _post_and_confirm(
         self, operation: CampaignCreationOperation, stage: CreationStage
@@ -342,24 +347,17 @@ class CampaignCreationService:
     ) -> bool:
         """Classify a failed POST and reconcile only when the outcome is uncertain."""
         status = _client_error_status(exc)
-        target = (
-            (
-                None
-                if operation.status is OperationStatus.AMBIGUOUS
-                else OperationStatus.FAILED
-            )
-            if _is_definitive_rejection(status)
-            else (
-                None
-                if operation.status is OperationStatus.AMBIGUOUS
-                else OperationStatus.AMBIGUOUS
-            )
-        )
-        error = (
-            f"{stage.value}: definitive rejection ({exc})"
-            if _is_definitive_rejection(status)
-            else f"{stage.value}: uncertain outcome ({exc})"
-        )
+        definitive = _is_definitive_rejection(status)
+        if operation.status is OperationStatus.AMBIGUOUS:
+            target = None
+        elif definitive:
+            target = OperationStatus.FAILED
+        else:
+            target = OperationStatus.AMBIGUOUS
+        if definitive:
+            error = f"{stage.value}: definitive rejection ({exc})"
+        else:
+            error = f"{stage.value}: uncertain outcome ({exc})"
         marked = await asyncio.to_thread(
             self._operations.mark_step_ambiguous,
             operation.operation_uuid,
@@ -402,8 +400,8 @@ class CampaignCreationService:
             if fresh is not None:
                 self._copy_state(operation, fresh)
                 return get_step(operation, stage) is StepState.CONFIRMED
-        elif marked is not None:
-            self._copy_state(operation, marked)
+            return False
+        self._copy_state(operation, marked)
         return False
 
     async def _reconcile(
