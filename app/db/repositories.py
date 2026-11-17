@@ -1,7 +1,7 @@
 """Synchronous SQLAlchemy adapters for application-owned repository ports."""
 
 import json
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import cast
 
@@ -700,6 +700,32 @@ class SqlAlchemyStreamReconciliationRepository:
             )
 
 
+DRAFT_VERSION_CONFLICT = "draft version changed"
+
+
+@dataclass(frozen=True)
+class _DraftBaselines:
+    """Immutable baselines loaded for one draft command."""
+
+    offers: tuple[RemoteOffer, ...]
+    bindings: tuple[BaselineBinding, ...]
+    captured_at: datetime | None
+    intent: DraftIntent
+    version: int
+
+
+@dataclass(frozen=True)
+class _DraftEditContext:
+    """Everything needed to plan and persist one draft command."""
+
+    ref: StreamRefModel
+    draft: StreamDraftModel | None
+    baselines: _DraftBaselines
+    plan_context: DraftContext
+    conflicts: tuple[ConflictDetail, ...]
+    is_stale: bool
+
+
 def _dump_bindings(values: tuple[BaselineBinding, ...]) -> str:
     """Serialise the immutable committed-state baseline of a draft."""
     return json.dumps(
@@ -818,10 +844,9 @@ class SqlAlchemyStreamDraftRepository:
                 session.rollback()
                 raise
 
-    def _apply(
-        self, session: Session, command: DraftCommandBase, intent: DraftCommand
-    ) -> DraftCommandResult:
-        """Load immutable baselines, plan the edit and write conditionally."""
+    @staticmethod
+    def _require_ref(session: Session, command: DraftCommandBase) -> StreamRefModel:
+        """Find the stream and verify it belongs to the requested campaign."""
         ref = (
             session.query(StreamRefModel)
             .filter_by(keitaro_stream_id=command.stream_ref)
@@ -829,6 +854,67 @@ class SqlAlchemyStreamDraftRepository:
         )
         if ref is None or ref.campaign_id != command.campaign_id:
             raise DraftInputError("stream does not belong to the requested campaign")
+        return ref
+
+    @staticmethod
+    def _baselines_from_cache(
+        session: Session,
+        ref: StreamRefModel,
+        cached: RemoteOfferSnapshotModel | None,
+        expected_version: int,
+    ) -> _DraftBaselines:
+        """Capture remote offers and committed bindings for a new draft."""
+        if cached is None or not _load_offers(cached.offers_json):
+            raise DraftInputError("stream has no remote offer snapshot to baseline")
+        if expected_version != 0:
+            raise DraftVersionConflict("a new draft requires expected_version 0")
+        rows = (
+            session.query(StreamOfferBindingModel).filter_by(stream_ref_id=ref.id).all()
+        )
+        bindings = load_baseline_bindings(
+            tuple(
+                BaselineBinding(
+                    offer_id=row.offer_id,
+                    lifecycle=BindingLifecycle(row.lifecycle),
+                    is_pinned=row.is_pinned,
+                )
+                for row in rows
+            )
+        )
+        return _DraftBaselines(
+            _load_offers(cached.offers_json),
+            bindings,
+            cached.captured_at,
+            DraftIntent(),
+            0,
+        )
+
+    @staticmethod
+    def _baselines_from_draft(
+        draft: StreamDraftModel, expected_version: int
+    ) -> _DraftBaselines:
+        """Load the immutable baselines of an existing draft."""
+        if expected_version != draft.version:
+            raise DraftVersionConflict(DRAFT_VERSION_CONFLICT)
+        if draft.baseline_snapshot_json is None or draft.baseline_bindings_json is None:
+            raise DraftBaselineUnavailable("draft baselines are missing")
+        return _DraftBaselines(
+            _load_offers(draft.baseline_snapshot_json),
+            _load_bindings_baseline(draft.baseline_bindings_json),
+            draft.baseline_captured_at,
+            _load_intent(draft.staged_changes_json),
+            draft.version,
+        )
+
+    @classmethod
+    def _prepare_context(
+        cls,
+        session: Session,
+        command: DraftCommandBase,
+        intent: DraftCommand,
+    ) -> _DraftEditContext:
+        """Load the stream, enforce D22 and capture the planning inputs."""
+        ref = cls._require_ref(session, command)
         cached = (
             session.query(RemoteOfferSnapshotModel)
             .filter_by(stream_ref_id=ref.id)
@@ -847,108 +933,111 @@ class SqlAlchemyStreamDraftRepository:
             and intent.kind is not DraftCommandKind.CANCEL
         ):
             raise DraftStaleError(command.stream_ref, conflicts)
-
         if draft is None:
-            if cached is None or not _load_offers(cached.offers_json):
-                raise DraftInputError("stream has no remote offer snapshot to baseline")
-            if command.expected_version != 0:
-                raise DraftVersionConflict("a new draft requires expected_version 0")
-            baseline_offers = _load_offers(cached.offers_json)
-            bindings = (
-                session.query(StreamOfferBindingModel)
-                .filter_by(stream_ref_id=ref.id)
-                .all()
+            baselines = cls._baselines_from_cache(
+                session, ref, cached, command.expected_version
             )
-            baseline_bindings = load_baseline_bindings(
-                tuple(
-                    BaselineBinding(
-                        offer_id=row.offer_id,
-                        lifecycle=BindingLifecycle(row.lifecycle),
-                        is_pinned=row.is_pinned,
-                    )
-                    for row in bindings
-                )
-            )
-            baseline_captured_at = cached.captured_at
-            current_intent = DraftIntent()
-            version = 0
         else:
-            if command.expected_version != draft.version:
-                raise DraftVersionConflict("draft version changed")
-            if (
-                draft.baseline_snapshot_json is None
-                or draft.baseline_bindings_json is None
-            ):
-                raise DraftBaselineUnavailable("draft baselines are missing")
-            baseline_offers = _load_offers(draft.baseline_snapshot_json)
-            baseline_bindings = _load_bindings_baseline(draft.baseline_bindings_json)
-            baseline_captured_at = draft.baseline_captured_at
-            current_intent = _load_intent(draft.staged_changes_json)
-            version = draft.version
-
-        context = DraftContext(
-            command.stream_ref, baseline_offers, baseline_bindings, current_intent
-        )
-        plan = plan_edit(context, intent)
-        view = _draft_view(
+            baselines = cls._baselines_from_draft(draft, command.expected_version)
+        plan_context = DraftContext(
             command.stream_ref,
-            context,
-            plan.view,
-            plan.intent,
-            version,
-            is_stale,
-            conflicts,
+            baselines.offers,
+            baselines.bindings,
+            baselines.intent,
+        )
+        return _DraftEditContext(
+            ref, draft, baselines, plan_context, conflicts, is_stale
         )
 
-        if plan.noop:
-            if draft is not None and plan.intent.to_json() != current_intent.to_json():
-                result = session.execute(
-                    update(StreamDraftModel)
-                    .where(StreamDraftModel.id == draft.id)
-                    .where(StreamDraftModel.version == command.expected_version)
-                    .values(
-                        staged_changes_json=json.dumps(
-                            plan.intent.to_json(), separators=(",", ":")
-                        ),
-                        is_dirty=False,
-                    )
-                )
-                if getattr(result, "rowcount", 0) != 1:
-                    raise DraftVersionConflict("draft version changed")
-            session.commit()
-            return DraftCommandResult(view=view, created=False, noop=True)
+    @staticmethod
+    def _normalize_noop(
+        session: Session,
+        draft: StreamDraftModel | None,
+        expected_version: int,
+        new_intent: DraftIntent,
+        current_intent: DraftIntent,
+    ) -> None:
+        """Persist semantic normalisation without bumping the version."""
+        if draft is None or new_intent.to_json() == current_intent.to_json():
+            return
+        result = session.execute(
+            update(StreamDraftModel)
+            .where(StreamDraftModel.id == draft.id)
+            .where(StreamDraftModel.version == expected_version)
+            .values(
+                staged_changes_json=json.dumps(
+                    new_intent.to_json(), separators=(",", ":")
+                ),
+                is_dirty=False,
+            )
+        )
+        if getattr(result, "rowcount", 0) != 1:
+            raise DraftVersionConflict(DRAFT_VERSION_CONFLICT)
 
-        serialized = json.dumps(plan.intent.to_json(), separators=(",", ":"))
-        if draft is None:
+    @classmethod
+    def _write_plan(
+        cls,
+        session: Session,
+        prepared: _DraftEditContext,
+        command: DraftCommandBase,
+        plan_intent: DraftIntent,
+    ) -> tuple[int, bool]:
+        """Insert a new draft or conditionally update an existing one."""
+        serialized = json.dumps(plan_intent.to_json(), separators=(",", ":"))
+        if prepared.draft is None:
             session.add(
                 StreamDraftModel(
-                    stream_ref_id=ref.id,
-                    baseline_snapshot_json=_dump_offers(baseline_offers),
-                    baseline_bindings_json=_dump_bindings(baseline_bindings),
-                    baseline_captured_at=baseline_captured_at,
+                    stream_ref_id=prepared.ref.id,
+                    baseline_snapshot_json=_dump_offers(prepared.baselines.offers),
+                    baseline_bindings_json=_dump_bindings(prepared.baselines.bindings),
+                    baseline_captured_at=prepared.baselines.captured_at,
                     staged_changes_json=serialized,
                     version=1,
-                    is_dirty=plan.intent.has_changes,
+                    is_dirty=plan_intent.has_changes,
                     is_stale=False,
                 )
             )
-            new_version = 1
-            created = True
-        else:
-            result = session.execute(
-                update(StreamDraftModel)
-                .where(StreamDraftModel.id == draft.id)
-                .where(StreamDraftModel.version == command.expected_version)
-                .values(
-                    staged_changes_json=serialized,
-                    version=command.expected_version + 1,
-                    is_dirty=plan.intent.has_changes,
-                )
+            return 1, True
+        result = session.execute(
+            update(StreamDraftModel)
+            .where(StreamDraftModel.id == prepared.draft.id)
+            .where(StreamDraftModel.version == command.expected_version)
+            .values(
+                staged_changes_json=serialized,
+                version=command.expected_version + 1,
+                is_dirty=plan_intent.has_changes,
             )
-            if getattr(result, "rowcount", 0) != 1:
-                raise DraftVersionConflict("draft version changed")
-            new_version = command.expected_version + 1
-            created = False
+        )
+        if getattr(result, "rowcount", 0) != 1:
+            raise DraftVersionConflict(DRAFT_VERSION_CONFLICT)
+        return command.expected_version + 1, False
+
+    def _apply(
+        self, session: Session, command: DraftCommandBase, intent: DraftCommand
+    ) -> DraftCommandResult:
+        """Load immutable baselines, plan the edit and write conditionally."""
+        prepared = self._prepare_context(session, command, intent)
+        plan = plan_edit(prepared.plan_context, intent)
+        view = _draft_view(
+            command.stream_ref,
+            prepared.plan_context,
+            plan.view,
+            plan.intent,
+            prepared.baselines.version,
+            prepared.is_stale,
+            prepared.conflicts,
+        )
+        if plan.noop:
+            self._normalize_noop(
+                session,
+                prepared.draft,
+                command.expected_version,
+                plan.intent,
+                prepared.plan_context.intent,
+            )
+            session.commit()
+            return DraftCommandResult(view=view, created=False, noop=True)
+        new_version, created = self._write_plan(session, prepared, command, plan.intent)
         session.commit()
         return DraftCommandResult(
             view=replace(view, version=new_version),

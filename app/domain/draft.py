@@ -173,36 +173,75 @@ def _view_from_allocations(
     return DraftViewData(offers, result.policy_cases, result.unallocated)
 
 
-def _derive_view(context: DraftContext, *, apply_intent: bool) -> DraftViewData:
-    """Build either the immutable baseline view or the allocated staged view."""
+def _effective_lifecycle(
+    offer_id: int,
+    binding: BaselineBinding | None,
+    archives: set[int],
+    restores: set[int],
+    apply_intent: bool,
+) -> BindingLifecycle:
+    """Return lifecycle after staged archive/restore overlays."""
+    if apply_intent:
+        if offer_id in archives and offer_id not in restores:
+            return BindingLifecycle.ARCHIVED
+        if offer_id in restores:
+            return BindingLifecycle.ACTIVE
+    if binding is not None:
+        return binding.lifecycle
+    return BindingLifecycle.ACTIVE
+
+
+def _effective_pin(
+    offer_id: int,
+    binding: BaselineBinding | None,
+    pin_toggles: Mapping[int, bool],
+    apply_intent: bool,
+) -> bool:
+    """Return pin state after staged pin overlays."""
+    if apply_intent and offer_id in pin_toggles:
+        return pin_toggles[offer_id]
+    return binding.is_pinned if binding is not None else False
+
+
+def _effective_share(
+    offer_id: int,
+    baseline_offer: RemoteOffer | None,
+    share_edits: Mapping[int, int],
+    lifecycle: BindingLifecycle,
+    apply_intent: bool,
+) -> int:
+    """Return the LRM input share before allocation."""
+    if lifecycle is BindingLifecycle.ARCHIVED:
+        return 0
+    if apply_intent and offer_id in share_edits:
+        return share_edits[offer_id]
+    return baseline_offer.share if baseline_offer is not None else 0
+
+
+def _items_from_context(
+    context: DraftContext, *, apply_intent: bool
+) -> list[StagedOffer]:
+    """Build one staged offer per known offer in deterministic order."""
     offers = validate_remote_offers(context.baseline_offers)
     baseline = {offer.offer_id: offer for offer in offers}
     bindings = {item.offer_id: item for item in context.baseline_bindings}
     intent = context.intent if apply_intent else DraftIntent()
-    archives = set(intent.archives)
-    restores = set(intent.restores)
 
     items: list[StagedOffer] = []
     for position, offer_id in enumerate(_ordered_ids(context)):
-        if apply_intent and offer_id in archives and offer_id not in restores:
-            lifecycle = BindingLifecycle.ARCHIVED
-        else:
-            binding = bindings.get(offer_id)
-            lifecycle = (
-                binding.lifecycle if binding is not None else BindingLifecycle.ACTIVE
-            )
-            if apply_intent and offer_id in restores:
-                lifecycle = BindingLifecycle.ACTIVE
         binding = bindings.get(offer_id)
-        is_pinned = binding.is_pinned if binding is not None else False
-        if apply_intent and offer_id in intent.pin_toggles:
-            is_pinned = intent.pin_toggles[offer_id]
+        lifecycle = _effective_lifecycle(
+            offer_id, binding, set(intent.archives), set(intent.restores), apply_intent
+        )
+        is_pinned = _effective_pin(offer_id, binding, intent.pin_toggles, apply_intent)
         baseline_offer = baseline.get(offer_id)
-        share = baseline_offer.share if baseline_offer is not None else 0
-        if apply_intent and offer_id in intent.share_edits:
-            share = intent.share_edits[offer_id]
-        if lifecycle is BindingLifecycle.ARCHIVED:
-            share = 0
+        share = _effective_share(
+            offer_id,
+            baseline_offer,
+            intent.share_edits,
+            lifecycle,
+            apply_intent,
+        )
         items.append(
             StagedOffer(
                 offer_id=offer_id,
@@ -213,7 +252,12 @@ def _derive_view(context: DraftContext, *, apply_intent: bool) -> DraftViewData:
                 position=position,
             )
         )
+    return items
 
+
+def _derive_view(context: DraftContext, *, apply_intent: bool) -> DraftViewData:
+    """Build either the baseline view or the allocated staged view."""
+    items = _items_from_context(context, apply_intent=apply_intent)
     if not apply_intent:
         return _view_from_allocations(items, None)
     active = (
@@ -260,13 +304,196 @@ def _target_offer(view: DraftViewData, offer_id: int) -> StagedOffer | None:
     return next((item for item in view.offers if item.offer_id == offer_id), None)
 
 
+@dataclass
+class _IntentState:
+    """Mutable working copy of staged intent while planning one command."""
+
+    additions: set[int]
+    archives: set[int]
+    restores: set[int]
+    pin_toggles: dict[int, bool]
+    share_edits: dict[int, int]
+
+    @classmethod
+    def from_intent(cls, intent: DraftIntent) -> "_IntentState":
+        """Create a working copy from persisted intent."""
+        return cls(
+            set(intent.additions),
+            set(intent.archives),
+            set(intent.restores),
+            dict(intent.pin_toggles),
+            dict(intent.share_edits),
+        )
+
+    def to_intent(self) -> DraftIntent:
+        """Return a normalised immutable intent."""
+        return DraftIntent(
+            additions=tuple(sorted(self.additions)),
+            archives=tuple(sorted(self.archives)),
+            restores=tuple(sorted(self.restores)),
+            pin_toggles=self.pin_toggles,
+            share_edits=self.share_edits,
+        )
+
+
+def _unchanged(intent: DraftIntent, current: DraftViewData) -> DraftPlan:
+    """Return a no-op plan preserving the existing intent and view."""
+    return DraftPlan(intent, current, True)
+
+
+def _handle_add(
+    state: _IntentState,
+    intent: DraftIntent,
+    current: DraftViewData,
+    target: StagedOffer | None,
+    offer_id: int,
+    baseline_ids: set[int],
+) -> DraftPlan | None:
+    """Stage an addition unless the offer is already active."""
+    if target is not None and target.lifecycle is BindingLifecycle.ACTIVE:
+        return _unchanged(intent, current)
+    if offer_id in baseline_ids and target is not None:
+        raise DraftInputError(f"offer {offer_id} is archived; use restore")
+    state.additions.add(offer_id)
+    state.archives.discard(offer_id)
+    state.restores.discard(offer_id)
+    return None
+
+
+def _handle_remove(
+    state: _IntentState,
+    intent: DraftIntent,
+    current: DraftViewData,
+    target: StagedOffer | None,
+    offer_id: int,
+) -> DraftPlan | None:
+    """Stage an archive or drop a staged addition."""
+    if target is None or target.lifecycle is BindingLifecycle.ARCHIVED:
+        return _unchanged(intent, current)
+    if offer_id in state.additions:
+        state.additions.discard(offer_id)
+        state.pin_toggles.pop(offer_id, None)
+    else:
+        state.archives.add(offer_id)
+        state.restores.discard(offer_id)
+    state.share_edits.pop(offer_id, None)
+    return None
+
+
+def _handle_restore(
+    state: _IntentState,
+    intent: DraftIntent,
+    current: DraftViewData,
+    target: StagedOffer | None,
+    offer_id: int,
+    baseline_ids: set[int],
+) -> DraftPlan | None:
+    """Stage a reactivation of an offer known to the baseline."""
+    if target is not None and target.lifecycle is BindingLifecycle.ACTIVE:
+        return _unchanged(intent, current)
+    if offer_id not in baseline_ids:
+        raise DraftInputError(f"offer {offer_id} has no archived baseline")
+    state.restores.add(offer_id)
+    state.archives.discard(offer_id)
+    return None
+
+
+def _handle_set_pin(
+    state: _IntentState,
+    intent: DraftIntent,
+    current: DraftViewData,
+    target: StagedOffer | None,
+    command: DraftCommand,
+    offer_id: int,
+    raw_bindings: Mapping[int, BaselineBinding],
+) -> DraftPlan | None:
+    """Stage pin/unpin; unpin also removes a fixed share edit."""
+    if type(command.value) is not bool:
+        raise DraftInputError("pin value must be a bool")
+    if target is None:
+        raise DraftInputError(f"offer {offer_id} is not in the draft baseline")
+    if target.is_pinned is command.value:
+        return _unchanged(intent, current)
+    binding = raw_bindings.get(offer_id)
+    baseline_pinned = binding.is_pinned if binding is not None else False
+    if baseline_pinned is command.value:
+        state.pin_toggles.pop(offer_id, None)
+    else:
+        state.pin_toggles[offer_id] = command.value
+    if not command.value:
+        state.share_edits.pop(offer_id, None)
+    return None
+
+
+def _handle_set_share(
+    state: _IntentState,
+    intent: DraftIntent,
+    current: DraftViewData,
+    target: StagedOffer | None,
+    command: DraftCommand,
+    offer_id: int,
+    raw_offers: Mapping[int, RemoteOffer],
+    raw_bindings: Mapping[int, BaselineBinding],
+) -> DraftPlan | None:
+    """Stage an integer share and its automatic pin (D19/D20)."""
+    share = validate_share(command.value)
+    if target is None or target.lifecycle is not BindingLifecycle.ACTIVE:
+        raise DraftInputError(f"offer {offer_id} is not active")
+    raw_offer = raw_offers.get(offer_id)
+    if raw_offer is not None and share == raw_offer.share:
+        state.share_edits.pop(offer_id, None)
+        binding = raw_bindings.get(offer_id)
+        if binding is None or not binding.is_pinned:
+            state.pin_toggles.pop(offer_id, None)
+    else:
+        state.share_edits[offer_id] = share
+        state.pin_toggles[offer_id] = True
+    return None
+
+
+def _dispatch_command(
+    state: _IntentState,
+    context: DraftContext,
+    command: DraftCommand,
+    current: DraftViewData,
+    target: StagedOffer | None,
+    offer_id: int,
+    baseline_ids: set[int],
+    raw_offers: Mapping[int, RemoteOffer],
+    raw_bindings: Mapping[int, BaselineBinding],
+) -> DraftPlan | None:
+    """Apply one command to the working intent state."""
+    if command.kind is DraftCommandKind.ADD:
+        return _handle_add(
+            state, context.intent, current, target, offer_id, baseline_ids
+        )
+    if command.kind is DraftCommandKind.REMOVE:
+        return _handle_remove(state, context.intent, current, target, offer_id)
+    if command.kind is DraftCommandKind.RESTORE:
+        return _handle_restore(
+            state, context.intent, current, target, offer_id, baseline_ids
+        )
+    if command.kind is DraftCommandKind.SET_PIN:
+        return _handle_set_pin(
+            state, context.intent, current, target, command, offer_id, raw_bindings
+        )
+    if command.kind is DraftCommandKind.SET_SHARE:
+        return _handle_set_share(
+            state,
+            context.intent,
+            current,
+            target,
+            command,
+            offer_id,
+            raw_offers,
+            raw_bindings,
+        )
+    raise DraftInputError(f"unsupported command {command.kind}")
+
+
 def plan_edit(context: DraftContext, command: DraftCommand) -> DraftPlan:
     """Apply one staging command and normalise semantic no-ops."""
     baseline_view = _baseline_view(context)
-    baseline_ids = {item.offer_id for item in baseline_view.offers}
-    raw_offers = {item.offer_id: item for item in context.baseline_offers}
-    raw_bindings = {item.offer_id: item for item in context.baseline_bindings}
-
     if command.kind is DraftCommandKind.CANCEL:
         noop = not context.intent.has_changes
         return DraftPlan(
@@ -277,80 +504,21 @@ def plan_edit(context: DraftContext, command: DraftCommand) -> DraftPlan:
 
     offer_id = _require_offer_id(command)
     current = _staged_view(context, context.intent)
-    target = _target_offer(current, offer_id)
-    additions = set(context.intent.additions)
-    archives = set(context.intent.archives)
-    restores = set(context.intent.restores)
-    pin_toggles = dict(context.intent.pin_toggles)
-    share_edits = dict(context.intent.share_edits)
-
-    if command.kind is DraftCommandKind.ADD:
-        if target is not None and target.lifecycle is BindingLifecycle.ACTIVE:
-            return DraftPlan(context.intent, current, True)
-        if offer_id in baseline_ids and target is not None:
-            raise DraftInputError(f"offer {offer_id} is archived; use restore")
-        additions.add(offer_id)
-        archives.discard(offer_id)
-        restores.discard(offer_id)
-
-    elif command.kind is DraftCommandKind.REMOVE:
-        if target is None or target.lifecycle is BindingLifecycle.ARCHIVED:
-            return DraftPlan(context.intent, current, True)
-        if offer_id in additions:
-            additions.discard(offer_id)
-            pin_toggles.pop(offer_id, None)
-        else:
-            archives.add(offer_id)
-            restores.discard(offer_id)
-        share_edits.pop(offer_id, None)
-
-    elif command.kind is DraftCommandKind.RESTORE:
-        if target is not None and target.lifecycle is BindingLifecycle.ACTIVE:
-            return DraftPlan(context.intent, current, True)
-        if offer_id not in baseline_ids:
-            raise DraftInputError(f"offer {offer_id} has no archived baseline")
-        restores.add(offer_id)
-        archives.discard(offer_id)
-
-    elif command.kind is DraftCommandKind.SET_PIN:
-        if type(command.value) is not bool:
-            raise DraftInputError("pin value must be a bool")
-        if target is None:
-            raise DraftInputError(f"offer {offer_id} is not in the draft baseline")
-        if target.is_pinned is command.value:
-            return DraftPlan(context.intent, current, True)
-        baseline_binding = raw_bindings.get(offer_id)
-        baseline_pinned = (
-            baseline_binding.is_pinned if baseline_binding is not None else False
-        )
-        if baseline_pinned is command.value:
-            pin_toggles.pop(offer_id, None)
-        else:
-            pin_toggles[offer_id] = command.value
-        if not command.value:
-            share_edits.pop(offer_id, None)
-
-    elif command.kind is DraftCommandKind.SET_SHARE:
-        share = validate_share(command.value)
-        if target is None or target.lifecycle is not BindingLifecycle.ACTIVE:
-            raise DraftInputError(f"offer {offer_id} is not active")
-        raw_offer = raw_offers.get(offer_id)
-        if raw_offer is not None and share == raw_offer.share:
-            share_edits.pop(offer_id, None)
-            baseline_binding = raw_bindings.get(offer_id)
-            if baseline_binding is None or not baseline_binding.is_pinned:
-                pin_toggles.pop(offer_id, None)
-        else:
-            share_edits[offer_id] = share
-            pin_toggles[offer_id] = True
-
-    intent = DraftIntent(
-        additions=tuple(sorted(additions)),
-        archives=tuple(sorted(archives)),
-        restores=tuple(sorted(restores)),
-        pin_toggles=pin_toggles,
-        share_edits=share_edits,
+    state = _IntentState.from_intent(context.intent)
+    early = _dispatch_command(
+        state,
+        context,
+        command,
+        current,
+        _target_offer(current, offer_id),
+        offer_id,
+        {item.offer_id for item in baseline_view.offers},
+        {item.offer_id: item for item in context.baseline_offers},
+        {item.offer_id: item for item in context.baseline_bindings},
     )
+    if early is not None:
+        return early
+    intent = state.to_intent()
     staged = _staged_view(context, intent)
     if _same_view(staged, baseline_view):
         return DraftPlan(DraftIntent(), baseline_view, True)

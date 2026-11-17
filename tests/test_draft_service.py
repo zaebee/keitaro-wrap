@@ -88,6 +88,7 @@ async def test_all_commands_dispatch_and_offload_repository_work():
 async def test_invalid_command_is_rejected_before_repository(command):
     """Malformed identity/version input never reaches persistence."""
     repository = FakeRepository()
+    use_case = service(repository)
     with pytest.raises(ValueError):
-        await service(repository)._apply(command)
+        await use_case._apply(command)
     assert repository.calls == []
