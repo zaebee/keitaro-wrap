@@ -8,4 +8,4 @@
 | D4 | Partial failure → operation state + reconciliation, no blind retry of POST | Proposed | API not transactional; ambiguous outcomes possible |
 | D5 | Editor core workflow (stage/push/cancel, archive, pinning) | Proposed (video-supported core) | Demo video 2026-11-17; edge cases remain provisional |
 | D6 | Resource IDs are operator-configured defaults, not arbitrary first-active | Proposed | Aligns with assignment (configured domain/group/source) |
-EOF
+EOF| D12 | Deterministic offer_id tie-break for LRM | Proposed | Stable allocation |
