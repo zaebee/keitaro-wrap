@@ -8,8 +8,12 @@ from app.application.dto import (
     DomainDTO,
     GroupDTO,
     OfferDTO,
+    StreamActionDTO,
     StreamCreateDTO,
     StreamDTO,
+    StreamFilterOptionDTO,
+    StreamSchemaDTO,
+    StreamTypeDTO,
     StreamUpdateDTO,
     TrafficSourceDTO,
 )
@@ -42,7 +46,9 @@ class KeitaroClientPort(Protocol):
         """Create campaign."""
         ...
 
-    async def list_campaigns(self) -> list[CampaignDTO]:
+    async def list_campaigns(
+        self, offset: int = 0, limit: int = 100
+    ) -> list[CampaignDTO]:
         """List campaigns."""
         ...
 
@@ -72,18 +78,18 @@ class KeitaroClientPort(Protocol):
         """Delete stream."""
         ...
 
-    async def list_stream_types(self) -> list[dict]:
+    async def list_stream_types(self) -> list[StreamTypeDTO]:
         """List stream types."""
         ...
 
-    async def list_stream_schemas(self) -> list[dict]:
+    async def list_stream_schemas(self) -> list[StreamSchemaDTO]:
         """List stream schemas."""
         ...
 
-    async def list_stream_filters(self) -> list[dict]:
+    async def list_stream_filters(self) -> list[StreamFilterOptionDTO]:
         """List stream filters."""
         ...
 
-    async def list_stream_actions(self) -> list[dict]:
+    async def list_stream_actions(self) -> list[StreamActionDTO]:
         """List stream actions."""
         ...

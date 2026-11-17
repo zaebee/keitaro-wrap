@@ -14,8 +14,12 @@ from app.keitaro_client.client import KeitaroClient
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan."""
-    http_client = httpx.AsyncClient(base_url=settings.KEITARO_BASE_URL, timeout=30.0)
-    app.state.keitaro_client = KeitaroClient(http_client)
+    http_client = httpx.AsyncClient(
+        base_url=settings.KEITARO_BASE_URL, timeout=settings.KEITARO_TIMEOUT
+    )
+    app.state.keitaro_client = KeitaroClient(
+        http_client, api_key=settings.KEITARO_API_KEY
+    )
     yield
     await http_client.aclose()
     engine.dispose()

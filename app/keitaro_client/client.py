@@ -12,9 +12,13 @@ from app.application.dto import (
     GroupDTO,
     OfferDTO,
     OfferStreamDTO,
+    StreamActionDTO,
     StreamCreateDTO,
     StreamDTO,
     StreamFilterDTO,
+    StreamFilterOptionDTO,
+    StreamSchemaDTO,
+    StreamTypeDTO,
     StreamUpdateDTO,
     TrafficSourceDTO,
 )
@@ -34,19 +38,32 @@ class KeitaroError(Exception):
 class KeitaroClient(KeitaroClientPort):
     """KeitaroClient."""
 
-    def __init__(self, http_client: httpx.AsyncClient):
+    def __init__(self, http_client: httpx.AsyncClient, api_key: str):
         """__init__."""
         self._client = http_client
         self._base = "/admin_api/v1"
+        self._api_key = api_key
 
     async def _request(
-        self, method: str, path: str, *, json: Any = None, retries: int = 0
+        self,
+        method: str,
+        path: str,
+        *,
+        json: Any = None,
+        params: dict[str, Any] | None = None,
+        retries: int = 0,
     ) -> Any:
         """Execute an HTTP request with bounded retries for safe reads."""
         url = self._base + path
         for attempt in range(retries + 1):
             try:
-                resp = await self._client.request(method, url, json=json)
+                resp = await self._client.request(
+                    method,
+                    url,
+                    json=json,
+                    params=params,
+                    headers={"Api-Key": self._api_key},
+                )
             except (httpx.TimeoutException, httpx.ConnectError) as exc:
                 if method == "GET" and attempt < retries:
                     await asyncio.sleep(0.1)
@@ -69,35 +86,52 @@ class KeitaroClient(KeitaroClientPort):
 
     def _extract_error(self, resp: httpx.Response) -> str:
         """Extract an error message from a failed response."""
-        try:
-            data = resp.json()
-            if isinstance(data, dict):
-                return data.get("error") or str(data)
-            return str(data)
-        except Exception:
-            return resp.text
+        # Do not expose response bodies or potential secrets.
+        return resp.reason_phrase or f"HTTP {resp.status_code}"
 
     # discovery
-    async def list_stream_types(self) -> list[dict]:
+    async def list_stream_types(self) -> list[StreamTypeDTO]:
         """list_stream_types."""
-        return await self._request("GET", "/stream_types", retries=2) or []
+        data = await self._request("GET", "/stream_types", retries=2) or []
+        return [
+            StreamTypeDTO(value=d.get("value", ""), name=d.get("name", ""))
+            for d in data
+        ]
 
-    async def list_stream_schemas(self) -> list[dict]:
+    async def list_stream_schemas(self) -> list[StreamSchemaDTO]:
         """list_stream_schemas."""
-        return await self._request("GET", "/stream_schemas", retries=2) or []
+        data = await self._request("GET", "/stream_schemas", retries=2) or []
+        return [
+            StreamSchemaDTO(value=d.get("value", ""), name=d.get("name", ""))
+            for d in data
+        ]
 
-    async def list_stream_filters(self) -> list[dict]:
+    async def list_stream_filters(self) -> list[StreamFilterOptionDTO]:
         """list_stream_filters."""
-        return await self._request("GET", "/stream_filters", retries=2) or []
+        data = await self._request("GET", "/stream_filters", retries=2) or []
+        return [
+            StreamFilterOptionDTO(
+                value=d.get("value", ""), modes=d.get("modes"), group=d.get("group")
+            )
+            for d in data
+        ]
 
-    async def list_stream_actions(self) -> list[dict]:
+    async def list_stream_actions(self) -> list[StreamActionDTO]:
         """list_stream_actions."""
-        return await self._request("GET", "/streams_actions", retries=2) or []
+        data = await self._request("GET", "/streams_actions", retries=2) or []
+        return [
+            StreamActionDTO(
+                key=d.get("key", ""), name=d.get("name", ""), type=d.get("type")
+            )
+            for d in data
+        ]
 
     # domains/groups/sources
     async def list_domains(self) -> list[DomainDTO]:
         """list_domains."""
-        data = await self._request("GET", "/domains", retries=2) or []
+        data = await self._request("GET", "/domains", retries=2)
+        if not isinstance(data, list):
+            return []
         return [
             DomainDTO(id=d["id"], name=d.get("name", ""), state=d.get("state"))
             for d in data
@@ -164,9 +198,19 @@ class KeitaroClient(KeitaroClientPort):
             traffic_source_id=c.get("traffic_source_id"),
         )
 
-    async def list_campaigns(self) -> list[CampaignDTO]:
+    async def list_campaigns(
+        self, offset: int = 0, limit: int = 100
+    ) -> list[CampaignDTO]:
         """list_campaigns."""
-        data = await self._request("GET", "/campaigns", retries=2) or []
+        data = (
+            await self._request(
+                "GET",
+                "/campaigns",
+                params={"offset": offset, "limit": limit},
+                retries=2,
+            )
+            or []
+        )
         return [
             CampaignDTO(
                 id=c["id"],
@@ -208,9 +252,15 @@ class KeitaroClient(KeitaroClientPort):
         if payload.action_payload is not None:
             body["action_payload"] = payload.action_payload
         if payload.filters:
-            body["filters"] = payload.filters
+            body["filters"] = [
+                {"name": f.name, "mode": f.mode, "payload": f.payload}
+                for f in payload.filters
+            ]
         if payload.offers:
-            body["offers"] = payload.offers
+            body["offers"] = [
+                {"offer_id": o.offer_id, "share": o.share, "state": o.state}
+                for o in payload.offers
+            ]
         if payload.comments is not None:
             body["comments"] = payload.comments
         s = await self._request("POST", "/streams", json=body)

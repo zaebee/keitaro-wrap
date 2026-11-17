@@ -32,6 +32,58 @@ class TrafficSourceDTO:
 
 
 @dataclass
+class StreamTypeDTO:
+    """StreamTypeDTO."""
+
+    value: str
+    name: str
+
+
+@dataclass
+class StreamSchemaDTO:
+    """StreamSchemaDTO."""
+
+    value: str
+    name: str
+
+
+@dataclass
+class StreamFilterOptionDTO:
+    """StreamFilterOptionDTO."""
+
+    value: str
+    modes: dict[str, str] | None = None
+    group: str | None = None
+
+
+@dataclass
+class StreamActionDTO:
+    """StreamActionDTO."""
+
+    key: str
+    name: str
+    type: str | None = None
+
+
+@dataclass
+class StreamFilterInput:
+    """StreamFilterInput."""
+
+    name: str
+    mode: str
+    payload: list[str] = field(default_factory=list)
+
+
+@dataclass
+class StreamOfferInput:
+    """StreamOfferInput."""
+
+    offer_id: int
+    share: int
+    state: str = "active"
+
+
+@dataclass
 class OfferDTO:
     """OfferDTO."""
 
@@ -109,8 +161,8 @@ class StreamCreateDTO:
     schema: str
     action_type: str
     action_payload: str | None = None
-    filters: list[dict[str, Any]] = field(default_factory=list)
-    offers: list[dict[str, Any]] = field(default_factory=list)
+    filters: list[StreamFilterInput] = field(default_factory=list)
+    offers: list[StreamOfferInput] = field(default_factory=list)
     comments: str | None = None
 
 
@@ -118,5 +170,4 @@ class StreamCreateDTO:
 class StreamUpdateDTO:
     """StreamUpdateDTO."""
 
-    stream_id: int
     fields: dict[str, Any] = field(default_factory=dict)
