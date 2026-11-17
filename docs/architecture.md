@@ -18,10 +18,16 @@ Modular monolith. FastAPI app with:
 Module roles and dependency direction are canonical in `docs/implementation/module-boundaries.md`.
 
 ## Data ownership
-Keitaro is source of truth for campaigns/streams/offers. Local DB stores minimal operational state:
-- `app_settings` (default/configured IDs and operator choices) — implemented in Slice 0.
-- `campaign_creation_operations` (operation state, external IDs, step status, errors) — target design.
-- `offer_edit_log` (optional audit) — target design only; not listed among the entities in `docs/architecture/persistence.md`.
+Keitaro is source of truth for campaigns/streams/offers. Local DB stores minimal operational state.
+
+Implemented in Slice 0:
+- `app_settings` — default/configured IDs and operator choices (model `AppSettings`).
+
+Target design (entity names per `docs/architecture/persistence.md`; not implemented yet):
+- `CampaignCreationOperation` — operation state, external IDs, step status, errors.
+- `StreamOfferBinding` — committed binding lifecycle (`ACTIVE`/`ARCHIVED`), `is_pinned` and remote share cache.
+- `StreamDraft` — staged changes per stream; does not overwrite committed state.
+- `StreamPublication` — per-stream publication history and outcomes.
 
 No full campaign mirror unless a concrete use case (e.g. offline listing) justifies it.
 
