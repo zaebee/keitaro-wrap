@@ -8,7 +8,6 @@
 | D4 | Partial failure → operation state + reconciliation, no blind retry of POST | Proposed | API not transactional; ambiguous outcomes possible |
 | D5 | Editor core workflow (stage/push/cancel, archive, pinning) | Proposed (video-supported core) | Demo video 2026-11-17; edge cases remain provisional |
 | D6 | Resource IDs are operator-configured defaults, not arbitrary first-active | Proposed | Aligns with assignment (configured domain/group/source) |
-EOF
 | D7 | Snapshot-based drafts over event log | Proposed | Proportionate for take-home; deterministic; simpler |
 | D8 | (stream_ref, offer_id) unique binding proposed | Proposed | One logical binding per pair; archive changes lifecycle |
 | D9 | Pin survives archive/reactivation | Proposed (open owner decision) | Wrapper-owned preference |

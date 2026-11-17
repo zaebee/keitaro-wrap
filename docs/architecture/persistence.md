@@ -32,7 +32,7 @@ Constraint: UNIQUE(stream_ref, offer_id) proposed.
 Ownership: committed wrapper state + remote cache.
 
 ### StreamDraft (staged)
-Fields: id, stream_ref (unique), baseline_snapshot (JSON remote offer array), baseline_captured_at, staged_changes (JSON: additions, archives, restores, pin toggles, share edits), version (wrapper-side optimistic concurrency), is_dirty, created_at, updated_at.
+Fields: id, stream_ref (unique), baseline_snapshot (JSON remote offer array), baseline_captured_at, staged_changes (JSON: additions, archives, restores, pin toggles, share edits), version (wrapper-side optimistic concurrency), is_dirty, is_stale (bool), conflict_details (JSON nullable: field, expected, observed, reason), created_at, updated_at.
 Ownership: local draft state. Does not overwrite committed binding state.
 
 ### StreamPublication (publication)
@@ -72,7 +72,7 @@ Resolution: draft marked stale with conflict details; user chooses keep draft or
 States: pending → in_progress → succeeded | failed | ambiguous.
 - ambiguous → abandoned (operator) or succeeded after reconciliation.
 - failed may be retried via new publication record after reconciliation if ambiguous.
-- Startup recovery: reconcile in-progress/ambiguous publications (bounded) before new Push.
+- Startup recovery: reconcile in-progress/ambiguous publications (bounded) before new Push. If reconciliation cannot establish the outcome, leave publication ambiguous (or abandoned on operator decision); do not assume failure.
 
 Failed vs ambiguous:
 - failed: definitive error response; does not guarantee absence of external resources.
@@ -83,6 +83,12 @@ Failed vs ambiguous:
 - Store operation id in stream `comments` field (verified persisted/readable).
 - Reconciliation filters on comments.
 - Limitations: pagination completeness and read-after-write consistency not guaranteed; zero matches do not authorize retry (bounded reconciliation). Alias uniqueness enforced (verified); stream names not unique (verified).
+
+## Retry safety
+- A definitive HTTP error does not necessarily prove that no external side effect occurred.
+- Reconcile before retry whenever the request could have caused an external mutation.
+- Distinguish: confirmed application, confirmed absence of effect, unresolved outcome.
+- Zero matches under incomplete pagination or uncertain read-after-write consistency does not establish absence.
 
 ## Concurrency
 - StreamDraft.version optimistic concurrency (wrapper-side only, not Keitaro version).
