@@ -56,7 +56,7 @@ Stream (POST /streams timed out, campaign id known):
 If safe reconciliation cannot be established, keep operation `ambiguous` and require operator intervention. Never blindly retry non-idempotent POST.
 
 ## Operation state machine
-States: `started`, `partial`, `ambiguous`, `created`, `failed`.
+States: `started`, `partial`, `ambiguous`, `created`, `failed`, `abandoned`.
 
 Transitions:
 - started → partial: campaign created (keitaro_campaign_id known), not all streams done.
@@ -100,7 +100,7 @@ sequenceDiagram
 - Operation row persisted before the first mutating external request; read-only GET resolution may precede it.
 - Persist returned IDs immediately after each successful POST.
 - On timeout/ambiguous POST outcome: reconcile per algorithm above; no blind retry.
-- Statuses: started, partial, ambiguous, created, failed.
+- Statuses: started, partial, ambiguous, created, failed, abandoned.
 
 ## Entity relationships
 ```mermaid
