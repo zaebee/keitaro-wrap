@@ -255,7 +255,7 @@ def test_semantic_noop_removes_clean_draft(session_factory):
     restore = RestoreOfferCommand(5, 12, 1, 5)
     second = repository.apply(restore, to_domain_command(restore))
     assert second.noop is True
-    assert second.view.version == 1
+    assert second.view.version == 0
     assert second.view.is_dirty is False
     assert repository.get_view(12) is None
     with session_factory() as session:

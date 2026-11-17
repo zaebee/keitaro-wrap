@@ -976,14 +976,15 @@ class SqlAlchemyStreamDraftRepository:
         expected_version: int,
         new_intent: DraftIntent,
         current_intent: DraftIntent,
-    ) -> None:
-        """Normalise an effective edit back to baseline without version bump."""
+    ) -> bool:
+        """Normalise an effective edit; report whether the clean draft was deleted."""
         if new_intent.to_json() == current_intent.to_json():
-            return
+            return False
         draft = prepared.draft
         if draft is None:
-            return
-        if not new_intent.has_changes and cls._is_clean_draft(prepared):
+            return False
+        deleted = not new_intent.has_changes and cls._is_clean_draft(prepared)
+        if deleted:
             result = session.execute(
                 delete(StreamDraftModel)
                 .where(StreamDraftModel.id == draft.id)
@@ -1003,6 +1004,7 @@ class SqlAlchemyStreamDraftRepository:
             )
         if getattr(result, "rowcount", 0) != 1:
             raise DraftVersionConflict(DRAFT_VERSION_CONFLICT)
+        return deleted
 
     @classmethod
     def _write_plan(
@@ -1081,7 +1083,7 @@ class SqlAlchemyStreamDraftRepository:
             prepared.conflicts,
         )
         if plan.noop:
-            self._normalize_noop(
+            deleted = self._normalize_noop(
                 session,
                 prepared,
                 command.expected_version,
@@ -1089,6 +1091,10 @@ class SqlAlchemyStreamDraftRepository:
                 prepared.plan_context.intent,
             )
             session.commit()
+            if deleted:
+                return DraftCommandResult(
+                    view=replace(view, version=0), created=False, noop=True
+                )
             return DraftCommandResult(view=view, created=False, noop=True)
         new_version, created = self._write_plan(session, prepared, command, plan.intent)
         session.commit()

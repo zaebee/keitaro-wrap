@@ -362,3 +362,17 @@ def test_optimistic_concurrency_across_cleanup_and_recreation(factory):
     stale = AddOfferCommand(5, 12, 1, 10)
     with pytest.raises(DraftVersionConflict):
         edit(factory, stale)
+
+
+def test_cleanup_result_version_chains_to_next_edit(factory):
+    """The returned no-draft sentinel is usable as the next expected_version."""
+    standard_stream(factory)
+    first = edit(factory, SetShareCommand(5, 12, 0, 5, 70))
+    cleanup = edit(factory, SetPinCommand(5, 12, first.view.version, 5, False))
+    assert cleanup.view.version == 0
+
+    fetch(factory, offers(((5, 90), (8, 40))))
+    created = edit(factory, AddOfferCommand(5, 12, cleanup.view.version, 9))
+    assert created.created is True
+    assert created.view.version == 2
+    assert [item.share for item in created.view.baseline_offers] == [90, 40]
