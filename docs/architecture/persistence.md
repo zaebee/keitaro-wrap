@@ -1,5 +1,7 @@
 # Persistence design (PERSIST-001)
 
+Cross-reference: domain model and workflows in SPEC-001 (`docs/spec/domain-model.md`, `docs/spec/offer-allocation.md`).
+
 ## Strategy
 Snapshot-based drafts with durable binding/archive/pinning state. A single relational (SQLite) store with small tables. No full Keitaro mirror, no event log. Operation records provide recovery/audit.
 
