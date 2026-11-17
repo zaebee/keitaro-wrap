@@ -28,4 +28,4 @@
 
 ## Offer editor status (aligned with docs/spec/campaign-editor.md)
 - Video-supported core: Add / Remove / Restore lifecycle, equal redistribution among unpinned offers, pinned-share preservation, staged editing, Push / Cancel.
-- Still unresolved: manual share input constraints, integer rounding/remainder allocation, pinned totals exceeding 100%, zero/one active offers, all-pinned state, duplicate handling, and Push failure semantics.
+- Still unresolved: manual share input constraints, zero/one active offers, all-pinned state, duplicate handling, and multiple offer-bearing stream selection.

@@ -1,7 +1,17 @@
 # Campaign offer editor (video-supported core, provisional edge cases)
 
+## Committed vs staged
+- Committed state: binding lifecycle and is_pinned (durable).
+- Staged state: LocalDraft staged_changes (add/archive/restore/pin/share). Does not overwrite committed until Push commits.
+
 ## Status
 Core workflow supported by demo video (2026-11-17). Edge cases listed under "Unresolved" remain provisional.
+
+## Confirmed constraints
+- Allocation uses Largest Remainder Method with deterministic offer_id ascending tie-break.
+- pinned_sum > 100% is invalid and blocks Push (UI validation).
+- Drafts and wrapper-owned archive state survive restart (durable).
+- Per-stream Push outcomes, partial success, failed/ambiguous draft retention, and reconciliation are specified (see persistence.md).
 
 ## Confirmed by demo video
 
@@ -39,30 +49,27 @@ Core workflow supported by demo video (2026-11-17). Edge cases listed under "Unr
 - Comments field persisted and returned.
 
 ## Inferred (not verified)
-- Wrapper-owned archive concept (not Keitaro-native). Persistence durability across reload/restart not established.
+- Wrapper-owned archive concept (not Keitaro-native). Persistence durability across reload/restart is specified (durable drafts/archive).
 - Targeted GEO first / offer fallback routing intent (video shows, but exact Keitaro mechanism open).
 
 ## Unresolved product questions (from video)
 1. Keitaro flow type and priority: exact `regular` vs `default` and how fallback relationship is configured/guaranteed.
 2. Multiple offer-bearing streams: independently editable/published vs single target selection.
 3. Google destination configurability: campaign creation always uses fixed Google URL from assignment? (wrapper does not parse/edit redirect URLs)
-4. Manual share input constraints: permitted range, integer/decimal entry, validation, behavior when pinned totals exceed 100%.
-5. Rounding: integer remainder allocation and deterministic ordering not shown.
+4. Manual share input constraints: permitted range, integer/decimal entry, validation. (pinned_sum > 100% is confirmed invalid and blocks Push.)
 6. Edge cases: zero active offers, one active offer, removing/restoring last offer, all offers pinned, no remaining unpinned offers.
 7. Duplicate offers: whether UI prevents selecting an offer already present (including archived entries).
-8. Push/Cancel failure semantics: partial success across multiple modified streams; Push fail/timeout; Cancel availability after partial push.
-9. Persistence boundary: whether wrapper-local archived/pending state is durable across browser reloads/restarts and how stored.
+8. Push/Cancel failure semantics: partial success across multiple modified streams and Push fail/timeout are specified. Remaining genuinely unresolved: exact Cancel availability after partial Push, if not specified elsewhere.
+9. Persistence boundary: RESOLVED — durable (see persistence.md). Remaining: storage mechanism details (SQLite) only.
 
 ## Explicitly not supported (do not assume)
 - Earlier assumptions "remove deletes from the list and rebalances", "manual edit unrestricted subject to sum=100", "remainder goes to first offers", "all streams are a single designated target" are NOT supported by the video.
-- Integer rounding/remainder allocation rules.
 - Manual share editing constraints.
-- Behavior when pinned shares exceed 100%.
 - Behavior with zero or one active offers.
 - Behavior when all offers are pinned.
 - Duplicate-offer handling.
-- Permanent retention / archive persistence policy.
+- Permanent retention / archive persistence policy: archive persistence is durable; only an indefinite retention guarantee may remain open.
 
 ## Notes
 - Archive is wrapper-owned business concept, not Keitaro-native state.
-- No claim that pending changes or archive state survive page reload or application restart.
+- Durable drafts and archive state are explicitly specified (see persistence.md).

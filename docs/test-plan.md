@@ -1,5 +1,18 @@
 # Test plan
 
+## Confirmed (tests)
+- LRM with offer_id ascending tie-break.
+- pinned_sum > 100% invalid blocks Push.
+- Drafts/archive durable (survive restart).
+- Per-stream Push outcomes, partial success, failed/ambiguous retention, reconciliation.
+
+## Committed vs staged tests
+- Staged changes do not overwrite committed binding state until Push commits.
+- Cancel restores committed state and discards staged changes.
+- Failed/ambiguous Push retains draft.
+- Remote deletion reconciliation archives binding without creating draft.
+- Reappearance reactivates binding and updates cache.
+
 ## Unit tests (no live Keitaro)
 - Country code validation.
 - Alias slug generation (unique operation-derived).
@@ -36,14 +49,10 @@
 - Unpinned offers receiving the remaining percentage.
 
 ## Pending specification (do not encode as expected outcomes)
-- Integer rounding/remainder allocation rules.
 - Manual share input constraints and validation.
-- Behavior when pinned shares exceed 100%.
 - Behavior with zero or one active offers.
 - Behavior when all offers are pinned.
 - Duplicate-offer handling.
-- Push/Cancel failure semantics (partial success, timeout).
-- Persistence durability across reload/restart.
 - Multiple offer-bearing stream selection.
 
 ## Integration tests (optional, with test instance + .env)
