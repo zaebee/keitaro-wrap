@@ -1,5 +1,7 @@
 # Architecture (proposed)
 
+Cross-reference: persistence design `docs/architecture/persistence.md`, domain model `docs/spec/domain-model.md`.
+
 ## Style
 Modular monolith. FastAPI app with:
 - routes (HTTP)

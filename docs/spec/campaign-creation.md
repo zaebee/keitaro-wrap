@@ -1,5 +1,7 @@
 # Campaign creation workflow
 
+Cross-reference: domain model `docs/spec/domain-model.md`, persistence `docs/architecture/persistence.md`.
+
 ## Input
 - name (string, required)
 - country_code (ISO-2, required)

@@ -1,5 +1,9 @@
 # Campaign offer editor (video-supported core, provisional edge cases)
 
+## Committed vs staged
+- Committed state: binding lifecycle and is_pinned (durable).
+- Staged state: LocalDraft staged_changes (add/archive/restore/pin/share). Does not overwrite committed until Push commits.
+
 ## Status
 Core workflow supported by demo video (2026-11-17). Edge cases listed under "Unresolved" remain provisional.
 
