@@ -12,5 +12,5 @@
 | D8 | (stream_ref, offer_id) unique binding proposed | Proposed | One logical binding per pair; archive changes lifecycle |
 | D9 | Pin survives archive/reactivation | Proposed (open owner decision) | Wrapper-owned preference |
 | D10 | Committed vs staged separation | Accepted | Prevents draft overwriting committed state |
-| D11 | Largest Remainder Method for allocation | Proposed | Deterministic integer allocation |
-| D12 | Deterministic offer_id tie-break for LRM | Proposed | Stable allocation |
+| D11 | Largest Remainder Method for allocation | Accepted | Deterministic integer allocation |
+| D12 | Deterministic offer_id tie-break for LRM | Accepted | Stable allocation |

@@ -3,12 +3,7 @@
 ## Confirmed (tests)
 - LRM with offer_id ascending tie-break.
 - pinned_sum > 100% invalid blocks Push.
-- Drafts/archive durable.
-- Per-stream Push outcomes, partial success, failed/ambiguous retention, reconciliation.
-
-## Confirmed constraints (tests)
-- pinned_sum > 100% invalid blocks Push.
-- Draft/archive state survives restart.
+- Drafts/archive durable (survive restart).
 - Per-stream Push outcomes, partial success, failed/ambiguous retention, reconciliation.
 
 ## Committed vs staged tests
