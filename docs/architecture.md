@@ -53,7 +53,7 @@ Stream (POST /streams timed out, campaign id known):
 - 0 matches after bounded attempts → remain ambiguous (do NOT retry automatically; delayed visibility/pagination may hide a created resource).
 - 1 match → adopt.
 - >1 matches → ambiguous + operator intervention.
-- Retry of the original POST is permitted only after explicit operator confirmation or a documented API safety guarantee.
+- Retry of the original POST is permitted only after reconciliation confirms absence of external effect. Operator confirmation alone does not establish absence; unresolved outcome remains ambiguous; no retry.
 
 If safe reconciliation cannot be established, keep operation `ambiguous` and require operator intervention. Never blindly retry non-idempotent POST.
 
@@ -68,7 +68,7 @@ Transitions:
 - partial → ambiguous: a stream POST timed out / outcome uncertain.
 - partial → failed: non-recoverable error with definitive response.
 - ambiguous → created: reconciliation found exactly one matching resource and completed missing steps.
-- ambiguous → partial: only after explicit operator confirmation that the resource does not exist (or a documented API guarantee making retry safe); reconciliation alone with 0 matches is NOT sufficient.
+- ambiguous → partial: only after reconciliation confirms absence of external effect (operator confirmation alone is insufficient); otherwise remains ambiguous.
 - ambiguous → abandoned: operator decides to stop without establishing external outcome. Does NOT imply resources absent.
 - created, failed, abandoned: terminal (failed may be retried via a new operation; abandoned leaves external state unknown).
 

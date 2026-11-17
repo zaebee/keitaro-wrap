@@ -1,5 +1,8 @@
 # Campaign creation workflow
 
+## Campaign activation assumption
+The plan does NOT assume campaigns can be created paused/disabled and activated after all streams are created. This behavior is unverified against the target Keitaro API. Do not introduce paused → active workflow unless API support is independently verified.
+
 Cross-reference: domain model `docs/spec/domain-model.md`, persistence `docs/architecture/persistence.md`.
 
 ## Input

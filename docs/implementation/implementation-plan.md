@@ -90,6 +90,7 @@ Notes: Campaign creation does not depend on allocation. Fetch/reconciliation dep
 | multiple offer-bearing streams | open | Provisional seam (S4/S5/S6) |
 | flow type/priority | open | Blocking (S3) |
 | Google destination fixed/configurable | open | Blocking (S3) |
+| HTTP client transport (sync vs async) | open | Provisional seam (Slice 1) |
 
 ## Retry safety
 - Automatic retries may be used for safe read-only requests.
