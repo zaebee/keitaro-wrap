@@ -1,8 +1,11 @@
-"""Module."""
+"""Application DTOs."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from app.domain.campaign_creation import OperationStatus
+from app.domain.reconciliation import ConflictDetail, RemoteOffer
 
 
 @dataclass
@@ -210,3 +213,88 @@ class CampaignCreationResult:
     country_flow_id: int | None = None
     offer_flow_id: int | None = None
     error_message: str | None = None
+
+
+@dataclass(frozen=True)
+class FetchStreamsCommand:
+    """Request to fetch and reconcile all streams of one campaign."""
+
+    campaign_id: int
+
+
+@dataclass(frozen=True)
+class FetchedStream:
+    """One remote stream as observed by a Fetch, with ordered offers."""
+
+    stream_ref: int
+    campaign_id: int
+    type: str
+    name: str
+    schema: str
+    offers: tuple[RemoteOffer, ...]
+    comments: str | None = None
+
+
+@dataclass(frozen=True)
+class FetchSnapshot:
+    """Validated remote observation reconciled in one local transaction."""
+
+    campaign_id: int
+    streams: tuple[FetchedStream, ...]
+    captured_at: datetime
+
+
+@dataclass(frozen=True)
+class FetchOutcome:
+    """Counts of the local changes produced by one Fetch."""
+
+    campaign_id: int
+    stream_count: int
+    reconciled_stream_count: int
+    created_bindings: int = 0
+    archived_bindings: int = 0
+    reactivated_bindings: int = 0
+    share_updates: int = 0
+    conflicted_drafts: int = 0
+
+
+@dataclass(frozen=True)
+class StreamRefView:
+    """Cached remote stream identity used by reconciliation tests."""
+
+    stream_ref: int
+    campaign_id: int
+    type: str
+    name: str
+    schema: str
+    comments: str | None
+
+
+@dataclass(frozen=True)
+class StreamBindingView:
+    """Committed binding state of one offer in a stream."""
+
+    offer_id: int
+    lifecycle: str
+    is_pinned: bool
+    last_remote_share: int | None
+
+
+@dataclass(frozen=True)
+class RemoteSnapshotView:
+    """Last remote offer observation cached separately from draft snapshots."""
+
+    offers: tuple[RemoteOffer, ...]
+    captured_at: datetime
+
+
+@dataclass(frozen=True)
+class StreamDraftView:
+    """Staged stream state; Fetch only contributes conflict markers."""
+
+    baseline_offers: tuple[RemoteOffer, ...]
+    staged_changes: Mapping[str, object]
+    version: int
+    is_dirty: bool
+    is_stale: bool
+    conflicts: tuple[ConflictDetail, ...]

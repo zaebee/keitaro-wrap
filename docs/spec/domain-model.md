@@ -17,9 +17,12 @@
 - last_remote_share (cache)
 - timestamps
 - Invariant: lifecycle and is_pinned independent.
+- Accepted D8 (#29): one binding per (stream_ref, offer_id); a duplicate remote offer id fails the whole Fetch explicitly.
+- Accepted D9 (#29): `is_pinned` survives archive/reactivation.
 
 ### RemoteSnapshot (cache)
-- stream_ref, offer array {offer_id, share, state}, captured_at.
+- stream_ref, offer array {offer_id, share, state, position}, captured_at.
+- Distinct from `StreamDraft.baseline_snapshot`: the remote cache is the last observed remote state, while the draft baseline is a separate staged-side point in time. Fetch never copies one into the other.
 
 ### LocalDraft (wrapper-owned staged state)
 - stream_ref (unique), baseline_snapshot, staged_changes (additions, archives, restores, pin toggles, share edits), version (wrapper-side optimistic concurrency), is_dirty, is_stale, conflict_details (nullable), timestamps.
@@ -38,19 +41,21 @@
 ## Invariants
 - Committed state ≠ staged state; draft never silently overwrites committed binding.
 - Archived binding effective share 0 in staged view; omitted from remote on successful Push.
-- Pinning preserved across archive/reactivation (proposed; owner decision open).
+- Pinning preserved across archive/reactivation (accepted D9, issue #29).
+- Conflicts from Fetch are sticky until explicit resolution in a later slice (accepted D17, issue #29).
 - One draft per stream.
 - Publication outcomes independent per stream in batch.
 
 ## Allocation inputs/authority
 - Pinned shares (committed wrapper state) are fixed inputs.
-- Remote share changes discovered by Fetch update baseline/cache, not staged shares; conflicts marked.
-- Missing/reappearing offers handled via reconciliation (archive/reactivate).
+- Remote share changes discovered by Fetch update the remote cache/baseline only, not staged shares; conflicts are marked against the draft's own baseline.
+- Missing/reappearing offers handled via reconciliation (archive/reactivate); every offer-bearing stream is independent (accepted D18, issue #29).
 - All-pinned and single-pinned cases per offer-allocation.md (some unresolved).
 
 ## Unresolved (owner decisions)
-- Pin preservation on reappearance.
 - Manual share edit implies pinning?
 - Push requires active total == 100%?
 - Empty offers array accepted?
-- Duplicate bindings supported?
+- Duplicate bindings beyond the accepted Fetch rejection rule (later slices).
+
+Resolved by owner in issue #29: pin preservation on reappearance (D9), duplicate remote ids and binding uniqueness (D8), multiple offer-bearing streams (D18), fetch conflict lifecycle (D17).

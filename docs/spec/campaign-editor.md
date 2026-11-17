@@ -5,7 +5,15 @@
 - Staged state: LocalDraft staged_changes (add/archive/restore/pin/share). Does not overwrite committed until Push commits.
 
 ## Status
-Core workflow supported by demo video (2026-11-17). Edge cases listed under "Unresolved" remain provisional.
+Core workflow supported by demo video (2026-11-17). Edge cases listed under "Unresolved" remain provisional unless explicitly marked resolved below.
+
+## Owner decisions resolved for Fetch (issue #29)
+- D9: an archived offer that reappears remotely is reactivated with its committed `is_pinned` value preserved.
+- Duplicate remote offer ids are not deduplicated: Fetch fails the whole snapshot explicitly; one binding per (stream, offer_id) remains the identity.
+- Every stream with a non-empty offers array is reconciled independently; stream `type` does not decide whether a stream is offer-bearing.
+- Fetch conflict markers are sticky until an explicit later-slice resolution; a repeated Fetch never clears them.
+
+These decisions do not settle flow type/priority, manual share constraints, or other unresolved items below.
 
 ## Confirmed constraints
 - Allocation uses Largest Remainder Method with deterministic offer_id ascending tie-break.
@@ -54,11 +62,11 @@ Core workflow supported by demo video (2026-11-17). Edge cases listed under "Unr
 
 ## Unresolved product questions (from video)
 1. Keitaro flow type and priority: exact `regular` vs `default` and how fallback relationship is configured/guaranteed.
-2. Multiple offer-bearing streams: independently editable/published vs single target selection.
+2. Multiple offer-bearing streams: resolved for Fetch by issue #29 (independent, no target selection); later-slice editing/publication policy remains as scoped in implementation-plan.md.
 3. Google destination configurability: campaign creation always uses fixed Google URL from assignment? (wrapper does not parse/edit redirect URLs)
 4. Manual share input constraints: permitted range, integer/decimal entry, validation. (pinned_sum > 100% is confirmed invalid and blocks Push.)
 6. Edge cases: zero active offers, one active offer, removing/restoring last offer, all offers pinned, no remaining unpinned offers.
-7. Duplicate offers: whether UI prevents selecting an offer already present (including archived entries).
+7. Duplicate offers: Fetch rejection is resolved by issue #29; UI selection policy remains open.
 8. Push/Cancel failure semantics: partial success across multiple modified streams and Push fail/timeout are specified. Remaining genuinely unresolved: exact Cancel availability after partial Push, if not specified elsewhere.
 9. Persistence boundary: RESOLVED — durable (see persistence.md). Remaining: storage mechanism details (SQLite) only.
 

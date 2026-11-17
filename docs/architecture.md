@@ -4,12 +4,12 @@ Cross-reference: persistence design `docs/architecture/persistence.md`, domain m
 
 ## Status
 
-The dependency direction, data ownership and boundaries below are the accepted target design (`docs/decisions.md`, `docs/implementation/module-boundaries.md`). Implemented as of Slice 3: `app/main.py` (composition root and lifespan), `app/api/` (health route), `app/application/` (DTOs, `KeitaroClientPort`, campaign creation workflow), `app/domain/` (pure allocation and operation state machine), `app/keitaro_client/` (async adapter), `app/core/` (settings), `app/db/` and `alembic/` (SQLite/Alembic, `app_settings` and `campaign_creation_operations` tables, repository adapters). Editor behavior and later workflows are target design; progress is tracked in `docs/implementation/implementation-plan.md`. Verified API observations are facts about Keitaro, not claims about implemented features.
+The dependency direction, data ownership and boundaries below are the accepted target design (`docs/decisions.md`, `docs/implementation/module-boundaries.md`). Implemented as of Slice 4: `app/main.py` (composition root and lifespan), `app/api/` (health route), `app/application/` (DTOs, `KeitaroClientPort`, campaign creation and Fetch workflows), `app/domain/` (pure allocation, operation state machine and offer reconciliation), `app/keitaro_client/` (async adapter), `app/core/` (settings), `app/db/` and `alembic/` (SQLite/Alembic, `app_settings`, `campaign_creation_operations`, `stream_refs`, `remote_offer_snapshots`, `stream_offer_bindings` and `stream_drafts` tables, repository adapters). Publication/editor commands and later workflows are target design; progress is tracked in `docs/implementation/implementation-plan.md`. Verified API observations are facts about Keitaro, not claims about implemented features.
 
 ## Style
 Modular monolith. FastAPI app with:
 - `app/api/` — HTTP transport (routes, schemas, errors).
-- `app/application/` — workflows, DTOs and application-owned ports; DTOs and `KeitaroClientPort` exist, workflows are planned.
+- `app/application/` — workflows, DTOs and application-owned ports; campaign creation and Fetch are implemented.
 - `app/keitaro_client/` — Keitaro client adapter.
 - `app/db/` — SQLAlchemy persistence (minimal local state).
 - `app/core/` — settings from `.env`; no business logic.
@@ -23,10 +23,16 @@ Keitaro is source of truth for campaigns/streams/offers. Local DB stores minimal
 Implemented in Slice 0:
 - `app_settings` — default/configured IDs and operator choices (model `AppSettings`).
 
-Target design (entity names per `docs/architecture/persistence.md`; not implemented yet):
+Implemented in Slice 3:
 - `CampaignCreationOperation` — operation state, external IDs, step status, errors.
+
+Implemented in Slice 4 (entity names per `docs/architecture/persistence.md`):
+- `StreamRef` — cached remote stream identity, keyed by campaign and remote stream id.
+- `RemoteSnapshot` — last observed remote offer array, ordered, with capture time; separate from any draft baseline.
 - `StreamOfferBinding` — committed binding lifecycle (`ACTIVE`/`ARCHIVED`), `is_pinned` and remote share cache.
-- `StreamDraft` — staged changes per stream; does not overwrite committed state.
+- `StreamDraft` — minimal staged-state seam used only for Fetch conflict markers in this slice; does not overwrite committed state.
+
+Target design, not implemented yet:
 - `StreamPublication` — per-stream publication history and outcomes.
 
 No full campaign mirror unless a concrete use case (e.g. offline listing) justifies it.
@@ -39,7 +45,14 @@ No full campaign mirror unless a concrete use case (e.g. offline listing) justif
 - `app/core/` — settings from `.env`.
 - `app/db/`, `alembic/` — SQLAlchemy models/session and migrations.
 
-The pure allocation module and operation state machine (`app/domain/`) and the campaign operation repositories (`app/db/`) are implemented; editor domain entities and repositories are target modules for later slices; see `docs/implementation/module-boundaries.md`.
+The pure allocation, operation state machine and reconciliation modules (`app/domain/`), the campaign operation and stream reconciliation repositories (`app/db/`) are implemented; editor draft commands and publication modules are target modules for later slices; see `docs/implementation/module-boundaries.md`.
+
+## Fetch/reconciliation (implemented Slice 4)
+- `FetchService` reads all streams of a campaign once via the existing Keitaro port, validates the complete response, then reconciles the whole snapshot in one synchronous DB transaction through `asyncio.to_thread` (D14). HTTP calls never run inside a DB transaction.
+- Every stream with a non-empty `offers` array is reconciled independently (D18); streams without offers remain cached stream references. A stream that previously had local reconciliation state and now reports no offers is reconciled as a remote deletion.
+- Remote additions create ACTIVE bindings, deletions archive and clear the share cache, reappearance reactivates while preserving the committed pin (D9). Duplicate `offer_id` entries in one stream fail the whole Fetch before any local write (D8).
+- The remote snapshot cache, committed binding state and staged draft state are separate. Fetch writes only `is_stale` and structured `conflict_details` on an existing draft; it never changes `baseline_snapshot`, `staged_changes`, `version` or `is_dirty`, and conflicts remain sticky until explicit later-slice resolution (D17).
+- No API route, Keitaro mutation, draft command, allocation orchestration or publication behavior was added.
 
 ## Cross-cutting
 - Persistence boundary (D14): sync SQLAlchemy operations must not execute directly inside an async request path on the event loop; use FastAPI threadpool or an explicit boundary.

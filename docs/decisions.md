@@ -9,8 +9,8 @@
 | D5 | Editor core workflow (stage/push/cancel, archive, pinning) | Proposed (video-supported core) | Demo video 2026-11-17; edge cases remain provisional |
 | D6 | Resource IDs are operator-configured defaults, not arbitrary first-active | Proposed | Aligns with assignment (configured domain/group/source) |
 | D7 | Snapshot-based drafts over event log | Proposed | Proportionate for take-home; deterministic; simpler |
-| D8 | (stream_ref, offer_id) unique binding proposed | Proposed | One logical binding per pair; archive changes lifecycle |
-| D9 | Pin survives archive/reactivation | Proposed (open owner decision) | Wrapper-owned preference |
+| D8 | (stream_ref, offer_id) unique binding; duplicate remote offer ids fail the whole Fetch explicitly | Accepted (owner, issue #29) | One logical binding per pair; archive changes lifecycle; no silent deduplication or occurrence-based identity |
+| D9 | Pin survives archive/reactivation | Accepted (owner, issue #29, option A) | Wrapper-owned preference survives remote disappearance |
 | D10 | Committed vs staged separation | Accepted | Prevents draft overwriting committed state |
 | D11 | Largest Remainder Method for allocation | Accepted | Deterministic integer allocation |
 | D12 | Deterministic offer_id tie-break for LRM | Accepted | Stable allocation |
@@ -18,3 +18,5 @@
 | D14 | Persistence SQLAlchemy sync vs async | Accepted | Slice 0 uses sync SQLAlchemy. Constraint: sync SQLAlchemy operations must not run directly on async event loop; use FastAPI threadpool for sync endpoints or explicit boundary. Async persistence remains separate decision. |
 | D15 | Offer flow type `default` for campaign creation | Accepted | Owner decision in issue #26: forced GEO flow precedes the default fallback; `regular` is not used for this two-flow configuration. |
 | D16 | Configurable redirect destination, `https://www.google.com` by default | Accepted | Owner decision in issue #26: setting `KEITARO_REDIRECT_URL`; no UI work authorized in Slice 3. |
+| D17 | Fetch conflict markers are sticky until explicit resolution in a later slice | Accepted (owner, issue #29, option A) | A repeated Fetch, including one where remote returns to the old baseline, must not silently clear a conflict |
+| D18 | Fetch reconciles every offer-bearing stream independently; a non-empty offers array (not stream type) defines offer-bearing | Accepted (owner, issue #29) | Plan already says fetch all streams; persistence is keyed per stream; no designated target or selection policy |
