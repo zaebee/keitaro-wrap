@@ -34,7 +34,7 @@ Domain/group/traffic source IDs are operator-configured defaults (app_settings),
 - 0 matches after bounded attempts → remain ambiguous. Do not retry automatically.
 - 1 match → adopt.
 - >1 → ambiguous + operator intervention.
-- Retry permitted only after explicit operator confirmation or documented API safety guarantee.
+- Retry permitted only after reconciliation confirms absence of external effect. Operator confirmation alone does not establish absence; unresolved outcome remains ambiguous with no retry.
 
 ## State machine
 See architecture.md. `failed` = definitive error, does not guarantee absence of external resources. `ambiguous` may become `abandoned` on operator decision without implying resources absent.

@@ -56,8 +56,7 @@ Core workflow supported by demo video (2026-11-17). Edge cases listed under "Unr
 1. Keitaro flow type and priority: exact `regular` vs `default` and how fallback relationship is configured/guaranteed.
 2. Multiple offer-bearing streams: independently editable/published vs single target selection.
 3. Google destination configurability: campaign creation always uses fixed Google URL from assignment? (wrapper does not parse/edit redirect URLs)
-4. Manual share input constraints: permitted range, integer/decimal entry, validation, behavior when pinned totals exceed 100%.
-5. Rounding: integer remainder allocation and deterministic ordering not shown.
+4. Manual share input constraints: permitted range, integer/decimal entry, validation. (pinned_sum > 100% is confirmed invalid and blocks Push.)
 6. Edge cases: zero active offers, one active offer, removing/restoring last offer, all offers pinned, no remaining unpinned offers.
 7. Duplicate offers: whether UI prevents selecting an offer already present (including archived entries).
 8. Push/Cancel failure semantics: partial success across multiple modified streams; Push fail/timeout; Cancel availability after partial push.
@@ -65,7 +64,6 @@ Core workflow supported by demo video (2026-11-17). Edge cases listed under "Unr
 
 ## Explicitly not supported (do not assume)
 - Earlier assumptions "remove deletes from the list and rebalances", "manual edit unrestricted subject to sum=100", "remainder goes to first offers", "all streams are a single designated target" are NOT supported by the video.
-- Integer rounding/remainder allocation rules.
 - Manual share editing constraints.
 - Behavior when pinned shares exceed 100%.
 - Behavior with zero or one active offers.

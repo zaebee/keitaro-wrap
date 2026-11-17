@@ -54,14 +54,10 @@
 - Unpinned offers receiving the remaining percentage.
 
 ## Pending specification (do not encode as expected outcomes)
-- Integer rounding/remainder allocation rules.
 - Manual share input constraints and validation.
-- Behavior when pinned shares exceed 100%.
 - Behavior with zero or one active offers.
 - Behavior when all offers are pinned.
 - Duplicate-offer handling.
-- Push/Cancel failure semantics (partial success, timeout).
-- Persistence durability across reload/restart.
 - Multiple offer-bearing stream selection.
 
 ## Integration tests (optional, with test instance + .env)
