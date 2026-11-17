@@ -5,7 +5,7 @@
 - Country code validation.
 - Alias slug generation (unique operation-derived).
 - Error translation.
-- Operation state transitions (allowed/forbidden).
+- Operation state transitions (allowed/forbidden), including ambiguous → abandoned without resource-absence implication.
 - Reconciliation matching (0 after bounded attempts / 1 / >1).
 - Bounded retry count enforcement.
 

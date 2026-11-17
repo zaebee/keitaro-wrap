@@ -67,8 +67,8 @@ Transitions:
 - partial → failed: non-recoverable error with definitive response.
 - ambiguous → created: reconciliation found exactly one matching resource and completed missing steps.
 - ambiguous → partial: only after explicit operator confirmation that the resource does not exist (or a documented API guarantee making retry safe); reconciliation alone with 0 matches is NOT sufficient.
-- ambiguous → failed: reconciliation impossible or operator aborted.
-- created, failed: terminal (failed may be retried via a new operation).
+- ambiguous → abandoned: operator decides to stop without establishing external outcome. Does NOT imply resources absent.
+- created, failed, abandoned: terminal (failed may be retried via a new operation; abandoned leaves external state unknown).
 
 Guarantees:
 - started: no external resource confirmed.
@@ -76,6 +76,7 @@ Guarantees:
 - ambiguous: external state uncertain; manual reconciliation required.
 - created: campaign and both flows exist and verified.
 - failed: operation aborted due to a definitive error. Does NOT guarantee absence of external resources; cleanup may be required. Distinguish from ambiguous (uncertain outcome).
+- abandoned: operator stopped without establishing external outcome. External resources may or may not exist; no cleanup assumption.
 
 ## Sequence: create campaign (provisional; Q1 open)
 ```mermaid
@@ -84,8 +85,8 @@ sequenceDiagram
   participant A as App
   participant K as Keitaro API
   U->>A: POST /campaigns (name, country, offer_id)
-  A->>A: persist operation (status=started)
   A->>K: GET /domains, /groups?type=campaigns, /traffic_sources
+  A->>A: persist operation (status=started) before first mutating request
   A->>K: POST /campaigns
   A->>A: store keitaro_campaign_id
   A->>K: POST /streams (forced, country->Google)
@@ -96,7 +97,7 @@ sequenceDiagram
 ```
 
 ## Partial failure recovery
-- Operation row exists before any external call.
+- Operation row persisted before the first mutating external request; read-only GET resolution may precede it.
 - Persist returned IDs immediately after each successful POST.
 - On timeout/ambiguous POST outcome: reconcile per algorithm above; no blind retry.
 - Statuses: started, partial, ambiguous, created, failed.

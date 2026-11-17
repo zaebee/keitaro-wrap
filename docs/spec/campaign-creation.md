@@ -21,7 +21,7 @@ Domain/group/traffic source IDs are operator-configured defaults (app_settings),
 ## Steps
 1. Validate input (country_code 2 letters; offer exists via GET /offers/{id}).
 2. Resolve resources (configured defaults; error if missing/inactive).
-3. Persist operation record (status=started) with operation-derived unique alias (slug-<short_uuid>) before the first mutating external request (GET resolution may precede). Store alias in operation.
+3. Persist operation record (status=started) with operation-derived unique alias (slug-<short_uuid>) before the first mutating external request; read-only GET resolution may precede it. Store alias in operation.
 4. Create campaign: POST /campaigns with unique alias. Store keitaro_campaign_id. On timeout → bounded reconciliation by alias; if unresolved → ambiguous.
 5. Create Flow 1 (forced country→Google) with operation id in comments. Store flow_country_id. On timeout → bounded reconciliation by comments; if unresolved → ambiguous.
 6. Create Flow 2 (observed regular offer flow) with operation id in comments. Store flow_offer_id.
@@ -35,7 +35,7 @@ Domain/group/traffic source IDs are operator-configured defaults (app_settings),
 - Retry permitted only after explicit operator confirmation or documented API safety guarantee.
 
 ## State machine
-See architecture.md. `failed` = definitive error, does not guarantee absence of external resources.
+See architecture.md. `failed` = definitive error, does not guarantee absence of external resources. `ambiguous` may become `abandoned` on operator decision without implying resources absent.
 
 ## Validation
 - country_code must be 2 letters.
