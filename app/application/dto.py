@@ -1,9 +1,13 @@
+"""Module."""
+
 from dataclasses import dataclass, field
 from typing import Any
 
 
 @dataclass
 class DomainDTO:
+    """DomainDTO."""
+
     id: int
     name: str
     state: str | None = None
@@ -11,6 +15,8 @@ class DomainDTO:
 
 @dataclass
 class GroupDTO:
+    """GroupDTO."""
+
     id: int
     name: str
     type: str | None = None
@@ -18,6 +24,8 @@ class GroupDTO:
 
 @dataclass
 class TrafficSourceDTO:
+    """TrafficSourceDTO."""
+
     id: int
     name: str
     state: str | None = None
@@ -25,6 +33,8 @@ class TrafficSourceDTO:
 
 @dataclass
 class OfferDTO:
+    """OfferDTO."""
+
     id: int
     name: str
     state: str | None = None
@@ -33,6 +43,8 @@ class OfferDTO:
 
 @dataclass
 class OfferStreamDTO:
+    """OfferStreamDTO."""
+
     offer_id: int
     share: int
     state: str | None = "active"
@@ -40,6 +52,8 @@ class OfferStreamDTO:
 
 @dataclass
 class StreamFilterDTO:
+    """StreamFilterDTO."""
+
     name: str
     mode: str
     payload: list[str] = field(default_factory=list)
@@ -47,6 +61,8 @@ class StreamFilterDTO:
 
 @dataclass
 class StreamDTO:
+    """StreamDTO."""
+
     id: int
     campaign_id: int
     type: str
@@ -61,6 +77,8 @@ class StreamDTO:
 
 @dataclass
 class CampaignDTO:
+    """CampaignDTO."""
+
     id: int
     name: str
     alias: str | None = None
@@ -72,6 +90,8 @@ class CampaignDTO:
 
 @dataclass
 class CampaignCreateDTO:
+    """CampaignCreateDTO."""
+
     alias: str
     name: str
     domain_id: int | None = None
@@ -81,6 +101,8 @@ class CampaignCreateDTO:
 
 @dataclass
 class StreamCreateDTO:
+    """StreamCreateDTO."""
+
     campaign_id: int
     type: str
     name: str
@@ -94,5 +116,7 @@ class StreamCreateDTO:
 
 @dataclass
 class StreamUpdateDTO:
+    """StreamUpdateDTO."""
+
     stream_id: int
     fields: dict[str, Any] = field(default_factory=dict)

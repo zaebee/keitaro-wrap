@@ -1,8 +1,8 @@
 import httpx
 import pytest
 
-from app.keitaro_client.client import KeitaroClient, KeitaroError
 from app.application.dto import DomainDTO
+from app.keitaro_client.client import KeitaroClient, KeitaroError
 
 
 def make_client(handler):
@@ -50,7 +50,11 @@ async def test_422():
 
     client = make_client(handler)
     with pytest.raises(KeitaroError) as exc:
-        await client.create_campaign(__import__("app.application.dto", fromlist=["CampaignCreateDTO"]).CampaignCreateDTO(alias="a", name="n"))
+        await client.create_campaign(
+            __import__(
+                "app.application.dto", fromlist=["CampaignCreateDTO"]
+            ).CampaignCreateDTO(alias="a", name="n")
+        )
     assert exc.value.status == 422
 
 
