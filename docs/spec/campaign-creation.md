@@ -11,9 +11,9 @@ Cross-reference: domain model `docs/spec/domain-model.md`, persistence `docs/arc
 - offer_id (int, required, existing Keitaro offer)
 
 ## Verified flow semantics (from live instance)
-- Flow 1: type=forced, schema=redirect, action_type=http, action_payload=https://www.google.com, filters=[{name:country, mode:accept, payload:[CODE]}].
-- Flow 2: observed as type=regular, schema=landings, action_type=http, offers=[{offer_id, share:100, state:active}], filters=[].
-- Q1 (default vs regular / catch-all fallback) remains OPEN. Only one existing campaign observed. Do not assume fallback semantics until verified.
+- Flow 1: type=forced, schema=redirect, action_type=http, destination from the configured redirect URL (default https://www.google.com), filters=[{name:country, mode:accept, payload:[CODE]}].
+- Flow 2: type=default, schema=landings, action_type=http, offers=[{offer_id, share:100, state:active}], filters=[].
+- Q1 resolved by the owner in issue #26: use `default` for the offer fallback; do not invent a priority field.
 
 ## Resource selection
 Domain/group/traffic source IDs are operator-configured defaults (app_settings), selectable via settings page. If unset, UI may suggest first active but must not silently use it. Missing or inactive configured ID → validation error.
@@ -28,8 +28,8 @@ Domain/group/traffic source IDs are operator-configured defaults (app_settings),
 2. Resolve resources (configured defaults; error if missing/inactive).
 3. Persist operation record (status=started) with operation-derived unique alias (slug-<short_uuid>) before the first mutating external request; read-only GET resolution may precede it. Store alias in operation.
 4. Create campaign: POST /campaigns with unique alias. Store keitaro_campaign_id. On timeout → bounded reconciliation by alias; if unresolved → ambiguous.
-5. Create Flow 1 (forced country→Google) with operation id in comments. Store flow_country_id. On timeout → bounded reconciliation by comments; if unresolved → ambiguous.
-6. Create Flow 2 (observed regular offer flow) with operation id in comments. Store flow_offer_id.
+5. Create Flow 1 (forced country filter → configured redirect URL) with operation id in comments. Store flow_country_id. On timeout → bounded reconciliation by comments; if unresolved → ambiguous.
+6. Create Flow 2 (default offer flow) with operation id in comments. Store flow_offer_id.
 7. Read back campaign + streams; verify.
 8. Mark operation status=created.
 

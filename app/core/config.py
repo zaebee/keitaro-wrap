@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     KEITARO_DEFAULT_DOMAIN_ID: int | None = None
     KEITARO_DEFAULT_GROUP_ID: int | None = None
     KEITARO_DEFAULT_TRAFFIC_SOURCE_ID: int | None = None
+    KEITARO_REDIRECT_URL: str = "https://www.google.com"
 
     APP_HOST: str = "0.0.0.0"
     APP_PORT: int = 8000

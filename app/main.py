@@ -6,7 +6,12 @@ import httpx
 from fastapi import FastAPI, Request
 
 from app.api.routes import router
+from app.application.campaign_creation import CampaignCreationService
 from app.core.config import settings
+from app.db.repositories import (
+    SqlAlchemyCampaignCreationOperations,
+    SqlAlchemySettingsRepository,
+)
 from app.db.session import engine
 from app.keitaro_client.client import KeitaroClient
 
@@ -19,6 +24,11 @@ async def lifespan(app: FastAPI):
     )
     app.state.keitaro_client = KeitaroClient(
         http_client, api_key=settings.KEITARO_API_KEY
+    )
+    app.state.campaign_creation_service = CampaignCreationService(
+        client=app.state.keitaro_client,
+        operations=SqlAlchemyCampaignCreationOperations(),
+        settings=SqlAlchemySettingsRepository(),
     )
     try:
         yield

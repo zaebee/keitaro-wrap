@@ -260,6 +260,9 @@ class KeitaroClient(KeitaroClientPort):
             name=c.get("name", ""),
             alias=c.get("alias"),
             state=c.get("state"),
+            domain_id=c.get("domain_id"),
+            group_id=c.get("group_id"),
+            traffic_source_id=c.get("traffic_source_id"),
         )
 
     async def list_campaign_streams(self, campaign_id: int) -> list[StreamDTO]:

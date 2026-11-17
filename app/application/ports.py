@@ -5,6 +5,7 @@ from typing import Protocol
 from app.application.dto import (
     CampaignCreateDTO,
     CampaignDTO,
+    ConfiguredResources,
     DomainDTO,
     GroupDTO,
     OfferDTO,
@@ -16,6 +17,11 @@ from app.application.dto import (
     StreamTypeDTO,
     StreamUpdateDTO,
     TrafficSourceDTO,
+)
+from app.domain.campaign_creation import (
+    CampaignCreationOperation,
+    CreationStage,
+    OperationStatus,
 )
 
 
@@ -92,4 +98,61 @@ class KeitaroClientPort(Protocol):
 
     async def list_stream_actions(self) -> list[StreamActionDTO]:
         """List stream actions."""
+        ...
+
+
+class CampaignCreationOperationRepository(Protocol):
+    """Synchronous operational store; callers offload calls off the event loop."""
+
+    def add(self, operation: CampaignCreationOperation) -> CampaignCreationOperation:
+        """Persist a new operation."""
+        ...
+
+    def get_by_uuid(self, operation_uuid: str) -> CampaignCreationOperation | None:
+        """Load an operation by its stable UUID."""
+        ...
+
+    def get_by_alias(self, alias: str) -> CampaignCreationOperation | None:
+        """Load an operation by its campaign alias."""
+        ...
+
+    def save(self, operation: CampaignCreationOperation) -> CampaignCreationOperation:
+        """Persist non-step changes to an existing operation."""
+        ...
+
+    def claim_step(
+        self, operation_uuid: str, stage: CreationStage
+    ) -> CampaignCreationOperation | None:
+        """Atomically claim a not_started step; return None if already claimed."""
+        ...
+
+    def confirm_step(
+        self,
+        operation_uuid: str,
+        stage: CreationStage,
+        *,
+        remote_id: int | None,
+        status: OperationStatus | None,
+        error: str | None,
+    ) -> CampaignCreationOperation | None:
+        """Atomically confirm a claimed/ambiguous step and its remote ID."""
+        ...
+
+    def mark_step_ambiguous(
+        self,
+        operation_uuid: str,
+        stage: CreationStage,
+        *,
+        status: OperationStatus | None,
+        error: str | None,
+    ) -> CampaignCreationOperation | None:
+        """Atomically mark a claimed step ambiguous without authorizing a retry."""
+        ...
+
+
+class SettingsRepository(Protocol):
+    """Reads operator-owned application configuration."""
+
+    def get_config(self) -> ConfiguredResources:
+        """Return configured resource IDs and the redirect destination."""
         ...

@@ -4,7 +4,7 @@ Cross-reference: persistence design `docs/architecture/persistence.md`, domain m
 
 ## Status
 
-The dependency direction, data ownership and boundaries below are the accepted target design (`docs/decisions.md`, `docs/implementation/module-boundaries.md`). Implemented as of Slice 2: `app/main.py` (composition root and lifespan), `app/api/` (health route), `app/application/` (DTOs and `KeitaroClientPort`), `app/domain/` (pure allocation), `app/keitaro_client/` (async adapter), `app/core/` (settings), `app/db/` and `alembic/` (SQLite/Alembic with the `app_settings` table). Workflows, operation tables, reconciliation and editor behavior are target design for later slices; progress is tracked in `docs/implementation/implementation-plan.md`. Verified API observations are facts about Keitaro, not claims about implemented features.
+The dependency direction, data ownership and boundaries below are the accepted target design (`docs/decisions.md`, `docs/implementation/module-boundaries.md`). Implemented as of Slice 3: `app/main.py` (composition root and lifespan), `app/api/` (health route), `app/application/` (DTOs, `KeitaroClientPort`, campaign creation workflow), `app/domain/` (pure allocation and operation state machine), `app/keitaro_client/` (async adapter), `app/core/` (settings), `app/db/` and `alembic/` (SQLite/Alembic, `app_settings` and `campaign_creation_operations` tables, repository adapters). Editor behavior and later workflows are target design; progress is tracked in `docs/implementation/implementation-plan.md`. Verified API observations are facts about Keitaro, not claims about implemented features.
 
 ## Style
 Modular monolith. FastAPI app with:
@@ -39,7 +39,7 @@ No full campaign mirror unless a concrete use case (e.g. offline listing) justif
 - `app/core/` — settings from `.env`.
 - `app/db/`, `alembic/` — SQLAlchemy models/session and migrations.
 
-The pure allocation module (`app/domain/`) is implemented; domain entities and persistence repositories are target modules for later slices; see `docs/implementation/module-boundaries.md`.
+The pure allocation module and operation state machine (`app/domain/`) and the campaign operation repositories (`app/db/`) are implemented; editor domain entities and repositories are target modules for later slices; see `docs/implementation/module-boundaries.md`.
 
 ## Cross-cutting
 - Persistence boundary (D14): sync SQLAlchemy operations must not execute directly inside an async request path on the event loop; use FastAPI threadpool or an explicit boundary.
@@ -76,8 +76,10 @@ Stream (POST /streams timed out, campaign id known):
 
 If safe reconciliation cannot be established, keep operation `ambiguous` and require operator intervention. Never blindly retry non-idempotent POST.
 
-## Operation state machine (target design)
+## Operation state machine (implemented for Slice 3)
 States: `started`, `partial`, `ambiguous`, `created`, `failed`, `abandoned`.
+Each of the three mutations also has a durable step state (`not_started`, `in_flight`,
+`confirmed`, `ambiguous`); only `not_started` steps may execute a POST on resume.
 
 Transitions:
 - started → partial: campaign created (keitaro_campaign_id known), not all streams done.
@@ -99,7 +101,7 @@ Guarantees:
 - failed: operation aborted due to a definitive error. Does NOT guarantee absence of external resources; cleanup may be required. Distinguish from ambiguous (uncertain outcome).
 - abandoned: operator stopped without establishing external outcome. External resources may or may not exist; no cleanup assumption.
 
-## Sequence: create campaign (target design, provisional; Q1 open)
+## Sequence: create campaign (implemented; Q1/Q2 resolved by owner in issue #26)
 ```mermaid
 sequenceDiagram
   participant U as Operator
@@ -110,9 +112,9 @@ sequenceDiagram
   A->>A: persist operation (status=started) before first mutating request
   A->>K: POST /campaigns
   A->>A: store keitaro_campaign_id
-  A->>K: POST /streams (forced, country->Google)
+  A->>K: POST /streams (forced, country->configured redirect URL)
   A->>A: store flow_country_id
-  A->>K: POST /streams (regular, offer) [Q1: default vs regular unverified]
+  A->>K: POST /streams (default, offer) [Q1 resolved: default flow]
   A->>A: store flow_offer_id, status=created
   A-->>U: campaign details
 ```

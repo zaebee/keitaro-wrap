@@ -8,18 +8,18 @@ or with an owner decision, flag the conflict rather than silently choosing one.
 
 Keitaro Wrap is a modular monolith: a FastAPI app with minimal local state that wraps the
 Keitaro Admin API for campaign creation and offer editing. Python 3.12, uv, SQLite +
-Alembic, Ruff, Pyrefly, pytest. Slices 0 (foundation), 1 (Keitaro client) and 2
-(allocation domain) are implemented; later slices are planned, not present — check the
-docs and `git log` before assuming a capability exists.
+Alembic, Ruff, Pyrefly, pytest. Slices 0 (foundation), 1 (Keitaro client), 2
+(allocation domain) and 3 (campaign creation) are implemented; later slices are planned,
+not present — check the docs and `git log` before assuming a capability exists.
 
 Code map:
 
 - `app/main.py` — FastAPI app, lifespan, composition root (wires the HTTP client).
 - `app/api/` — HTTP transport (routes/schemas).
-- `app/application/` — workflows, DTOs and application-owned ports.
-- `app/domain/` — pure domain logic (allocation); no I/O or framework imports.
+- `app/application/` — workflows (including campaign creation), DTOs and ports.
+- `app/domain/` — pure domain logic (allocation, operation state machine); no I/O.
 - `app/core/` — settings from `.env`.
-- `app/db/`, `alembic/` — SQLAlchemy models/session and migrations.
+- `app/db/`, `alembic/` — SQLAlchemy models, repositories, sessions and migrations.
 - `app/keitaro_client/` — HTTP adapter implementing the Keitaro port.
 - `tests/` — unit and mocked-HTTP contract tests.
 
@@ -61,10 +61,11 @@ Preserve these unless the assigned task explicitly changes them:
 
 ## 4. Accepted vs proposed/open decisions
 
-- Accepted: D1–D3, D10–D14 in `docs/decisions.md` (modular monolith, SQLite/Alembic,
+- Accepted: D1–D3, D10–D16 in `docs/decisions.md` (modular monolith, SQLite/Alembic,
   Keitaro as source of truth, committed vs staged separation, LRM allocation, offer_id
-  tie-break, async HTTP, sync persistence with an event-loop boundary).
-- Proposed or open: D4–D9 and the decision gates in
+  tie-break, async HTTP, sync persistence with an event-loop boundary, `default` offer
+  flow, configurable redirect URL).
+- Proposed or open: D4–D9 and the remaining decision gates in
   `docs/implementation/implementation-plan.md`. The editor's video-supported core is
   usable; edge cases marked provisional or unresolved are not settled product decisions.
 - Never resolve an open product/contract decision by implication while implementing a

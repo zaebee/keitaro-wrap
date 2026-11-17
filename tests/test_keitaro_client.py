@@ -206,6 +206,33 @@ async def test_list_campaigns_pagination():
 
 
 @pytest.mark.asyncio
+async def test_get_campaign_maps_resource_ids():
+    """The real adapter preserves campaign resource IDs from GET responses."""
+
+    def handler(request):
+        return httpx.Response(
+            200,
+            json={
+                "id": 10,
+                "name": "c1",
+                "alias": "a",
+                "domain_id": 1,
+                "group_id": 2,
+                "traffic_source_id": 3,
+            },
+        )
+
+    client = make_client(handler)
+    campaign = await client.get_campaign(10)
+
+    assert (campaign.domain_id, campaign.group_id, campaign.traffic_source_id) == (
+        1,
+        2,
+        3,
+    )
+
+
+@pytest.mark.asyncio
 async def test_create_campaign_payload():
     """create_campaign sends typed payload."""
 
