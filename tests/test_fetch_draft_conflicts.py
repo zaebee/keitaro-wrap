@@ -295,3 +295,44 @@ def test_lazy_create_unique_race_maps_to_version_conflict(factory, monkeypatch):
     command = AddOfferCommand(5, 12, 0, 9)
     with pytest.raises(DraftVersionConflict):
         repository.apply(command, to_domain_command(command))
+
+
+def test_manual_share_edit_is_not_a_remote_share_dependency(factory):
+    """A manually overridden pinned offer uses its local fixed share."""
+    standard_stream(factory)
+    edit(factory, SetShareCommand(5, 12, 0, 5, 70))
+    draft = fetch(factory, offers(((5, 90), (8, 40))))
+    assert draft is not None
+    assert draft.is_stale is False
+    assert conflict_tuples(draft) == set()
+
+
+def test_other_baseline_share_change_still_conflicts_with_manual_share(factory):
+    """A share edit excludes only its own offer from share conflict checks."""
+    standard_stream(factory)
+    edit(factory, SetShareCommand(5, 12, 0, 5, 70))
+    draft = fetch(factory, offers(((5, 70), (8, 70))))
+    assert draft is not None
+    assert conflict_tuples(draft) == {(8, "share", 40, 70, "remote_share_changed")}
+
+
+def test_add_plus_share_edit_conflicts_only_for_other_offer(factory):
+    """Adding and manually overriding one offer still watches the other share."""
+    standard_stream(factory)
+    first = edit(factory, AddOfferCommand(5, 12, 0, 9))
+    second = edit(factory, SetShareCommand(5, 12, first.view.version, 5, 70))
+    assert second.view.version == 2
+    draft = fetch(factory, offers(((5, 90), (8, 70))))
+    assert draft is not None
+    assert conflict_tuples(draft) == {(8, "share", 40, 70, "remote_share_changed")}
+
+
+def test_set_share_then_unpin_has_no_share_dependency(factory):
+    """Unpin normalises intent to empty; the clean draft has no dependency."""
+    standard_stream(factory)
+    first = edit(factory, SetShareCommand(5, 12, 0, 5, 70))
+    edit(factory, SetPinCommand(5, 12, first.view.version, 5, False))
+    draft = fetch(factory, offers(((5, 90), (8, 40))))
+    assert draft is not None
+    assert draft.is_stale is False
+    assert conflict_tuples(draft) == set()

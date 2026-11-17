@@ -138,13 +138,31 @@ def _staged_ids(staged_changes: Mapping[str, object], key: str) -> frozenset[int
     return frozenset(item for item in raw if type(item) is int)
 
 
+def _staged_mapping_ids(
+    staged_changes: Mapping[str, object], key: str
+) -> frozenset[int]:
+    """Read offer ids from a staged JSON mapping with string keys."""
+    raw = staged_changes.get(key)
+    if not isinstance(raw, Mapping):
+        return frozenset()
+    ids: set[int] = set()
+    for offer_id in raw:
+        if type(offer_id) is int:
+            ids.add(offer_id)
+        elif isinstance(offer_id, str) and offer_id.isdigit():
+            ids.add(int(offer_id))
+    return frozenset(ids)
+
+
 def _allocation_input_ids(
     staged_changes: Mapping[str, object], candidates: frozenset[int]
 ) -> frozenset[int]:
-    """Return baseline offers whose share still feeds staged allocation."""
+    """Return baseline offers whose remote share still feeds staged allocation."""
     archives = _staged_ids(staged_changes, "archives")
     restores = _staged_ids(staged_changes, "restores")
-    return (candidates - archives) | (restores & candidates)
+    share_edits = _staged_mapping_ids(staged_changes, "share_edits")
+    active = (candidates - archives) | (restores & candidates)
+    return active - share_edits
 
 
 def _merge_conflicts(
