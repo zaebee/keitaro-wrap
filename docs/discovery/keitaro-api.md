@@ -18,7 +18,7 @@ Keitaro version: unknown (not exposed in OpenAPI). Record from admin panel when 
 
 ## Fields
 - `action_payload`: used in requests/responses (Observed), but NOT declared in OpenAPI `StreamObject` (OpenAPI gap). Treat as runtime-only.
-- `offers` in stream: OpenAPI declares `offers` in StreamObject and OfferStreamRequest.
+- `offers` in stream: OpenAPI declares `offers` in StreamObject and OfferStreamRequest. An offer entry without `share` is malformed: `share=0` is a valid value and is not interchangeable with a missing field.
 
 ## Domains (OpenAPI)
 - `GET /domains` → Domain[]

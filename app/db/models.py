@@ -18,6 +18,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
 
+STREAM_REF_FK = "stream_refs.id"
+
 
 class AppSettings(Base):
     """Persisted application settings."""
@@ -100,7 +102,7 @@ class RemoteOfferSnapshotModel(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     stream_ref_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("stream_refs.id"), nullable=False
+        Integer, ForeignKey(STREAM_REF_FK), nullable=False
     )
     offers_json: Mapped[str] = mapped_column(Text, nullable=False)
     captured_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
@@ -126,7 +128,7 @@ class StreamOfferBindingModel(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     stream_ref_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("stream_refs.id"), nullable=False
+        Integer, ForeignKey(STREAM_REF_FK), nullable=False
     )
     offer_id: Mapped[int] = mapped_column(Integer, nullable=False)
     lifecycle: Mapped[str] = mapped_column(String(10), nullable=False)
@@ -150,7 +152,7 @@ class StreamDraftModel(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     stream_ref_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("stream_refs.id"), nullable=False
+        Integer, ForeignKey(STREAM_REF_FK), nullable=False
     )
     baseline_snapshot_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     baseline_captured_at: Mapped[datetime | None] = mapped_column(

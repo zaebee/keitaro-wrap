@@ -333,13 +333,19 @@ class KeitaroClient(KeitaroClientPort):
                 s.get("filters"), "stream.filters", status
             )
         ]
+        raw_offers = self._optional_object_list(
+            s.get("offers"), "stream.offers", status
+        )
+        for item in raw_offers:
+            if "share" not in item:
+                raise KeitaroError(
+                    status, "malformed response: stream offer is missing share"
+                )
         offers = [
             OfferStreamDTO(
-                offer_id=o["offer_id"], share=o.get("share", 0), state=o.get("state")
+                offer_id=o["offer_id"], share=o["share"], state=o.get("state")
             )
-            for o in self._optional_object_list(
-                s.get("offers"), "stream.offers", status
-            )
+            for o in raw_offers
         ]
         return StreamDTO(
             id=s["id"],

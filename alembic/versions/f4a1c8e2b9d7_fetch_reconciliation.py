@@ -12,6 +12,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
+STREAM_REF_FK = "stream_refs.id"
+
 revision: str = "f4a1c8e2b9d7"
 down_revision: str | Sequence[str] | None = "c7f4a9b1e2d3"
 branch_labels: str | Sequence[str] | None = None
@@ -46,7 +48,7 @@ def upgrade() -> None:
         sa.Column(
             "stream_ref_id",
             sa.Integer(),
-            sa.ForeignKey("stream_refs.id"),
+            sa.ForeignKey(STREAM_REF_FK),
             nullable=False,
         ),
         sa.Column("offers_json", sa.Text(), nullable=False),
@@ -61,7 +63,7 @@ def upgrade() -> None:
         sa.Column(
             "stream_ref_id",
             sa.Integer(),
-            sa.ForeignKey("stream_refs.id"),
+            sa.ForeignKey(STREAM_REF_FK),
             nullable=False,
         ),
         sa.Column("offer_id", sa.Integer(), nullable=False),
@@ -102,7 +104,7 @@ def upgrade() -> None:
         sa.Column(
             "stream_ref_id",
             sa.Integer(),
-            sa.ForeignKey("stream_refs.id"),
+            sa.ForeignKey(STREAM_REF_FK),
             nullable=False,
         ),
         sa.Column("baseline_snapshot_json", sa.Text(), nullable=True),

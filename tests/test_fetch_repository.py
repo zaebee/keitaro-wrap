@@ -232,7 +232,8 @@ def test_share_conflict_is_sticky_and_draft_state_is_untouched(session_factory):
     assert changed.conflicted_drafts == 1
     cached = repository.get_remote_snapshot(12)
     draft = repository.get_draft(12)
-    assert cached is not None and draft is not None
+    assert cached is not None
+    assert draft is not None
     assert cached.offers[0].share == 45
     assert draft.baseline_offers[0].share == 30
     assert draft.is_stale is True

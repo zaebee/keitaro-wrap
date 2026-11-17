@@ -11,7 +11,7 @@ from app.application.dto import FetchStreamsCommand
 from app.application.fetch import FetchService
 from app.db.base import Base
 from app.db.repositories import SqlAlchemyStreamReconciliationRepository
-from app.keitaro_client.client import KeitaroClient
+from app.keitaro_client.client import KeitaroClient, KeitaroError
 
 
 @pytest.fixture
@@ -78,3 +78,61 @@ async def test_fetch_contract_reads_all_streams_and_writes_only_locally(
         (8, 25, "active", 0),
         (5, 75, "paused", 1),
     ]
+
+
+@pytest.mark.asyncio
+async def test_missing_remote_share_fails_fetch_without_local_changes(session_factory):
+    """An offer without share is malformed and leaves committed state untouched."""
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": 12,
+                        "campaign_id": 5,
+                        "type": "regular",
+                        "name": "offers",
+                        "schema": "landings",
+                        "offers": [{"offer_id": 7, "share": 40, "state": "active"}],
+                    }
+                ],
+            )
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "id": 12,
+                    "campaign_id": 5,
+                    "type": "regular",
+                    "name": "offers",
+                    "schema": "landings",
+                    "offers": [{"offer_id": 7, "state": "active"}],
+                }
+            ],
+        )
+
+    repository = SqlAlchemyStreamReconciliationRepository(session_factory)
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="https://example.com"
+    ) as http:
+        service = FetchService(KeitaroClient(http, api_key="secret-key"), repository)
+        command = FetchStreamsCommand(campaign_id=5)
+        await service.fetch(command)
+        before_ref = repository.get_stream_ref(12)
+        before_bindings = repository.get_bindings(12)
+        before_snapshot = repository.get_remote_snapshot(12)
+
+        with pytest.raises(KeitaroError) as exc:
+            await service.fetch(command)
+
+    assert calls == 2
+    assert exc.value.status == 200
+    assert "missing share" in str(exc.value)
+    assert repository.get_stream_ref(12) == before_ref
+    assert repository.get_bindings(12) == before_bindings
+    assert repository.get_remote_snapshot(12) == before_snapshot

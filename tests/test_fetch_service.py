@@ -129,8 +129,10 @@ async def test_duplicate_remote_offers_fail_before_any_local_write():
         ]
     )
     repository = RecordingRepository()
+    use_case = workflow(client, repository)
+    command = FetchStreamsCommand(campaign_id=5)
     with pytest.raises(FetchInputError, match="duplicate offer_id 7"):
-        await workflow(client, repository).fetch(FetchStreamsCommand(campaign_id=5))
+        await use_case.fetch(command)
     assert repository.snapshots == []
 
 
@@ -139,8 +141,10 @@ async def test_malformed_remote_offer_fails_before_any_local_write():
     """Invalid shares are rejected before the repository may run."""
     client = FakeClient([stream(12, [OfferStreamDTO(offer_id=7, share=101)])])
     repository = RecordingRepository()
+    use_case = workflow(client, repository)
+    command = FetchStreamsCommand(campaign_id=5)
     with pytest.raises(FetchInputError, match="share must be an int in 0..100"):
-        await workflow(client, repository).fetch(FetchStreamsCommand(campaign_id=5))
+        await use_case.fetch(command)
     assert repository.snapshots == []
 
 
@@ -150,8 +154,10 @@ async def test_client_read_failure_leaves_local_state_untouched():
     failure = KeitaroError(0, "timeout")
     client = FakeClient([], failure=failure)
     repository = RecordingRepository()
+    use_case = workflow(client, repository)
+    command = FetchStreamsCommand(campaign_id=5)
     with pytest.raises(KeitaroError) as exc:
-        await workflow(client, repository).fetch(FetchStreamsCommand(campaign_id=5))
+        await use_case.fetch(command)
     assert exc.value is failure
     assert repository.snapshots == []
 
@@ -164,10 +170,22 @@ async def test_invalid_remote_stream_identity_is_rejected(
     """Malformed remote stream ids fail before reconciliation."""
     bad = stream(stream_id, [], campaign_id=campaign_id)
     repository = RecordingRepository()
+    use_case = workflow(FakeClient([bad]), repository)
+    command = FetchStreamsCommand(campaign_id=5)
     with pytest.raises(FetchInputError, match="must be"):
-        await workflow(FakeClient([bad]), repository).fetch(
-            FetchStreamsCommand(campaign_id=5)
-        )
+        await use_case.fetch(command)
+    assert repository.snapshots == []
+
+
+@pytest.mark.asyncio
+async def test_foreign_campaign_stream_aborts_fetch_before_repository():
+    """A stream returned for another campaign fails the whole Fetch."""
+    foreign = stream(12, [OfferStreamDTO(offer_id=7, share=100)], campaign_id=6)
+    repository = RecordingRepository()
+    use_case = workflow(FakeClient([foreign]), repository)
+    command = FetchStreamsCommand(campaign_id=5)
+    with pytest.raises(FetchInputError, match="does not match requested campaign 5"):
+        await use_case.fetch(command)
     assert repository.snapshots == []
 
 
@@ -176,8 +194,8 @@ async def test_invalid_remote_stream_identity_is_rejected(
 async def test_invalid_command_is_rejected(campaign_id: object):
     """Fetch rejects non-positive or non-integer campaign ids."""
     repository = RecordingRepository()
+    use_case = workflow(FakeClient([]), repository)
+    command = FetchStreamsCommand(campaign_id=cast(int, campaign_id))
     with pytest.raises(FetchInputError, match="positive int"):
-        await workflow(FakeClient([]), repository).fetch(
-            FetchStreamsCommand(campaign_id=cast(int, campaign_id))
-        )
+        await use_case.fetch(command)
     assert repository.snapshots == []

@@ -40,7 +40,9 @@ class FetchService:
             raise FetchInputError("campaign_id must be a positive int")
         streams = await self._client.list_campaign_streams(command.campaign_id)
         captured_at = datetime.now(UTC).replace(tzinfo=None)
-        fetched = tuple(self._to_fetched(stream) for stream in streams)
+        fetched = tuple(
+            self._to_fetched(stream, command.campaign_id) for stream in streams
+        )
         snapshot = FetchSnapshot(
             campaign_id=command.campaign_id,
             streams=fetched,
@@ -49,12 +51,17 @@ class FetchService:
         return await asyncio.to_thread(self._repository.reconcile, snapshot)
 
     @staticmethod
-    def _to_fetched(stream: StreamDTO) -> FetchedStream:
+    def _to_fetched(stream: StreamDTO, campaign_id: int) -> FetchedStream:
         """Validate one remote stream and preserve the remote offer order."""
         if type(stream.id) is not int or stream.id <= 0:
             raise FetchInputError("stream id must be a positive int")
         if type(stream.campaign_id) is not int or stream.campaign_id <= 0:
             raise FetchInputError(f"stream {stream.id}: campaign_id must be positive")
+        if stream.campaign_id != campaign_id:
+            raise FetchInputError(
+                f"stream {stream.id}: campaign_id {stream.campaign_id} "
+                f"does not match requested campaign {campaign_id}"
+            )
         offers = tuple(
             RemoteOffer(
                 offer_id=offer.offer_id,
