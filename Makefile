@@ -39,6 +39,6 @@ coverage-html:
 doc-coverage:
 	uv run interrogate app
 
-check: format-check lint type-check pytest coverage doc-coverage
+check: format-check lint type-check coverage doc-coverage
 
 all-checks: check

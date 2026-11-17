@@ -16,7 +16,8 @@ FastAPI + SQLAlchemy application (Slice 0 foundation).
 4. Run migrations: `uv run alembic upgrade head`
 5. Start app: `uv run uvicorn app.main:app --reload`
 
-`requirements.txt` is a compatibility shim for pip users (`pip install -r requirements.txt`);
+`requirements.txt` is a compatibility shim for pip users and installs the runtime package only
+(`pip install -r requirements.txt`); development tools are installed with `uv sync`.
 uv is the canonical workflow.
 
 ## Lockfile policy
