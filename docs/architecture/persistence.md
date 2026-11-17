@@ -86,7 +86,8 @@ Failed vs ambiguous:
 
 ## Retry safety
 - A definitive HTTP error does not necessarily prove that no external side effect occurred.
-- Reconcile before retry whenever the request could have caused an external mutation.
+- Retry is allowed only after reconciliation confirms absence of external effect.
+- If the outcome cannot be established, keep the operation ambiguous; no retry.
 - Distinguish: confirmed application, confirmed absence of effect, unresolved outcome.
 - Zero matches under incomplete pagination or uncertain read-after-write consistency does not establish absence.
 
@@ -115,5 +116,3 @@ Failed vs ambiguous:
 - D8: (stream_ref, offer_id) unique proposed.
 - D9: Pin survives archive/reactivation (proposed, open).
 - D10: Committed vs staged separation.
-EOF
-echo done
