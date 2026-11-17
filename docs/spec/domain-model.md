@@ -1,5 +1,7 @@
 # Domain model (SPEC-001)
 
+Cross-reference: persistence design in PERSIST-001 (`docs/architecture/persistence.md`).
+
 ## Entities and ownership
 
 ### CampaignRef (remote reference)
