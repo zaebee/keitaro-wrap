@@ -56,4 +56,3 @@
 - AC3: No secrets in repo.
 - AC4: Ambiguous POST leaves operation ambiguous; no duplicate resources created by blind retry.
 - AC5: Zero reconciliation matches after bounded attempts does not trigger automatic retry and leaves operation ambiguous.
-EOF
