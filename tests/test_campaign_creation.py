@@ -240,9 +240,16 @@ class FakeOperations:
         return self.by_alias.get(alias)
 
     def save(self, operation: CampaignCreationOperation) -> CampaignCreationOperation:
-        """Record a persisted state change and update the stored row."""
+        """Record a persisted state change without regressing terminal status."""
         stored = self.by_uuid.get(operation.operation_uuid)
         if stored is not None:
+            terminal = (
+                OperationStatus.CREATED,
+                OperationStatus.FAILED,
+                OperationStatus.ABANDONED,
+            )
+            if stored.status in terminal and stored.status is not operation.status:
+                return replace(stored)
             stored.__dict__.update(operation.__dict__)
         self.saves.append((operation.status, operation.error_message))
         return operation
@@ -266,13 +273,14 @@ class FakeOperations:
         status: OperationStatus | None,
         error: str | None,
     ) -> CampaignCreationOperation | None:
-        """Confirm a claimed or ambiguous step."""
+        """Confirm a claimed step, idempotently for the same remote ID."""
         entry = self.by_uuid.get(operation_uuid)
-        if entry is None or get_step(entry, stage) not in (
-            StepState.IN_FLIGHT,
-            StepState.AMBIGUOUS,
-            StepState.CONFIRMED,
-        ):
+        if entry is None:
+            return None
+        if get_step(entry, stage) is StepState.CONFIRMED:
+            stored_id = self._remote_id_for(entry, stage)
+            return replace(entry) if stored_id == remote_id else None
+        if get_step(entry, stage) not in (StepState.IN_FLIGHT, StepState.AMBIGUOUS):
             return None
         set_step(entry, stage, StepState.CONFIRMED)
         self._set_remote_id(entry, stage, remote_id)
@@ -290,12 +298,11 @@ class FakeOperations:
         status: OperationStatus | None,
         error: str | None,
     ) -> CampaignCreationOperation | None:
-        """Move a claimed step to ambiguous."""
+        """Move a claimed step to ambiguous, never downgrading confirmed."""
         entry = self.by_uuid.get(operation_uuid)
         if entry is None or get_step(entry, stage) not in (
             StepState.IN_FLIGHT,
             StepState.AMBIGUOUS,
-            StepState.CONFIRMED,
         ):
             return None
         set_step(entry, stage, StepState.AMBIGUOUS)
@@ -316,6 +323,17 @@ class FakeOperations:
             entry.flow_country_id = remote_id
         else:
             entry.flow_offer_id = remote_id
+
+    @classmethod
+    def _remote_id_for(
+        cls, entry: CampaignCreationOperation, stage: CreationStage
+    ) -> int | None:
+        """Read the remote ID stored for a step."""
+        if stage is CreationStage.CAMPAIGN:
+            return entry.keitaro_campaign_id
+        if stage is CreationStage.COUNTRY_FLOW:
+            return entry.flow_country_id
+        return entry.flow_offer_id
 
 
 class IsolatedOperations(FakeOperations):
@@ -896,7 +914,7 @@ async def test_campaign_verification_mismatch(field, value):
     result = await service(client, operations).resume(entry.operation_uuid)
 
     assert result.status is OperationStatus.AMBIGUOUS
-    assert get_step(entry, CreationStage.CAMPAIGN) is StepState.AMBIGUOUS
+    assert get_step(entry, CreationStage.CAMPAIGN) is StepState.CONFIRMED
 
 
 @pytest.mark.parametrize(
@@ -929,7 +947,7 @@ async def test_country_flow_verification_mismatch(field, value):
     result = await service(client, operations).resume(entry.operation_uuid)
 
     assert result.status is OperationStatus.AMBIGUOUS
-    assert get_step(entry, CreationStage.COUNTRY_FLOW) is StepState.AMBIGUOUS
+    assert get_step(entry, CreationStage.COUNTRY_FLOW) is StepState.CONFIRMED
 
 
 @pytest.mark.parametrize(
@@ -961,7 +979,7 @@ async def test_offer_flow_shape_verification_mismatch(field, value):
     result = await service(client, operations).resume(entry.operation_uuid)
 
     assert result.status is OperationStatus.AMBIGUOUS
-    assert get_step(entry, CreationStage.OFFER_FLOW) is StepState.AMBIGUOUS
+    assert get_step(entry, CreationStage.OFFER_FLOW) is StepState.CONFIRMED
 
 
 @pytest.mark.parametrize(
@@ -1099,6 +1117,81 @@ def test_repository_atomic_step_claim(tmp_path):
     assert confirmed.campaign_step is StepState.CONFIRMED
     assert confirmed.keitaro_campaign_id == 55
     assert repository.claim_step(entry.operation_uuid, CreationStage.CAMPAIGN) is None
+
+    downgraded = repository.mark_step_ambiguous(
+        entry.operation_uuid,
+        CreationStage.CAMPAIGN,
+        status=OperationStatus.AMBIGUOUS,
+        error="late failure",
+    )
+    assert downgraded is None
+    stored = repository.get_by_uuid(entry.operation_uuid)
+    assert stored is not None
+    assert stored.campaign_step is StepState.CONFIRMED
+    replaced = repository.confirm_step(
+        entry.operation_uuid,
+        CreationStage.CAMPAIGN,
+        remote_id=99,
+        status=None,
+        error=None,
+    )
+    assert replaced is None
+    after_replace = repository.get_by_uuid(entry.operation_uuid)
+    assert after_replace is not None
+    assert after_replace.keitaro_campaign_id == 55
+    assert (
+        repository.confirm_step(
+            entry.operation_uuid,
+            CreationStage.CAMPAIGN,
+            remote_id=55,
+            status=None,
+            error=None,
+        )
+        is not None
+    )
+
+
+def test_stale_save_cannot_overwrite_terminal_status(tmp_path):
+    """A stale snapshot cannot move a created operation back to partial."""
+    engine = create_engine(f"sqlite:///{tmp_path / 'terminal.db'}")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine)
+    repository = SqlAlchemyCampaignCreationOperations(factory)
+    entry = operation()
+    repository.add(entry)
+    entry.transition_to(OperationStatus.CREATED)
+    repository.save(entry)
+
+    stale = replace(entry)
+    stale.status = OperationStatus.PARTIAL
+    stale.keitaro_campaign_id = 999
+    stale.error_message = "stale error"
+    repository.save(stale)
+
+    stored = repository.get_by_uuid(entry.operation_uuid)
+    assert stored is not None
+    assert stored.status is OperationStatus.CREATED
+    assert stored.keitaro_campaign_id is None
+    assert stored.error_message is None
+
+
+@pytest.mark.asyncio
+async def test_mark_unverified_cannot_downgrade_confirmed():
+    """A stale late failure cannot revert a confirmed step or its status."""
+    operations = FakeOperations()
+    entry = operation(status=OperationStatus.PARTIAL, campaign_id=10)
+    set_step(entry, CreationStage.CAMPAIGN, StepState.CONFIRMED)
+    operations.add(entry)
+    workflow = service(FakeClient(), operations)
+
+    await workflow._mark_unverified(
+        replace(entry), CreationStage.CAMPAIGN, "late failure"
+    )
+
+    stored = operations.by_uuid[entry.operation_uuid]
+    assert get_step(stored, CreationStage.CAMPAIGN) is StepState.CONFIRMED
+    assert stored.status is OperationStatus.AMBIGUOUS
+    assert stored.error_message == "late failure"
 
 
 def test_repository_roundtrip(tmp_path):

@@ -218,7 +218,9 @@ class CampaignCreationService:
             operation.transition_to(status, error)
         elif error is not None:
             operation.error_message = error
-        await asyncio.to_thread(self._operations.save, operation)
+        saved = await asyncio.to_thread(self._operations.save, operation)
+        if saved is not operation:
+            self._copy_state(operation, saved)
 
     async def _execute(
         self, operation: CampaignCreationOperation
@@ -519,7 +521,7 @@ class CampaignCreationService:
         error: str,
     ) -> None:
         """Keep an unverified step recoverable without repeating its POST."""
-        await asyncio.to_thread(
+        marked = await asyncio.to_thread(
             self._operations.mark_step_ambiguous,
             operation.operation_uuid,
             stage,
@@ -530,7 +532,23 @@ class CampaignCreationService:
             ),
             error=error,
         )
-        set_step(operation, stage, StepState.AMBIGUOUS)
+        if marked is None:
+            fresh = await self._reload(operation)
+            if fresh is not None:
+                self._copy_state(operation, fresh)
+        else:
+            self._copy_state(operation, marked)
+        if operation.status in (
+            OperationStatus.CREATED,
+            OperationStatus.FAILED,
+            OperationStatus.ABANDONED,
+        ):
+            return
+        await self._save(
+            operation,
+            status=OperationStatus.AMBIGUOUS,
+            error=error,
+        )
 
     @staticmethod
     def _campaign_matches(operation: CampaignCreationOperation, campaign: Any) -> bool:

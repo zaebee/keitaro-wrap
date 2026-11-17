@@ -13,6 +13,7 @@ from app.domain.campaign_creation import (
     CreationStage,
     OperationStatus,
     StepState,
+    get_step,
 )
 
 _STEP_ID_FIELDS: dict[CreationStage, str] = {
@@ -82,6 +83,13 @@ class SqlAlchemyCampaignCreationOperations:
             model = session.get(CampaignCreationOperationModel, operation.id)
             if model is None:
                 raise ValueError(f"unknown operation id {operation.id}")
+            terminal = (
+                OperationStatus.CREATED.value,
+                OperationStatus.FAILED.value,
+                OperationStatus.ABANDONED.value,
+            )
+            if model.status in terminal and model.status != operation.status.value:
+                return self._to_domain(model)
             model.status = operation.status.value
             model.keitaro_campaign_id = operation.keitaro_campaign_id
             model.flow_country_id = operation.flow_country_id
@@ -130,7 +138,16 @@ class SqlAlchemyCampaignCreationOperations:
             values["status"] = status.value
         if error is not None:
             values["error_message"] = error
-        return self._update_step(operation_uuid, stage, values)
+        stored = self.get_by_uuid(operation_uuid)
+        if stored is not None and get_step(stored, stage) is StepState.CONFIRMED:
+            confirmed_id = getattr(stored, _STEP_ID_FIELDS[stage])
+            return stored if confirmed_id == remote_id else None
+        return self._update_step(
+            operation_uuid,
+            stage,
+            values,
+            (StepState.IN_FLIGHT, StepState.AMBIGUOUS),
+        )
 
     def mark_step_ambiguous(
         self,
@@ -146,13 +163,19 @@ class SqlAlchemyCampaignCreationOperations:
             values["status"] = status.value
         if error is not None:
             values["error_message"] = error
-        return self._update_step(operation_uuid, stage, values)
+        return self._update_step(
+            operation_uuid,
+            stage,
+            values,
+            (StepState.IN_FLIGHT, StepState.AMBIGUOUS),
+        )
 
     def _update_step(
         self,
         operation_uuid: str,
         stage: CreationStage,
         values: dict[str, object],
+        allowed: tuple[StepState, ...],
     ) -> CampaignCreationOperation | None:
         """Apply a conditional step update and reload the row on success."""
         column = getattr(CampaignCreationOperationModel, STEP_FIELDS[stage])
@@ -160,15 +183,7 @@ class SqlAlchemyCampaignCreationOperations:
             result = session.execute(
                 update(CampaignCreationOperationModel)
                 .where(CampaignCreationOperationModel.operation_uuid == operation_uuid)
-                .where(
-                    column.in_(
-                        [
-                            StepState.IN_FLIGHT.value,
-                            StepState.AMBIGUOUS.value,
-                            StepState.CONFIRMED.value,
-                        ]
-                    )
-                )
+                .where(column.in_([state.value for state in allowed]))
                 .values(**values)
             )
             session.commit()
