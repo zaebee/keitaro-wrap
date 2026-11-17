@@ -2,8 +2,8 @@
 
 ## Dependency direction
 Transport (FastAPI routes) → Application services → Domain (pure).
-Adapters (Keitaro client, persistence repositories) implement application/domain ports.
-Composition root wires dependencies. Domain has no dependencies on FastAPI, SQLAlchemy, or Keitaro transport.
+Adapters (Keitaro client, persistence repositories) implement application-owned ports.
+Composition root wires dependencies. Domain remains pure and independent of I/O abstractions.
 
 ## Modules
 
@@ -13,14 +13,14 @@ Composition root wires dependencies. Domain has no dependencies on FastAPI, SQLA
 
 ### domain
 - Owns: entities, invariants, allocation (LRM).
-- Pure Python, no I/O.
+- Pure Python, no I/O, no ports.
 
 ### application
-- Owns: workflows, orchestration, ports (interfaces).
-- Depends on domain + ports.
+- Owns: workflows, orchestration, and ports/interfaces (KeitaroClientPort, repositories).
+- Depends on domain + ports. Does not depend on adapters.
 
 ### keitaro_client (adapter)
-- Owns: HTTP transport, auth, DTOs, safe retries.
+- Owns: HTTP transport, auth, DTOs, safe read retries.
 - Implements KeitaroClientPort.
 
 ### persistence (adapter)
@@ -35,6 +35,6 @@ Composition root wires dependencies. Domain has no dependencies on FastAPI, SQLA
 - Owns: UI; calls API.
 
 ## Rules
-- Domain independent of transport/persistence.
-- Application depends on domain and ports, not adapters.
-- Adapters implement ports; composition root wires.
+- Application owns ports; adapters implement them.
+- Domain independent of transport/persistence/I/O.
+- Composition root wires adapters to application.

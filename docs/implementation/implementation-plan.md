@@ -9,20 +9,22 @@ flowchart TD
   S0[Slice 0: Foundation] --> S1[Slice 1: Keitaro client]
   S0 --> S2[Slice 2: Allocation domain]
   S1 --> S3[Slice 3: Campaign creation]
-  S2 --> S4[Slice 4: Fetch/reconciliation]
+  S1 --> S4[Slice 4: Fetch/reconciliation]
+  S2 --> S4
   S4 --> S5[Slice 5: Draft editing]
   S5 --> S6[Slice 6: Push/Cancel/recovery]
 ```
+Notes: Campaign creation does not depend on allocation. Fetch/reconciliation depends on Keitaro client and allocation domain (bindings), not on campaign creation.
 
 ## Slices
 
-### Slice 0 — Foundation (persistence + config + composition)
-- Capability: app starts, DB migrated, settings loaded, health.
-- Modules: config, persistence models/migrations, composition root, api health.
+### Slice 0 — Foundation (bootstrap + persistence scaffolding)
+- Capability: app starts, DB initialized, settings loaded, health.
+- Modules: config, persistence bootstrap (engine/session), Alembic initial migration (infrastructure only), api health, composition root.
 - Prerequisites: none.
-- Persistence/API: Alembic initial migration; settings table.
+- Persistence/API: bootstrap DB + settings table. Do not introduce domain tables/constraints that settle unresolved duplicate-binding policy yet.
 - Tests: migration smoke, settings load, health.
-- Failure cases: missing .env, DB path invalid.
+- Failure cases: missing .env, invalid DB path.
 - Completion: `alembic upgrade head` ok, `/health` ok.
 
 ### Slice 1 — Keitaro client
@@ -44,16 +46,16 @@ flowchart TD
 ### Slice 3 — Campaign creation workflow
 - Capability: create campaign with two flows, partial failure/reconciliation.
 - Modules: application campaign service, operation persistence.
-- Prerequisites: Slices 0-2 + Keitaro client.
+- Prerequisites: Slices 0-1 (not allocation).
 - Persistence: CampaignCreationOperation states.
-- Tests: partial failure at each step, reconciliation (0/1/>1), ambiguous handling.
+- Tests: partial failure, reconciliation (0/1/>1), ambiguous handling.
 - Failure cases: timeout, 422, ambiguous POST.
-- Completion: end-to-end creation with recovery.
+- Completion: end-to-end campaign creation with recovery.
 
 ### Slice 4 — Fetch/reconciliation
 - Capability: fetch all streams, reconcile remote offers into bindings, detect conflicts.
 - Modules: application fetch service.
-- Prerequisites: Slices 0-3.
+- Prerequisites: Slices 0-2 (client + allocation domain for binding invariants).
 - Tests: remote add/remove/reappear/share change, conflict detection, no silent overwrite.
 - Completion: Fetch updates committed cache and marks conflicts.
 
@@ -72,17 +74,27 @@ flowchart TD
 - Completion: recovery without blind retries.
 
 ## Decision gates (open unless resolved)
-| Question | Blocks | Seam/defer |
+| Question | Classification | Blocks / seam |
 |---|---|---|
-| pinned_sum > 100% | S2/S6 | confirmed invalid |
-| active total == 100%? | S6 | provisional seam |
-| empty offers array | S3/S6 | defer (verify API) |
-| manual share implies pinning? | S5 | seam |
-| pin preservation on reappear | S4 | seam |
-| duplicate bindings | S4/S5 | seam |
-| multiple offer-bearing streams | S4/S5/S6 | seam |
-| flow type/priority | S3 | seam (keep open) |
-| Google destination fixed/configurable | S3 | seam |
+| pinned_sum > 100% | confirmed invalid | S2/S6 |
+| active total == 100%? | open | S6 (seam) |
+| empty offers array | open | S3/S6 (defer) |
+| manual share implies pinning? | open | S5 (seam) |
+| pin preservation on reappear | open | S4 (seam) |
+| duplicate bindings | open | S4/S5 (seam) |
+| zero/one active offers | open | S2/S6 (seam) |
+| all-pinned remainder | open | S2/S6 (seam) |
+| manual pinned-share changes | open | S5 (seam) |
+| duplicate archived offers | open | S4/S5 (seam) |
+| remote share changes during draft | open | S4/S5 (seam) |
+| Cancel after partial Push | open | S6 (seam) |
+| multiple offer-bearing streams | open | S4/S5/S6 (seam) |
+| flow type/priority | open | S3 (seam) |
+| Google destination fixed/configurable | open | S3 (seam) |
+
+## Retry safety
+- Automatic retries may be used for safe read-only requests.
+- Mutating requests must follow publication/reconciliation policy; never blindly retry ambiguous POST/PUT outcomes.
 
 ## Recovery mapping
 - Restart during in-progress publication: Slice 6 startup reconciliation.
