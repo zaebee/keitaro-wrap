@@ -7,7 +7,6 @@ Dependency-ordered vertical slices with clear boundaries. Docs-only.
 ```mermaid
 flowchart TD
   S0[Slice 0: Foundation] --> S1[Slice 1: Keitaro client]
-  S0 --> S2[Slice 2: Allocation domain]
   S1 --> S3[Slice 3: Campaign creation]
   S1 --> S4[Slice 4: Fetch/reconciliation]
   S2 --> S4
