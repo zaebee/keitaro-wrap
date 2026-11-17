@@ -131,7 +131,7 @@ class KeitaroClient(KeitaroClientPort):
         """list_domains."""
         data = await self._request("GET", "/domains", retries=2)
         if not isinstance(data, list):
-            return []
+            raise KeitaroError(0, "unexpected response shape")
         return [
             DomainDTO(id=d["id"], name=d.get("name", ""), state=d.get("state"))
             for d in data
@@ -201,7 +201,7 @@ class KeitaroClient(KeitaroClientPort):
     async def list_campaigns(
         self, offset: int = 0, limit: int = 100
     ) -> list[CampaignDTO]:
-        """list_campaigns."""
+        """List campaigns (page-oriented; offset/limit)."""
         data = (
             await self._request(
                 "GET",

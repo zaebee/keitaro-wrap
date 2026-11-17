@@ -114,8 +114,8 @@ async def test_unexpected_shape():
         return httpx.Response(200, json={"unexpected": True})
 
     client = make_client(handler)
-    result = await client.list_domains()
-    assert result == []
+    with pytest.raises(KeitaroError):
+        await client.list_domains()
 
 
 @pytest.mark.asyncio
@@ -211,7 +211,8 @@ async def test_create_campaign_payload():
 
     def handler(request):
         body = request.read().decode()
-        assert "alias" in body and "name" in body
+        assert "alias" in body
+        assert "name" in body
         return httpx.Response(200, json={"id": 10, "name": "n", "alias": "a"})
 
     payload = CampaignCreateDTO(
