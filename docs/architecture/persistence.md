@@ -24,7 +24,7 @@ Remote entities (Campaign/Stream/Offer) are not persisted; only their IDs are st
 
 ### CampaignCreationOperation
 Fields: id, operation_uuid (unique), alias (unique, remote correlation), name, country_code, offer_id, keitaro_campaign_id, flow_country_id, flow_offer_id, domain_id, group_id, traffic_source_id, redirect_url (resolved intent, not reloaded on resume), status (started|partial|ambiguous|created|failed|abandoned), campaign_step, country_flow_step, offer_flow_step (not_started|in_flight|confirmed|ambiguous), error_message, created_at, updated_at.
-Ownership: wrapper operational. Each mutating step is persisted as `in_flight` before its POST and as `confirmed` with the remote ID only after confirmation; `in_flight`/`ambiguous` steps may only reconcile on resume.
+Ownership: wrapper operational. Each mutating step is persisted as `in_flight` before its POST and as `confirmed` with the remote ID only after confirmation; the `not_started` → `in_flight` claim is an atomic conditional update, so only one worker may POST a step. `in_flight`/`ambiguous` steps may only reconcile on resume, and non-step `save()` calls cannot overwrite a newer step state.
 
 ### StreamOfferBinding (committed)
 Fields: id, stream_ref (remote id), offer_id, lifecycle (ACTIVE|ARCHIVED), is_pinned, last_remote_share (nullable cache), archived_at, reactivated_at, created_at, updated_at.

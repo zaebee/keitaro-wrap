@@ -1,4 +1,4 @@
-"""Campaign creation workflow: durable steps, reconciliation and verification."""
+"""Campaign creation workflow: atomic step claims, reconciliation and verification."""
 
 import asyncio
 import re
@@ -144,6 +144,39 @@ class CampaignCreationService:
             raise RuntimeError("campaign ID is required before stream steps")
         return operation.keitaro_campaign_id
 
+    @staticmethod
+    def _remote_id(
+        operation: CampaignCreationOperation, stage: CreationStage
+    ) -> int | None:
+        """Return the operation's remote ID for one stage."""
+        if stage is CreationStage.CAMPAIGN:
+            return operation.keitaro_campaign_id
+        if stage is CreationStage.COUNTRY_FLOW:
+            return operation.flow_country_id
+        return operation.flow_offer_id
+
+    @staticmethod
+    def _copy_state(
+        target: CampaignCreationOperation, source: CampaignCreationOperation
+    ) -> None:
+        """Adopt freshly loaded state so a stale snapshot cannot overwrite it."""
+        target.status = source.status
+        target.keitaro_campaign_id = source.keitaro_campaign_id
+        target.flow_country_id = source.flow_country_id
+        target.flow_offer_id = source.flow_offer_id
+        target.error_message = source.error_message
+        target.campaign_step = source.campaign_step
+        target.country_flow_step = source.country_flow_step
+        target.offer_flow_step = source.offer_flow_step
+
+    async def _reload(
+        self, operation: CampaignCreationOperation
+    ) -> CampaignCreationOperation | None:
+        """Load the current durable state through the repository port."""
+        return await asyncio.to_thread(
+            self._operations.get_by_uuid, operation.operation_uuid
+        )
+
     async def _verify_offer(self, offer_id: int) -> None:
         """Confirm that the selected offer exists in Keitaro."""
         try:
@@ -180,7 +213,7 @@ class CampaignCreationService:
         status: OperationStatus | None = None,
         error: str | None = None,
     ) -> None:
-        """Persist operation state through the synchronous repository port."""
+        """Persist non-step operation state through the repository port."""
         if status is not None and status is not operation.status:
             operation.transition_to(status, error)
         elif error is not None:
@@ -190,37 +223,66 @@ class CampaignCreationService:
     async def _execute(
         self, operation: CampaignCreationOperation
     ) -> CampaignCreationResult:
-        """Execute or reconcile each step in order, never repeating a confirmed POST."""
+        """Claim or reconcile each step in order; only one worker may POST a step."""
+        current = operation
         for stage in CreationStage:
-            state = get_step(operation, stage)
+            state = get_step(current, stage)
             if state is StepState.CONFIRMED:
                 continue
             if state is StepState.NOT_STARTED:
-                if not await self._run_step(operation, stage):
-                    return self._to_result(operation)
-            elif not await self._recover_step(operation, stage):
-                return self._to_result(operation)
-        return await self._verify_and_complete(operation)
+                claimed = await asyncio.to_thread(
+                    self._operations.claim_step, current.operation_uuid, stage
+                )
+                if claimed is None:
+                    fresh = await self._reload(current)
+                    if fresh is None:
+                        return self._to_result(current)
+                    self._copy_state(current, fresh)
+                    if get_step(current, stage) is StepState.CONFIRMED:
+                        continue
+                    if get_step(current, stage) is StepState.IN_FLIGHT:
+                        if not await self._recover_step(current, stage):
+                            return self._to_result(current)
+                        continue
+                    return self._to_result(current)
+                set_step(current, stage, StepState.IN_FLIGHT)
+                if not await self._post_and_confirm(current, stage):
+                    return self._to_result(current)
+            elif not await self._recover_step(current, stage):
+                return self._to_result(current)
+        return await self._verify_and_complete(current)
 
-    async def _run_step(
+    async def _post_and_confirm(
         self, operation: CampaignCreationOperation, stage: CreationStage
     ) -> bool:
-        """Persist in-flight intent, POST once and persist confirmation."""
-        set_step(operation, stage, StepState.IN_FLIGHT)
-        await self._save(operation)
+        """POST once after an atomic claim, then persist confirmation."""
         try:
             resource = await self._post_step(operation, stage)
         except Exception as exc:
             return await self._handle_step_failure(operation, stage, exc)
         self._adopt(operation, stage, resource)
         set_step(operation, stage, StepState.CONFIRMED)
-        if (
-            stage is CreationStage.CAMPAIGN
+        target = (
+            OperationStatus.PARTIAL
+            if stage is CreationStage.CAMPAIGN
             and operation.status is OperationStatus.STARTED
-        ):
-            await self._save(operation, status=OperationStatus.PARTIAL)
-        else:
-            await self._save(operation)
+            else None
+        )
+        confirmed = await asyncio.to_thread(
+            self._operations.confirm_step,
+            operation.operation_uuid,
+            stage,
+            remote_id=resource.id,
+            status=target,
+            error=None,
+        )
+        if confirmed is None:
+            fresh = await self._reload(operation)
+            if fresh is None:
+                return False
+            self._copy_state(operation, fresh)
+            return get_step(operation, stage) is StepState.CONFIRMED
+        self._copy_state(operation, confirmed)
         return True
 
     async def _post_step(
@@ -279,38 +341,69 @@ class CampaignCreationService:
         exc: Exception,
     ) -> bool:
         """Classify a failed POST and reconcile only when the outcome is uncertain."""
-        set_step(operation, stage, StepState.AMBIGUOUS)
         status = _client_error_status(exc)
-        if _is_definitive_rejection(status):
-            target = (
+        target = (
+            (
                 None
                 if operation.status is OperationStatus.AMBIGUOUS
                 else OperationStatus.FAILED
             )
-            await self._save(operation, status=target, error=f"{stage.value}: {exc}")
-            return False
-        await self._save(
-            operation,
-            status=(
+            if _is_definitive_rejection(status)
+            else (
                 None
                 if operation.status is OperationStatus.AMBIGUOUS
                 else OperationStatus.AMBIGUOUS
-            ),
-            error=f"{stage.value}: uncertain outcome ({exc})",
+            )
         )
+        error = (
+            f"{stage.value}: definitive rejection ({exc})"
+            if _is_definitive_rejection(status)
+            else f"{stage.value}: uncertain outcome ({exc})"
+        )
+        marked = await asyncio.to_thread(
+            self._operations.mark_step_ambiguous,
+            operation.operation_uuid,
+            stage,
+            status=target,
+            error=error,
+        )
+        if marked is None:
+            fresh = await self._reload(operation)
+            if fresh is None:
+                return False
+            self._copy_state(operation, fresh)
+            return get_step(operation, stage) is StepState.CONFIRMED
+        self._copy_state(operation, marked)
+        if _is_definitive_rejection(status):
+            return False
         return await self._recover_step(operation, stage)
 
     async def _recover_step(
         self, operation: CampaignCreationOperation, stage: CreationStage
     ) -> bool:
         """Reconcile an attempted step; adoption is confirmed only by read-back."""
-        set_step(operation, stage, StepState.AMBIGUOUS)
         matches = await self._reconcile(operation, stage)
         if len(matches) == 1:
             self._adopt(operation, stage, matches[0])
-            await self._save(operation)
             return await self._verify_step(operation, stage)
-        await self._save(operation, error=f"{stage.value}: unresolved ({len(matches)})")
+        marked = await asyncio.to_thread(
+            self._operations.mark_step_ambiguous,
+            operation.operation_uuid,
+            stage,
+            status=(
+                None
+                if operation.status is OperationStatus.AMBIGUOUS
+                else OperationStatus.AMBIGUOUS
+            ),
+            error=f"{stage.value}: unresolved ({len(matches)})",
+        )
+        if marked is None:
+            fresh = await self._reload(operation)
+            if fresh is not None:
+                self._copy_state(operation, fresh)
+                return get_step(operation, stage) is StepState.CONFIRMED
+        elif marked is not None:
+            self._copy_state(operation, marked)
         return False
 
     async def _reconcile(
@@ -381,13 +474,13 @@ class CampaignCreationService:
                 streams = await self._client.list_campaign_streams(
                     self._campaign_id(operation)
                 )
-                expected_id = (
-                    operation.flow_country_id
-                    if stage is CreationStage.COUNTRY_FLOW
-                    else operation.flow_offer_id
-                )
                 stream = next(
-                    (item for item in streams if item.id == expected_id), None
+                    (
+                        item
+                        for item in streams
+                        if item.id == self._remote_id(operation, stage)
+                    ),
+                    None,
                 )
                 if stage is CreationStage.COUNTRY_FLOW:
                     matches = stream is not None and self._country_flow_matches(
@@ -405,8 +498,20 @@ class CampaignCreationService:
                 operation, stage, "readback verification failed"
             )
             return False
-        set_step(operation, stage, StepState.CONFIRMED)
-        await self._save(operation)
+        confirmed = await asyncio.to_thread(
+            self._operations.confirm_step,
+            operation.operation_uuid,
+            stage,
+            remote_id=self._remote_id(operation, stage),
+            status=None,
+            error=None,
+        )
+        if confirmed is None:
+            fresh = await self._reload(operation)
+            if fresh is not None:
+                self._copy_state(operation, fresh)
+            return get_step(operation, stage) is StepState.CONFIRMED
+        self._copy_state(operation, confirmed)
         return True
 
     async def _mark_unverified(
@@ -416,9 +521,10 @@ class CampaignCreationService:
         error: str,
     ) -> None:
         """Keep an unverified step recoverable without repeating its POST."""
-        set_step(operation, stage, StepState.AMBIGUOUS)
-        await self._save(
-            operation,
+        await asyncio.to_thread(
+            self._operations.mark_step_ambiguous,
+            operation.operation_uuid,
+            stage,
             status=(
                 None
                 if operation.status is OperationStatus.AMBIGUOUS
@@ -426,6 +532,7 @@ class CampaignCreationService:
             ),
             error=error,
         )
+        set_step(operation, stage, StepState.AMBIGUOUS)
 
     @staticmethod
     def _campaign_matches(operation: CampaignCreationOperation, campaign: Any) -> bool:

@@ -18,7 +18,11 @@ from app.application.dto import (
     StreamUpdateDTO,
     TrafficSourceDTO,
 )
-from app.domain.campaign_creation import CampaignCreationOperation
+from app.domain.campaign_creation import (
+    CampaignCreationOperation,
+    CreationStage,
+    OperationStatus,
+)
 
 
 class KeitaroClientPort(Protocol):
@@ -113,7 +117,36 @@ class CampaignCreationOperationRepository(Protocol):
         ...
 
     def save(self, operation: CampaignCreationOperation) -> CampaignCreationOperation:
-        """Persist changes to an existing operation."""
+        """Persist non-step changes to an existing operation."""
+        ...
+
+    def claim_step(
+        self, operation_uuid: str, stage: CreationStage
+    ) -> CampaignCreationOperation | None:
+        """Atomically claim a not_started step; return None if already claimed."""
+        ...
+
+    def confirm_step(
+        self,
+        operation_uuid: str,
+        stage: CreationStage,
+        *,
+        remote_id: int | None,
+        status: OperationStatus | None,
+        error: str | None,
+    ) -> CampaignCreationOperation | None:
+        """Atomically confirm a claimed/ambiguous step and its remote ID."""
+        ...
+
+    def mark_step_ambiguous(
+        self,
+        operation_uuid: str,
+        stage: CreationStage,
+        *,
+        status: OperationStatus | None,
+        error: str | None,
+    ) -> CampaignCreationOperation | None:
+        """Atomically mark a claimed step ambiguous without authorizing a retry."""
         ...
 
 

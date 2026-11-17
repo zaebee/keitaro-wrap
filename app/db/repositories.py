@@ -1,5 +1,6 @@
 """Synchronous SQLAlchemy adapters for application-owned repository ports."""
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.application.dto import ConfiguredResources
@@ -7,10 +8,18 @@ from app.core.config import settings
 from app.db.models import AppSettings, CampaignCreationOperationModel
 from app.db.session import SessionLocal
 from app.domain.campaign_creation import (
+    STEP_FIELDS,
     CampaignCreationOperation,
+    CreationStage,
     OperationStatus,
     StepState,
 )
+
+_STEP_ID_FIELDS: dict[CreationStage, str] = {
+    CreationStage.CAMPAIGN: "keitaro_campaign_id",
+    CreationStage.COUNTRY_FLOW: "flow_country_id",
+    CreationStage.OFFER_FLOW: "flow_offer_id",
+}
 
 
 class SqlAlchemyCampaignCreationOperations:
@@ -78,13 +87,94 @@ class SqlAlchemyCampaignCreationOperations:
             model.flow_country_id = operation.flow_country_id
             model.flow_offer_id = operation.flow_offer_id
             model.error_message = operation.error_message
-            model.campaign_step = operation.campaign_step.value
-            model.country_flow_step = operation.country_flow_step.value
-            model.offer_flow_step = operation.offer_flow_step.value
             session.commit()
             session.refresh(model)
             operation.updated_at = model.updated_at
         return operation
+
+    def claim_step(
+        self, operation_uuid: str, stage: CreationStage
+    ) -> CampaignCreationOperation | None:
+        """Atomically move a not_started step to in_flight."""
+        column = STEP_FIELDS[stage]
+        with self._session_factory() as session:
+            result = session.execute(
+                update(CampaignCreationOperationModel)
+                .where(CampaignCreationOperationModel.operation_uuid == operation_uuid)
+                .where(
+                    getattr(CampaignCreationOperationModel, column)
+                    == StepState.NOT_STARTED.value
+                )
+                .values(**{column: StepState.IN_FLIGHT.value})
+            )
+            session.commit()
+            if getattr(result, "rowcount", 0) != 1:
+                return None
+        return self.get_by_uuid(operation_uuid)
+
+    def confirm_step(
+        self,
+        operation_uuid: str,
+        stage: CreationStage,
+        *,
+        remote_id: int | None,
+        status: OperationStatus | None,
+        error: str | None,
+    ) -> CampaignCreationOperation | None:
+        """Atomically confirm a claimed/ambiguous step and store its remote ID."""
+        values: dict[str, object] = {
+            STEP_FIELDS[stage]: StepState.CONFIRMED.value,
+            _STEP_ID_FIELDS[stage]: remote_id,
+        }
+        if status is not None:
+            values["status"] = status.value
+        if error is not None:
+            values["error_message"] = error
+        return self._update_step(operation_uuid, stage, values)
+
+    def mark_step_ambiguous(
+        self,
+        operation_uuid: str,
+        stage: CreationStage,
+        *,
+        status: OperationStatus | None,
+        error: str | None,
+    ) -> CampaignCreationOperation | None:
+        """Atomically move a claimed step to ambiguous without allowing a retry."""
+        values: dict[str, object] = {STEP_FIELDS[stage]: StepState.AMBIGUOUS.value}
+        if status is not None:
+            values["status"] = status.value
+        if error is not None:
+            values["error_message"] = error
+        return self._update_step(operation_uuid, stage, values)
+
+    def _update_step(
+        self,
+        operation_uuid: str,
+        stage: CreationStage,
+        values: dict[str, object],
+    ) -> CampaignCreationOperation | None:
+        """Apply a conditional step update and reload the row on success."""
+        column = getattr(CampaignCreationOperationModel, STEP_FIELDS[stage])
+        with self._session_factory() as session:
+            result = session.execute(
+                update(CampaignCreationOperationModel)
+                .where(CampaignCreationOperationModel.operation_uuid == operation_uuid)
+                .where(
+                    column.in_(
+                        [
+                            StepState.IN_FLIGHT.value,
+                            StepState.AMBIGUOUS.value,
+                            StepState.CONFIRMED.value,
+                        ]
+                    )
+                )
+                .values(**values)
+            )
+            session.commit()
+            if getattr(result, "rowcount", 0) != 1:
+                return None
+        return self.get_by_uuid(operation_uuid)
 
     @staticmethod
     def _to_domain(

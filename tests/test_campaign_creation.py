@@ -1,5 +1,7 @@
 """Unit and mocked workflow tests for Slice 3 campaign creation."""
 
+import asyncio
+from dataclasses import replace
 from typing import cast
 
 import pytest
@@ -238,9 +240,91 @@ class FakeOperations:
         return self.by_alias.get(alias)
 
     def save(self, operation: CampaignCreationOperation) -> CampaignCreationOperation:
-        """Record a persisted state change."""
+        """Record a persisted state change and update the stored row."""
+        stored = self.by_uuid.get(operation.operation_uuid)
+        if stored is not None:
+            stored.__dict__.update(operation.__dict__)
         self.saves.append((operation.status, operation.error_message))
         return operation
+
+    def claim_step(
+        self, operation_uuid: str, stage: CreationStage
+    ) -> CampaignCreationOperation | None:
+        """Claim a step only if it is still not_started."""
+        entry = self.by_uuid.get(operation_uuid)
+        if entry is None or get_step(entry, stage) is not StepState.NOT_STARTED:
+            return None
+        set_step(entry, stage, StepState.IN_FLIGHT)
+        return replace(entry)
+
+    def confirm_step(
+        self,
+        operation_uuid: str,
+        stage: CreationStage,
+        *,
+        remote_id: int | None,
+        status: OperationStatus | None,
+        error: str | None,
+    ) -> CampaignCreationOperation | None:
+        """Confirm a claimed or ambiguous step."""
+        entry = self.by_uuid.get(operation_uuid)
+        if entry is None or get_step(entry, stage) not in (
+            StepState.IN_FLIGHT,
+            StepState.AMBIGUOUS,
+            StepState.CONFIRMED,
+        ):
+            return None
+        set_step(entry, stage, StepState.CONFIRMED)
+        self._set_remote_id(entry, stage, remote_id)
+        if status is not None:
+            entry.status = status
+        if error is not None:
+            entry.error_message = error
+        return replace(entry)
+
+    def mark_step_ambiguous(
+        self,
+        operation_uuid: str,
+        stage: CreationStage,
+        *,
+        status: OperationStatus | None,
+        error: str | None,
+    ) -> CampaignCreationOperation | None:
+        """Move a claimed step to ambiguous."""
+        entry = self.by_uuid.get(operation_uuid)
+        if entry is None or get_step(entry, stage) not in (
+            StepState.IN_FLIGHT,
+            StepState.AMBIGUOUS,
+            StepState.CONFIRMED,
+        ):
+            return None
+        set_step(entry, stage, StepState.AMBIGUOUS)
+        if status is not None:
+            entry.status = status
+        if error is not None:
+            entry.error_message = error
+        return replace(entry)
+
+    @staticmethod
+    def _set_remote_id(
+        entry: CampaignCreationOperation, stage: CreationStage, remote_id: int | None
+    ) -> None:
+        """Assign a remote ID to the step's field."""
+        if stage is CreationStage.CAMPAIGN:
+            entry.keitaro_campaign_id = remote_id
+        elif stage is CreationStage.COUNTRY_FLOW:
+            entry.flow_country_id = remote_id
+        else:
+            entry.flow_offer_id = remote_id
+
+
+class IsolatedOperations(FakeOperations):
+    """Repository double returning fresh snapshots, like a database round-trip."""
+
+    def get_by_uuid(self, operation_uuid: str) -> CampaignCreationOperation | None:
+        """Return a copy so two workers cannot share stale in-memory state."""
+        entry = super().get_by_uuid(operation_uuid)
+        return replace(entry) if entry is not None else None
 
 
 class FakeSettings:
@@ -961,6 +1045,62 @@ async def test_resume_unknown_operation():
         await attempt()
 
 
+@pytest.mark.asyncio
+async def test_concurrent_resume_posts_step_once():
+    """Two concurrent resumes claim a step once; only one POSTs that step."""
+    client = FakeClient()
+    operations = IsolatedOperations()
+    entry = operation(status=OperationStatus.PARTIAL, campaign_id=10)
+    set_step(entry, CreationStage.CAMPAIGN, StepState.CONFIRMED)
+    register_remote(client, entry)
+    operations.add(entry)
+    client.stream_matches = []
+
+    first = service(client, operations)
+    second = service(client, operations)
+    await asyncio.gather(
+        first.resume(entry.operation_uuid),
+        second.resume(entry.operation_uuid),
+    )
+
+    forced_posts = [c for c in client.create_stream_calls if c.type == "forced"]
+    assert len(forced_posts) == 1
+    assert client.create_campaign_calls == []
+
+
+def test_repository_atomic_step_claim(tmp_path):
+    """Only one claimant can take a step, and stale saves cannot overwrite it."""
+    engine = create_engine(f"sqlite:///{tmp_path / 'claim.db'}")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine)
+    repository = SqlAlchemyCampaignCreationOperations(factory)
+    entry = operation()
+    repository.add(entry)
+
+    assert (
+        repository.claim_step(entry.operation_uuid, CreationStage.CAMPAIGN) is not None
+    )
+    assert repository.claim_step(entry.operation_uuid, CreationStage.CAMPAIGN) is None
+    stale = replace(entry)
+    set_step(stale, CreationStage.CAMPAIGN, StepState.NOT_STARTED)
+    repository.save(stale)
+    loaded = repository.get_by_uuid(entry.operation_uuid)
+    assert loaded is not None
+    assert loaded.campaign_step is StepState.IN_FLIGHT
+
+    confirmed = repository.confirm_step(
+        entry.operation_uuid,
+        CreationStage.CAMPAIGN,
+        remote_id=55,
+        status=OperationStatus.PARTIAL,
+        error=None,
+    )
+    assert confirmed is not None
+    assert confirmed.campaign_step is StepState.CONFIRMED
+    assert confirmed.keitaro_campaign_id == 55
+    assert repository.claim_step(entry.operation_uuid, CreationStage.CAMPAIGN) is None
+
+
 def test_repository_roundtrip(tmp_path):
     """Operation state, steps and redirect intent survive a repository round-trip."""
     engine = create_engine(f"sqlite:///{tmp_path / 'operations.db'}")
@@ -980,11 +1120,19 @@ def test_repository_roundtrip(tmp_path):
     assert repository.get_by_alias(entry.alias) is not None
     loaded.transition_to(OperationStatus.PARTIAL)
     loaded.flow_country_id = 42
-    set_step(loaded, CreationStage.CAMPAIGN, StepState.CONFIRMED)
     repository.save(loaded)
+    confirmed = repository.confirm_step(
+        loaded.operation_uuid,
+        CreationStage.CAMPAIGN,
+        remote_id=55,
+        status=OperationStatus.PARTIAL,
+        error=None,
+    )
     reloaded = repository.get_by_uuid(entry.operation_uuid)
     assert reloaded is not None
+    assert confirmed is not None
     assert reloaded.flow_country_id == 42
+    assert reloaded.keitaro_campaign_id == 55
     assert reloaded.campaign_step is StepState.CONFIRMED
 
 
