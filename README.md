@@ -1,14 +1,16 @@
-# Keitaro Wrap (discovery phase)
+# Keitaro Wrap
 
-This repository currently contains the discovery and specification artifacts for the Adrobot take-home assignment.
+FastAPI + SQLAlchemy application (Slice 0 foundation).
 
-## Status
-Discovery/spec in progress. See issue #1.
+## Setup
+1. Create virtualenv: `uv venv .venv && source .venv/bin/activate`
+2. Install deps: `uv pip install -e ".[dev]"` or `pip install -r requirements.txt`
+3. Copy env: `cp .env.example .env` and set `KEITARO_API_KEY`.
+4. Run migrations: `alembic upgrade head`
+5. Start app: `uvicorn app.main:app --reload`
 
-## Environment
-- Python 3.12+
-- uv for dependency management
-- `.env` (not committed) based on `.env.example`
+## Tests
+`pytest -q`
 
-## Secrets
-Never commit `.env`. Use `.env.example` placeholders only.
+## Health
+GET /health -> {"status": "ok"}
