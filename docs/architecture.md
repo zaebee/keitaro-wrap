@@ -25,6 +25,7 @@ No full campaign mirror unless a concrete use case (e.g. offline listing) justif
 - `app/api/routes.py` — HTTP.
 
 ## Cross-cutting
+- HTTP transport: httpx.AsyncClient (D13). Async methods; lifespan-managed; no sync calls in async path.
 - Config via pydantic-settings (.env).
 - Errors: KeitaroError translated to HTTP 502 with message.
 - Retries: only for safe/idempotent operations; never blindly retry non-idempotent POST. Reconcile by re-reading state first.
