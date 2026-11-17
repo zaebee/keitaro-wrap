@@ -1,16 +1,21 @@
-import httpx
+"""FastAPI application entrypoint and lifespan management."""
+
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import FastAPI
 
-from app.core.config import settings
 from app.api.routes import router
+from app.core.config import settings
 from app.db.session import engine
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.http_client = httpx.AsyncClient(base_url=settings.KEITARO_BASE_URL, timeout=30.0)
+    """Manage application startup and shutdown resources."""
+    app.state.http_client = httpx.AsyncClient(
+        base_url=settings.KEITARO_BASE_URL, timeout=30.0
+    )
     yield
     await app.state.http_client.aclose()
     engine.dispose()
