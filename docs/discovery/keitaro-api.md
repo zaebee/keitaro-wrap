@@ -91,4 +91,3 @@ PUT /admin_api/v1/streams/42
 ## Notes
 - Partial failure: separate calls; no transactional guarantee. Implement operation state + reconciliation.
 - OpenAPI does not declare `action_payload`; runtime uses it.
-EOF

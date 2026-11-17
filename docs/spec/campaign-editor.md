@@ -66,4 +66,3 @@ Core workflow supported by demo video (2026-11-17). Edge cases listed under "Unr
 ## Notes
 - Archive is wrapper-owned business concept, not Keitaro-native state.
 - No claim that pending changes or archive state survive page reload or application restart.
-EOF
