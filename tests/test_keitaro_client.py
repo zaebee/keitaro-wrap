@@ -324,8 +324,9 @@ async def test_collection_methods_reject_malformed_shapes(method, kwargs, payloa
 
     client = make_client(handler)
     call = getattr(client, method)
-    with pytest.raises(KeitaroError, match="unexpected response shape"):
+    with pytest.raises(KeitaroError, match="unexpected response shape") as exc:
         await call(**kwargs)
+    assert exc.value.status == 200
 
 
 @pytest.mark.asyncio
@@ -337,8 +338,9 @@ async def test_stream_nested_collection_rejects_malformed_shape(field):
         return httpx.Response(200, json={"id": 5, field: {"bad": True}})
 
     client = make_client(handler)
-    with pytest.raises(KeitaroError, match=f"stream.{field}"):
+    with pytest.raises(KeitaroError, match=f"stream.{field}") as exc:
         await client.get_stream(5)
+    assert exc.value.status == 200
 
 
 @pytest.mark.asyncio
