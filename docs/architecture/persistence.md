@@ -71,7 +71,7 @@ Resolution: draft marked stale with conflict details; user chooses keep draft or
 ## Publication transitions and startup recovery
 States: pending → in_progress → succeeded | failed | ambiguous.
 - ambiguous → abandoned (operator) or succeeded after reconciliation.
-- failed may be retried via a new publication record only after reconciliation confirms absence of external effect; otherwise remains ambiguous.
+- failed may be retried via a new publication record only when reliable evidence establishes that the previous external side effect did not occur, or a documented API guarantee makes retry safe; otherwise remains ambiguous.
 - Startup recovery: reconcile in-progress/ambiguous publications (bounded) before new Push. If reconciliation cannot establish the outcome, leave publication ambiguous (or abandoned on operator decision); do not assume failure.
 
 Failed vs ambiguous:
@@ -86,7 +86,7 @@ Failed vs ambiguous:
 
 ## Retry safety
 - A definitive HTTP error does not necessarily prove that no external side effect occurred.
-- Retry is allowed only after reconciliation confirms absence of external effect.
+- Retry is allowed only when reliable evidence establishes that the previous external side effect did not occur, or a documented API guarantee makes retry safe.
 - If the outcome cannot be established, keep the operation ambiguous; no retry.
 - Distinguish: confirmed application, confirmed absence of effect, unresolved outcome.
 - Zero matches under incomplete pagination or uncertain read-after-write consistency does not establish absence.
