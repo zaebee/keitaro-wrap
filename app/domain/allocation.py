@@ -17,6 +17,10 @@ class InvalidShareError(AllocationError):
     """A share is not an integer percentage in the inclusive range 0..100."""
 
 
+class InvalidOfferInputError(AllocationError):
+    """An offer field has the wrong runtime type."""
+
+
 class DuplicateOfferIdError(AllocationError):
     """The same offer_id appears more than once in the active set."""
 
@@ -76,6 +80,15 @@ def allocate(offers: Iterable[AllocatableOffer]) -> AllocationResult:
     items = tuple(offers)
 
     for offer in items:
+        if type(offer.offer_id) is not int:
+            raise InvalidOfferInputError(
+                f"offer_id must be an int, got {type(offer.offer_id).__name__}"
+            )
+        if type(offer.is_pinned) is not bool:
+            raise InvalidOfferInputError(
+                f"offer {offer.offer_id}: is_pinned must be a bool, "
+                f"got {type(offer.is_pinned).__name__}"
+            )
         if type(offer.share) is not int or not 0 <= offer.share <= 100:
             raise InvalidShareError(
                 f"offer {offer.offer_id}: share must be an int in 0..100, "

@@ -8,6 +8,7 @@ import pytest
 from app.domain.allocation import (
     AllocatableOffer,
     DuplicateOfferIdError,
+    InvalidOfferInputError,
     InvalidShareError,
     OfferShare,
     PinnedTotalExceededError,
@@ -159,6 +160,32 @@ def test_non_integer_share_is_rejected(share):
     """Non-integer shares, including bool, are rejected at runtime."""
     with pytest.raises(InvalidShareError):
         allocate([offer(1, share)])
+
+
+@pytest.mark.parametrize(
+    "bad_id", [cast(int, True), cast(int, 1.5), cast(int, "7"), cast(int, None)]
+)
+def test_non_integer_offer_id_is_rejected(bad_id):
+    """offer_id must be a real int; bool, float, str and None are rejected."""
+    with pytest.raises(InvalidOfferInputError, match="offer_id must be an int"):
+        allocate([offer(bad_id, 50)])
+
+
+@pytest.mark.parametrize(
+    "bad_flag", [cast(bool, 0), cast(bool, 1), cast(bool, "true"), cast(bool, None)]
+)
+def test_non_bool_is_pinned_is_rejected(bad_flag):
+    """is_pinned must be a real bool, not an int or another value."""
+    with pytest.raises(InvalidOfferInputError, match="is_pinned must be a bool"):
+        allocate([offer(1, 50, bad_flag)])
+
+
+def test_offer_id_range_is_not_constrained():
+    """No extra offer_id range rule is imposed by the allocator."""
+    result = allocate([offer(10**12, 0), offer(-5, 0), offer(0, 0)])
+
+    assert [share.offer_id for share in result.shares] == [-5, 0, 10**12]
+    assert [share.share for share in result.shares] == [34, 33, 33]
 
 
 def test_duplicate_offer_id_is_rejected():
