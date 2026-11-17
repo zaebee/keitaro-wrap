@@ -1,0 +1,9 @@
+[project]
+name = "keitaro-wrap"
+version = "0.1.0"
+description = "Keitaro campaign creator + offer editor (discovery phase)"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.uv]
+dev-dependencies = []
