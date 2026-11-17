@@ -69,6 +69,70 @@ class AllocationResult:
     policy_cases: tuple[PolicyCase, ...]
 
 
+def _validate_offer_fields(offer: AllocatableOffer) -> None:
+    """Validate the runtime types and share range of one offer."""
+    if type(offer.offer_id) is not int:
+        raise InvalidOfferInputError(
+            f"offer_id must be an int, got {type(offer.offer_id).__name__}"
+        )
+    if type(offer.is_pinned) is not bool:
+        raise InvalidOfferInputError(
+            f"offer {offer.offer_id}: is_pinned must be a bool, "
+            f"got {type(offer.is_pinned).__name__}"
+        )
+    if type(offer.share) is not int or not 0 <= offer.share <= 100:
+        raise InvalidShareError(
+            f"offer {offer.offer_id}: share must be an int in 0..100, "
+            f"got {offer.share!r}"
+        )
+
+
+def _validate_offers(items: tuple[AllocatableOffer, ...]) -> int:
+    """Validate all offers, then return their pinned total."""
+    for offer in items:
+        _validate_offer_fields(offer)
+
+    seen: set[int] = set()
+    for offer in items:
+        if offer.offer_id in seen:
+            raise DuplicateOfferIdError(f"duplicate offer_id {offer.offer_id}")
+        seen.add(offer.offer_id)
+
+    pinned_total = sum(offer.share for offer in items if offer.is_pinned)
+    if pinned_total > 100:
+        raise PinnedTotalExceededError(
+            f"pinned total {pinned_total} exceeds 100 percent"
+        )
+    return pinned_total
+
+
+def _unpinned_shares(
+    unpinned: tuple[AllocatableOffer, ...], remaining: int
+) -> dict[int, int]:
+    """Split remaining capacity by LRM over unpinned offers in offer_id order."""
+    if not unpinned:
+        return {}
+    base, extra = divmod(remaining, len(unpinned))
+    return {
+        offer.offer_id: base + (1 if index < extra else 0)
+        for index, offer in enumerate(sorted(unpinned, key=lambda item: item.offer_id))
+    }
+
+
+def _policy_cases(
+    items: tuple[AllocatableOffer, ...], unallocated: int
+) -> tuple[PolicyCase, ...]:
+    """Report open policy boundaries without resolving them."""
+    cases: list[PolicyCase] = []
+    if not items:
+        cases.append(PolicyCase.NO_ACTIVE_OFFERS)
+    if len(items) == 1:
+        cases.append(PolicyCase.SINGLE_ACTIVE_OFFER)
+    if unallocated:
+        cases.append(PolicyCase.UNALLOCATED_REMAINDER)
+    return tuple(cases)
+
+
 def allocate(offers: Iterable[AllocatableOffer]) -> AllocationResult:
     """Allocate 100 integer percentage points using LRM with offer_id tie-break.
 
@@ -78,43 +142,12 @@ def allocate(offers: Iterable[AllocatableOffer]) -> AllocationResult:
     returned in ``policy_cases`` with any unallocated remainder, never hidden.
     """
     items = tuple(offers)
-
-    for offer in items:
-        if type(offer.offer_id) is not int:
-            raise InvalidOfferInputError(
-                f"offer_id must be an int, got {type(offer.offer_id).__name__}"
-            )
-        if type(offer.is_pinned) is not bool:
-            raise InvalidOfferInputError(
-                f"offer {offer.offer_id}: is_pinned must be a bool, "
-                f"got {type(offer.is_pinned).__name__}"
-            )
-        if type(offer.share) is not int or not 0 <= offer.share <= 100:
-            raise InvalidShareError(
-                f"offer {offer.offer_id}: share must be an int in 0..100, "
-                f"got {offer.share!r}"
-            )
-
-    seen: set[int] = set()
-    for offer in items:
-        if offer.offer_id in seen:
-            raise DuplicateOfferIdError(f"duplicate offer_id {offer.offer_id}")
-        seen.add(offer.offer_id)
+    pinned_total = _validate_offers(items)
 
     pinned = tuple(offer for offer in items if offer.is_pinned)
     unpinned = tuple(offer for offer in items if not offer.is_pinned)
-    pinned_total = sum(offer.share for offer in pinned)
-    if pinned_total > 100:
-        raise PinnedTotalExceededError(
-            f"pinned total {pinned_total} exceeds 100 percent"
-        )
-
-    remaining = 100 - pinned_total
     allocated: dict[int, int] = {offer.offer_id: offer.share for offer in pinned}
-    if unpinned:
-        base, extra = divmod(remaining, len(unpinned))
-        for index, offer in enumerate(sorted(unpinned, key=lambda item: item.offer_id)):
-            allocated[offer.offer_id] = base + (1 if index < extra else 0)
+    allocated.update(_unpinned_shares(unpinned, 100 - pinned_total))
 
     shares = tuple(
         OfferShare(
@@ -125,18 +158,9 @@ def allocate(offers: Iterable[AllocatableOffer]) -> AllocationResult:
         for offer in sorted(items, key=lambda item: item.offer_id)
     )
     unallocated = 100 - sum(share.share for share in shares)
-
-    cases: list[PolicyCase] = []
-    if not items:
-        cases.append(PolicyCase.NO_ACTIVE_OFFERS)
-    if len(items) == 1:
-        cases.append(PolicyCase.SINGLE_ACTIVE_OFFER)
-    if unallocated:
-        cases.append(PolicyCase.UNALLOCATED_REMAINDER)
-
     return AllocationResult(
         shares=shares,
         pinned_total=pinned_total,
         unallocated=unallocated,
-        policy_cases=tuple(cases),
+        policy_cases=_policy_cases(items, unallocated),
     )

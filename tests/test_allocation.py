@@ -101,8 +101,9 @@ def test_pinned_total_exactly_100():
 
 def test_pinned_total_above_100_is_rejected():
     """Pinned shares above 100 raise a typed input error."""
+    offers = [offer(1, 60, True), offer(2, 50, True)]
     with pytest.raises(PinnedTotalExceededError, match="exceeds 100"):
-        allocate([offer(1, 60, True), offer(2, 50, True)])
+        allocate(offers)
 
 
 def test_no_unpinned_offers_exposes_unallocated_remainder():
@@ -151,15 +152,17 @@ def test_single_unpinned_offer_receives_all_capacity():
 @pytest.mark.parametrize("share", [-1, 101])
 def test_out_of_range_share_is_rejected(share):
     """Shares outside 0..100 raise a typed input error."""
+    offers = [offer(1, share)]
     with pytest.raises(InvalidShareError):
-        allocate([offer(1, share)])
+        allocate(offers)
 
 
 @pytest.mark.parametrize("share", [cast(int, 12.5), cast(int, True)])
 def test_non_integer_share_is_rejected(share):
     """Non-integer shares, including bool, are rejected at runtime."""
+    offers = [offer(1, share)]
     with pytest.raises(InvalidShareError):
-        allocate([offer(1, share)])
+        allocate(offers)
 
 
 @pytest.mark.parametrize(
@@ -167,8 +170,9 @@ def test_non_integer_share_is_rejected(share):
 )
 def test_non_integer_offer_id_is_rejected(bad_id):
     """offer_id must be a real int; bool, float, str and None are rejected."""
+    offers = [offer(bad_id, 50)]
     with pytest.raises(InvalidOfferInputError, match="offer_id must be an int"):
-        allocate([offer(bad_id, 50)])
+        allocate(offers)
 
 
 @pytest.mark.parametrize(
@@ -176,8 +180,9 @@ def test_non_integer_offer_id_is_rejected(bad_id):
 )
 def test_non_bool_is_pinned_is_rejected(bad_flag):
     """is_pinned must be a real bool, not an int or another value."""
+    offers = [offer(1, 50, bad_flag)]
     with pytest.raises(InvalidOfferInputError, match="is_pinned must be a bool"):
-        allocate([offer(1, 50, bad_flag)])
+        allocate(offers)
 
 
 def test_offer_id_range_is_not_constrained():
@@ -190,8 +195,9 @@ def test_offer_id_range_is_not_constrained():
 
 def test_duplicate_offer_id_is_rejected():
     """Duplicate offer_ids make the ascending tie-break ambiguous."""
+    offers = [offer(5, 40), offer(5, 60)]
     with pytest.raises(DuplicateOfferIdError, match="duplicate offer_id 5"):
-        allocate([offer(5, 40), offer(5, 60)])
+        allocate(offers)
 
 
 def test_inputs_are_not_mutated():
