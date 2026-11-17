@@ -71,7 +71,7 @@ Resolution: draft marked stale with conflict details; user chooses keep draft or
 ## Publication transitions and startup recovery
 States: pending → in_progress → succeeded | failed | ambiguous.
 - ambiguous → abandoned (operator) or succeeded after reconciliation.
-- failed may be retried via new publication record after reconciliation if ambiguous.
+- failed may be retried via a new publication record only after reconciliation confirms absence of external effect; otherwise remains ambiguous.
 - Startup recovery: reconcile in-progress/ambiguous publications (bounded) before new Push. If reconciliation cannot establish the outcome, leave publication ambiguous (or abandoned on operator decision); do not assume failure.
 
 Failed vs ambiguous:
