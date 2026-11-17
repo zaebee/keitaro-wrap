@@ -13,21 +13,28 @@
 ## Resource selection
 Domain/group/traffic source IDs are operator-configured defaults (app_settings), selectable via settings page. If unset, UI may suggest first active but must not silently use it. Missing or inactive configured ID → validation error.
 
+## Uniqueness (verified 2026-11-17)
+- Campaign alias: enforced unique by Keitaro.
+- Stream name: NOT unique within campaign.
+- Use operation id in stream `comments` for correlation.
+
 ## Steps
 1. Validate input (country_code 2 letters; offer exists via GET /offers/{id}).
 2. Resolve resources (configured defaults; error if missing/inactive).
-3. Persist operation record (status=started) with operation-derived unique alias (slug-<short_uuid>) before external calls.
-4. Create campaign: POST /campaigns with unique alias, name, domain_id, group_id, traffic_source_id. Store keitaro_campaign_id. On timeout → ambiguous; reconcile by alias.
-5. Create Flow 1 (forced country→Google) with deterministic name. Store flow_country_id. On timeout → ambiguous; reconcile by name+type+schema.
-6. Create Flow 2 (observed regular offer flow). Store flow_offer_id.
+3. Persist operation record (status=started) with operation-derived unique alias (slug-<short_uuid>) before external calls. Store alias in operation.
+4. Create campaign: POST /campaigns with unique alias. Store keitaro_campaign_id. On timeout → bounded reconciliation by alias; if unresolved → ambiguous.
+5. Create Flow 1 (forced country→Google) with operation id in comments. Store flow_country_id. On timeout → bounded reconciliation by comments; if unresolved → ambiguous.
+6. Create Flow 2 (observed regular offer flow) with operation id in comments. Store flow_offer_id.
 7. Read back campaign + streams; verify.
 8. Mark operation status=created.
 
-## Reconciliation
-See architecture.md. Never rely on campaign name alone. Unique alias + deterministic stream names. 0 matches → retry; 1 → adopt; >1 → ambiguous, operator intervention.
+## Reconciliation (bounded)
+- 0 matches after bounded attempts → ambiguous (do not blind retry).
+- 1 match → adopt.
+- >1 → ambiguous + operator intervention.
 
 ## State machine
-See architecture.md (started/partial/ambiguous/created/failed).
+See architecture.md. `failed` = definitive error, does not guarantee absence of external resources.
 
 ## Validation
 - country_code must be 2 letters.

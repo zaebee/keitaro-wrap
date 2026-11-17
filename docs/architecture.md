@@ -32,18 +32,27 @@ No full campaign mirror unless a concrete use case (e.g. offline listing) justif
 ## Resource selection
 Domain/group/traffic source IDs are operator-configured defaults stored in app_settings, selectable via settings page. If unset, the app may suggest the first active resource as UI convenience, but must not silently use it in creation. Missing or inactive configured IDs → validation error requiring operator action.
 
+## Uniqueness guarantees (verified 2026-11-17)
+- Campaign alias: uniqueness enforced by Keitaro (verified: duplicate alias → 422 "Alias has already used"). Application relies on this for correlation.
+- Stream name: NOT unique within a campaign (verified: duplicate names accepted). Therefore application must not rely on stream name alone.
+- Correlation marker: store operation id in the stream `comments` field (verified persisted and returned). This is application-level uniqueness, not Keitaro-enforced; treat as best-effort marker.
+
 ## Reconciliation after ambiguous POST
 Correlation must not rely on campaign name alone.
 
-Proposed mechanism:
-- Generate an operation-derived unique alias: `slug-<short_operation_uuid>` for the campaign. Alias is part of the campaign URL and must be unique.
-- For streams: use a deterministic name including operation id and flow role (e.g. `op-<id>-country-google`).
+Campaign (POST /campaigns timed out, id unknown):
+- Reconcile by unique alias (Keitaro-enforced). Iterate GET /campaigns (paginated, offset/limit). 
+- 0 matches → do NOT immediately retry. Use bounded repeated reconciliation (e.g., N attempts with backoff) because read-after-write consistency and pagination completeness are not guaranteed. If still 0 after bounded attempts → ambiguous.
+- 1 match → adopt its id.
+- >1 matches → impossible if alias unique; if observed, ambiguous + operator intervention.
 
-Reconciliation steps:
-1. Campaign ambiguous (POST /campaigns timed out): GET /campaigns, filter by alias. 0 matches → safe to retry creation. 1 match → adopt its id. >1 matches → keep ambiguous, require operator intervention.
-2. Stream ambiguous (POST /streams timed out, campaign id known): GET /campaigns/{id}/streams, filter by name+type+schema. 0 → retry. 1 → adopt. >1 → ambiguous, operator intervention.
+Stream (POST /streams timed out, campaign id known):
+- Reconcile by `comments` marker (operation id) via GET /campaigns/{id}/streams.
+- 0 matches → bounded repeated reconciliation; if still 0 → ambiguous (do not blind retry).
+- 1 match → adopt.
+- >1 matches → ambiguous + operator intervention.
 
-If safe reconciliation is impossible (multiple matches or uncertain state), keep operation `ambiguous` and require manual resolution. Never blindly retry.
+If safe reconciliation cannot be established, keep operation `ambiguous` and require operator intervention. Never blindly retry non-idempotent POST.
 
 ## Operation state machine
 States: `started`, `partial`, `ambiguous`, `created`, `failed`.
@@ -51,12 +60,12 @@ States: `started`, `partial`, `ambiguous`, `created`, `failed`.
 Transitions:
 - started → partial: campaign created (keitaro_campaign_id known), not all streams done.
 - started → created: all steps succeeded in one pass.
-- started → failed: campaign creation failed (no external resource).
+- started → failed: campaign creation failed with a definitive error response (no campaign created).
 - partial → created: remaining streams created and verified.
 - partial → ambiguous: a stream POST timed out / outcome uncertain.
-- partial → failed: non-recoverable error.
+- partial → failed: non-recoverable error with definitive response.
 - ambiguous → created: reconciliation found exactly one matching resource and completed missing steps.
-- ambiguous → partial: reconciliation found 0 matches; safe to retry the missing step.
+- ambiguous → partial: reconciliation found 0 matches after bounded attempts; safe to retry the missing step.
 - ambiguous → failed: reconciliation impossible or operator aborted.
 - created, failed: terminal (failed may be retried via a new operation).
 
@@ -65,7 +74,7 @@ Guarantees:
 - partial: campaign exists; some streams may exist.
 - ambiguous: external state uncertain; manual reconciliation required.
 - created: campaign and both flows exist and verified.
-- failed: operation aborted; external resources may or may not exist (check Keitaro).
+- failed: operation aborted due to a definitive error. Does NOT guarantee absence of external resources; cleanup may be required. Distinguish from ambiguous (uncertain outcome).
 
 ## Sequence: create campaign (provisional; Q1 open)
 ```mermaid
