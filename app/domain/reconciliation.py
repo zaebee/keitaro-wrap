@@ -130,18 +130,21 @@ def validate_remote_offers(offers: Iterable[RemoteOffer]) -> tuple[RemoteOffer, 
     return items
 
 
-def _share_edit_ids(staged_changes: Mapping[str, object]) -> frozenset[int]:
-    """Read the offer ids with staged share edits from a draft changes map."""
-    raw = staged_changes.get("share_edits")
-    if not isinstance(raw, Mapping):
+def _staged_ids(staged_changes: Mapping[str, object], key: str) -> frozenset[int]:
+    """Read a list of staged offer ids for one intent category."""
+    raw = staged_changes.get(key)
+    if not isinstance(raw, (list, tuple)):
         return frozenset()
-    ids: set[int] = set()
-    for key in raw:
-        if type(key) is int:
-            ids.add(key)
-        elif isinstance(key, str) and key.isdigit():
-            ids.add(int(key))
-    return frozenset(ids)
+    return frozenset(item for item in raw if type(item) is int)
+
+
+def _allocation_input_ids(
+    staged_changes: Mapping[str, object], candidates: frozenset[int]
+) -> frozenset[int]:
+    """Return baseline offers whose share still feeds staged allocation."""
+    archives = _staged_ids(staged_changes, "archives")
+    restores = _staged_ids(staged_changes, "restores")
+    return (candidates - archives) | (restores & candidates)
 
 
 def _merge_conflicts(
@@ -174,7 +177,11 @@ def _draft_conflicts(
     transitions: tuple[BindingTransition, ...],
     draft: DraftState,
 ) -> tuple[ConflictDetail, ...]:
-    """Describe remote differences relative to the draft's own baseline."""
+    """Describe remote differences against the immutable draft baseline.
+
+    Share changes are checked for baseline offers that still feed staged LRM
+    allocation, not only for explicit share edits.
+    """
     baseline = {
         offer.offer_id: offer for offer in validate_remote_offers(draft.baseline_offers)
     }
@@ -211,9 +218,12 @@ def _draft_conflicts(
                 "remote_offer_reappeared",
             )
         )
-    for offer_id in sorted(
-        _share_edit_ids(draft.staged_changes) & baseline_ids & remote_ids
-    ):
+    input_ids = (
+        _allocation_input_ids(draft.staged_changes, baseline_ids & remote_ids)
+        if draft.staged_changes
+        else frozenset()
+    )
+    for offer_id in sorted(input_ids):
         expected = baseline[offer_id].share
         actual = observed[offer_id].share
         if expected != actual:

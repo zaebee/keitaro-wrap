@@ -85,7 +85,7 @@ Conflicts (compared with the draft's own baseline, never with the remote snapsho
 - Remote offer newly appears: create ACTIVE binding (if none); update cache. If draft exists, mark draft stale (conflict details), do not overwrite staged changes.
 - Remote offer disappears: set binding ARCHIVED; if draft references it, mark conflict.
 - Archived offer reappears: reactivate to ACTIVE, update cache; the committed `is_pinned` value is preserved (D9). If draft exists, mark conflict.
-- Remote share changes: update `last_remote_share` and the remote snapshot cache; if draft has share edits for that offer, mark conflict (do not overwrite staged share).
+- Remote share changes: update `last_remote_share` and the remote snapshot cache. A draft conflict is recorded when the changed offer still feeds staged LRM allocation: baseline offers that are not staged-archived, plus staged restores. This covers `additions`, `archives` of other offers, `restores`, `pin_toggles` and `share_edits`, not just explicit share edits. A clean draft (`staged_changes == {}`) and locally archived offers have no staged allocation dependency and therefore no share conflict. `expected` is the immutable draft baseline share and `observed` is the new remote share; staged shares are never overwritten. This is an S4/S5 integration correction (issue #31 audit), not a policy change.
 - Repeated Fetch no changes: no new bindings, transitions or conflict details; the remote cache capture time advances.
 - Sticky conflicts (D17): `is_stale` and existing conflict details are never cleared by a later Fetch, even when the remote returns to the previous baseline. New differences are appended once; resolution belongs to a later slice.
 

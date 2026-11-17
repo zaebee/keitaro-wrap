@@ -127,30 +127,30 @@ def test_draft_conflicts_cover_add_remove_and_reappear():
     ]
 
 
-def test_share_conflict_requires_a_staged_share_edit():
-    """Only staged share edits turn a remote share change into a conflict."""
-    remote = (RemoteOffer(7, 45),)
-    bindings = (binding(7, share=30),)
-    no_edit = DraftState((RemoteOffer(7, 30),), {}, False, ())
-    with_edit = DraftState((RemoteOffer(7, 30),), {"share_edits": {"7": 55}}, False, ())
-    assert (
-        plan_reconciliation(
-            stream_ref=42,
-            remote_offers=remote,
-            previous_bindings=bindings,
-            draft=no_edit,
-        ).conflicts
-        == ()
-    )
-    conflicts = plan_reconciliation(
+@pytest.mark.parametrize(
+    "staged_changes, expected_conflict",
+    [
+        ({}, False),
+        ({"share_edits": {"7": 55}}, True),
+        ({"pin_toggles": {"7": True}}, True),
+        ({"additions": [9]}, True),
+        ({"archives": [7]}, False),
+    ],
+)
+def test_share_conflict_tracks_allocation_inputs(staged_changes, expected_conflict):
+    """Only intents whose allocation depends on a share create a conflict."""
+    plan = plan_reconciliation(
         stream_ref=42,
-        remote_offers=remote,
-        previous_bindings=bindings,
-        draft=with_edit,
-    ).conflicts
-    assert conflicts == (
-        ConflictDetail(42, 7, "share", 30, 45, "remote_share_changed"),
+        remote_offers=(RemoteOffer(7, 45),),
+        previous_bindings=(binding(7, share=30),),
+        draft=DraftState((RemoteOffer(7, 30),), staged_changes, False, ()),
     )
+    expected = (
+        (ConflictDetail(42, 7, "share", 30, 45, "remote_share_changed"),)
+        if expected_conflict
+        else ()
+    )
+    assert plan.conflicts == expected
 
 
 def test_share_edits_accept_integer_and_string_keys():

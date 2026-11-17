@@ -823,6 +823,14 @@ def _draft_view(
     )
 
 
+def _is_draft_create_unique_race(exc: IntegrityError) -> bool:
+    """Recognise only the unique violation from a concurrent lazy create."""
+    original = getattr(exc, "orig", None)
+    if getattr(original, "sqlite_errorname", None) != "SQLITE_CONSTRAINT_UNIQUE":
+        return False
+    return "stream_drafts.stream_ref_id" in str(original)
+
+
 class SqlAlchemyStreamDraftRepository:
     """Apply local draft commands atomically with optimistic concurrency."""
 
@@ -839,7 +847,9 @@ class SqlAlchemyStreamDraftRepository:
                 return self._apply(session, command, intent)
             except IntegrityError as exc:
                 session.rollback()
-                raise DraftVersionConflict("concurrent draft creation") from exc
+                if _is_draft_create_unique_race(exc):
+                    raise DraftVersionConflict("concurrent draft creation") from exc
+                raise
             except Exception:
                 session.rollback()
                 raise
