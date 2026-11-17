@@ -378,12 +378,17 @@ async def test_validation_fails_before_mutation():
     async def attempt(resources: ConfiguredResources, cmd: CreateCampaignCommand):
         await service(client, resources=resources).create(cmd)
 
+    resources = config()
+    bad_name = command(name="  ")
+    bad_country = command(country_code="USA")
+    missing_config = ConfiguredResources(None, 2, 3, "https://example.com")
+    valid_command = command()
     with pytest.raises(CampaignInputError):
-        await attempt(config(), command(name="  "))
+        await attempt(resources, bad_name)
     with pytest.raises(CampaignInputError):
-        await attempt(config(), command(country_code="USA"))
+        await attempt(resources, bad_country)
     with pytest.raises(CampaignConfigurationError):
-        await attempt(ConfiguredResources(None, 2, 3, "https://example.com"), command())
+        await attempt(missing_config, valid_command)
     assert client.calls == []
 
 
