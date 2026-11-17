@@ -7,21 +7,24 @@
 
 ## Verified flow semantics (from live instance)
 - Flow 1: type=forced, schema=redirect, action_type=http, action_payload=https://www.google.com, filters=[{name:country, mode:accept, payload:[CODE]}].
-- Flow 2: type=regular, schema=landings, action_type=http, offers=[{offer_id, share:100, state:active}], filters=[].
+- Flow 2: observed as type=regular, schema=landings, action_type=http, offers=[{offer_id, share:100, state:active}], filters=[].
+- Q1 (default vs regular / catch-all fallback) remains OPEN. Only one existing campaign observed. Do not assume fallback semantics until verified.
 
 ## Steps
-1. Validate input (country_code 2 letters; offer exists).
-2. Resolve defaults: domain_id (first active domain), campaign group_id (GET /groups?type=campaigns, first), traffic_source_id (first active source). Persist to app_settings.
-3. Create campaign: POST /campaigns with alias (slug from name), name, domain_id, group_id, traffic_source_id.
-4. Create Flow 1 (forced country→Google).
-5. Create Flow 2 (regular offer flow).
-6. Read back campaign + streams; verify.
-7. Persist local campaign row with keitaro ids and status=created.
+1. Validate input (country_code 2 letters; offer exists via GET /offers/{id}).
+2. Resolve resources: domain_id, campaign group_id, traffic_source_id. These are operator-configured defaults (app_settings), selectable via settings page. If unset, suggest first active but require confirmation.
+3. Persist operation record (status=started) before external calls.
+4. Create campaign: POST /campaigns with alias (slug from name), name, domain_id, group_id, traffic_source_id. Store keitaro_campaign_id.
+5. Create Flow 1 (forced country→Google). Store flow_country_id.
+6. Create Flow 2 (observed regular offer flow). Store flow_offer_id.
+7. Read back campaign + streams; verify.
+8. Mark operation status=created.
 
-## Failure handling
-- If campaign creation fails: status=failed.
-- If Flow 1/Flow2 fails after campaign created: status=partial, store error. Retry can create missing flow.
-- No automatic deletion; operator can clean up in Keitaro.
+## Partial failure recovery
+- Operation row exists before any external call.
+- Persist returned IDs immediately after each successful POST.
+- On timeout/ambiguous POST outcome: do not retry automatically. Re-read Keitaro state to reconcile. Mark operation `ambiguous` if unresolved.
+- Statuses: started, partial, ambiguous, created, failed.
 
 ## Validation
 - country_code must be 2 letters.
