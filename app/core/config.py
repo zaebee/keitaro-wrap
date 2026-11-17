@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     KEITARO_DEFAULT_GROUP_ID: int | None = None
     KEITARO_DEFAULT_TRAFFIC_SOURCE_ID: int | None = None
     KEITARO_REDIRECT_URL: str = "https://www.google.com"
+    # Slice 6 stays fail-closed until offers-only PUT preservation is verified live.
+    KEITARO_ALLOW_PUBLICATION_WRITES: bool = False
 
     APP_HOST: str = "0.0.0.0"
     APP_PORT: int = 8000

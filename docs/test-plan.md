@@ -22,6 +22,13 @@
 - Clean-draft lifecycle: SetShare → Unpin removes the draft; a Fetch between cleanup and the next edit rebases from the new snapshot; empty-intent stale/conflicted drafts are retained; true no-ops leave rows and versions unchanged; optimistic concurrency remains safe across cleanup/recreation.
 - Migration: `stream_drafts.baseline_bindings_json` and `stream_refs.draft_version_counter` added and verified on upgrade/downgrade/upgrade.
 
+## Executed for Slice 6 (issue #33)
+- Pure publication policy: exact-100 eligibility, single/all-pinned complete states, empty offers, unallocated remainder, pinned overflow, exact offers-only payload, order-insensitive read-back comparison and durable transitions.
+- Application service: live-write gate before any remote read, exact GET → PUT → GET order, no full-document fields, D14 thread assertion, per-stream partial success, definitive 4xx classified ambiguous without retry, mismatched read-back retaining drafts, durable cross-worker gate, bounded recovery and reconcile-first Cancel.
+- Real temporary SQLite: atomic draft capture (version + canonical intent + no unresolved operation), unique unresolved index, single-winner claim, evidenced failure, ambiguous-after-restart confirmation, combined binding/cache/draft commit, sticky conflict preservation and rejection of a changed draft at confirmation.
+- Mocked async HTTP contract: exact offers-only PUT body with a runtime-only field present in the pre-image, 400 treated as ambiguous with exactly one PUT.
+- Migration: `stream_publications`, its partial unique index and new columns verified on upgrade/downgrade/upgrade.
+
 ## Committed vs staged tests
 - Staged changes do not overwrite committed binding state until Push commits.
 - Cancel restores committed state and discards staged changes.
@@ -65,11 +72,8 @@
 - Unpinned offers receiving the remaining percentage.
 
 ## Pending specification (do not encode as expected outcomes)
-- Manual share input constraints and validation.
-- Behavior with zero or one active offers.
-- Behavior when all offers are pinned.
 - Duplicate-offer handling in later slices (Fetch rejection is resolved by issue #29).
-- Multiple offer-bearing stream selection.
+- Live verification that offers-only PUT preserves non-offer stream fields; real writes remain fail-closed until then.
 
 ## Integration tests (optional, with test instance + .env)
 - Create campaign end-to-end.

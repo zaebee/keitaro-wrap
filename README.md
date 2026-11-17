@@ -12,7 +12,7 @@ FastAPI + SQLAlchemy application (Slice 0 foundation).
    ```
 
    This creates/uses `.venv` and installs the locked dependencies from `uv.lock`.
-3. Copy env: `cp .env.example .env` and set `KEITARO_API_KEY`.
+3. Copy env: `cp .env.example .env` and set `KEITARO_API_KEY`. Slice 6 live publication writes stay disabled unless `KEITARO_ALLOW_PUBLICATION_WRITES=true` is set **after** live verification that offers-only PUT preserves non-offer stream fields.
 4. Run migrations: `uv run alembic upgrade head`
 5. Start app: `uv run uvicorn app.main:app --reload`
 

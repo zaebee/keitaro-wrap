@@ -91,11 +91,21 @@ Conflicts (compared with the draft's own baseline, never with the remote snapsho
 
 Resolution: draft marked stale with conflict details; user chooses keep draft or accept remote in a later slice. No silent merge.
 
-## Publication transitions and startup recovery
+## Publication transitions and startup recovery (implemented Slice 6)
 States: pending → in_progress → succeeded | failed | ambiguous.
 - ambiguous → abandoned (operator) or succeeded after reconciliation.
 - failed may be retried via a new publication record only when reliable evidence establishes that the previous external side effect did not occur, or a documented API guarantee makes retry safe; otherwise remains ambiguous.
 - Startup recovery: reconcile in-progress/ambiguous publications (bounded) before new Push. If reconciliation cannot establish the outcome, leave publication ambiguous (or abandoned on operator decision); do not assume failure.
+
+Slice 6 implementation details:
+- `stream_publications` stores the correlation marker, exact offers-only request payload, raw pre-image, captured draft version and canonical intent, effective/staged offer views, error evidence and timestamps. A partial unique index allows only one unresolved operation per stream.
+- `create_pending` atomically re-verifies the current draft version, canonical staged intent, dirty/not-stale state, campaign ownership and absence of an unresolved publication. A losing worker creates no row and issues no PUT; `claim` then conditionally moves `pending → in_progress` before the remote mutation.
+- The distributed Push gate is derived from unresolved durable rows, not an in-memory flag. It is checked in the same transaction as creation and again by the partial unique index.
+- Publication eligibility follows accepted D23/D24: active shares must total exactly 100 and empty offers are rejected. No eligibility failure creates a durable operation.
+- A `pending` operation left by a crash is resumed by Push only when its captured draft version/intent and fresh pre-image still match; otherwise it gates the stream. `in_progress`/`ambiguous` operations always gate and may only be reconciled.
+- Verified read-back commits the remote snapshot, committed bindings and draft in one transaction. A newer concurrent Fetch capture is never overwritten by older read-back evidence; sticky conflicts are preserved.
+- All non-2xx/transport outcomes are ambiguous unless explicit absence evidence exists. `failed` is only reachable with an evidence record; D25 Cancel of `failed` likewise requires it.
+- Live writes are disabled by `KEITARO_ALLOW_PUBLICATION_WRITES=false` until offers-only PUT preservation is verified live. No full-document PUT fallback exists.
 
 Failed vs ambiguous:
 - failed: definitive error response; does not guarantee absence of external resources.
@@ -146,3 +156,4 @@ Failed vs ambiguous:
 - D17: Fetch conflicts are sticky until explicit resolution (accepted, issue #29).
 - D18: All offer-bearing streams are reconciled independently (accepted, issue #29).
 - D19–D22: auto-pin on manual share, integer share 0..100, surface allocation policy cases, and stale-draft edit blocking with local Cancel allowed (accepted, issue #31).
+- D23–D25: strict 100% Push eligibility, empty-offer rejection, and reconcile-first publication Cancel with absence evidence for `failed` (accepted, issue #33).

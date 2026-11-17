@@ -1,6 +1,7 @@
 """Module."""
 
 import asyncio
+from collections.abc import Mapping
 from typing import Any
 
 import httpx
@@ -275,6 +276,17 @@ class KeitaroClient(KeitaroClientPort):
         ]
 
     # streams
+    async def get_stream_document(self, stream_id: int) -> Mapping[str, object]:
+        """Read the raw stream document for validation and evidence only."""
+        path = f"/streams/{stream_id}"
+        data, status = await self._request_with_status("GET", path, retries=2)
+        if not isinstance(data, dict):
+            raise KeitaroError(
+                status,
+                f"unexpected response shape for {path}: expected object",
+            )
+        return data
+
     async def create_stream(self, payload: StreamCreateDTO) -> StreamDTO:
         """create_stream."""
         body: dict[str, Any] = {

@@ -54,10 +54,10 @@
 - Missing/reappearing offers handled via reconciliation (archive/reactivate); every offer-bearing stream is independent (accepted D18, issue #29).
 - All-pinned and single-pinned cases are surfaced while staging per offer-allocation.md; Push policy is unresolved and deferred to Slice 6.
 
-## Unresolved (owner decisions)
-- Push requires active total == 100%?
-- Empty offers array accepted?
+## Resolved and unresolved publication decisions
+- Resolved by owner in issue #33: D23 (Push requires active total exactly 100), D24 (empty offers rejected until live verification) and D25 (reconcile-first Cancel, with absence evidence required for `failed`).
 - Duplicate bindings beyond the accepted Fetch rejection rule (later slices).
+- Unverified API behavior: offers-only PUT preservation of non-offer stream fields; live writes remain fail-closed.
 
 Resolved by owner in issue #29: pin preservation on reappearance (D9), duplicate remote ids and binding uniqueness (D8), multiple offer-bearing streams (D18), fetch conflict lifecycle (D17).
 Resolved by owner in issue #31: manual share auto-pin (D19), integer share input (D20), surfacing allocation edge cases while staging (D21), stale-draft edit blocking with local Cancel (D22).

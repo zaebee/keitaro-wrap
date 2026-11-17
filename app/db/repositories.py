@@ -1,6 +1,7 @@
 """Synchronous SQLAlchemy adapters for application-owned repository ports."""
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import cast
@@ -12,16 +13,24 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.application.draft import DraftStaleError, DraftVersionConflict
 from app.application.dto import (
     ConfiguredResources,
+    DirtyDraftView,
     DraftCommandBase,
     DraftCommandResult,
     DraftView,
     FetchedStream,
     FetchOutcome,
     FetchSnapshot,
+    PublicationOperationView,
+    PublicationPlan,
+    PublicationStatus,
     RemoteSnapshotView,
     StreamBindingView,
     StreamDraftView,
     StreamRefView,
+)
+from app.application.publication import (
+    PublicationConflictError,
+    PublicationGateError,
 )
 from app.core.config import settings
 from app.db.models import (
@@ -30,6 +39,7 @@ from app.db.models import (
     RemoteOfferSnapshotModel,
     StreamDraftModel,
     StreamOfferBindingModel,
+    StreamPublicationModel,
     StreamRefModel,
 )
 from app.db.session import SessionLocal
@@ -50,10 +60,16 @@ from app.domain.draft import (
     DraftInputError,
     DraftIntent,
     DraftViewData,
+    StagedOffer,
     baseline_view,
     load_baseline_bindings,
     plan_edit,
     staged_view,
+)
+from app.domain.publication import (
+    UNRESOLVED_STATUSES,
+    OfferEntry,
+    can_transition,
 )
 from app.domain.reconciliation import (
     BindingLifecycle,
@@ -384,6 +400,94 @@ def _load_staged_changes(raw: str) -> dict[str, object]:
     if not isinstance(data, dict):
         raise ValueError("draft staged changes are not an object")
     return data
+
+
+def _dump_json(value: object) -> str:
+    """Serialise evidence with stable key order for comparison."""
+    return json.dumps(value, separators=(",", ":"), sort_keys=True)
+
+
+def _load_object(raw: str) -> dict[str, object]:
+    """Deserialise a stored JSON object."""
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise ValueError("stored publication evidence is not an object")
+    return data
+
+
+def _dump_entries(entries: tuple[OfferEntry, ...]) -> str:
+    """Serialise the exact offer entries sent in a PUT body."""
+    return _dump_json([entry.to_json() for entry in entries])
+
+
+def _load_entries(raw: str) -> tuple[OfferEntry, ...]:
+    """Deserialise the exact offer entries sent in a PUT body."""
+    data = json.loads(raw)
+    if not isinstance(data, list):
+        raise ValueError("publication offer entries are not a list")
+    return tuple(
+        OfferEntry(
+            offer_id=item["offer_id"],
+            share=item["share"],
+            state=item.get("state"),
+        )
+        for item in data
+    )
+
+
+def _dump_staged_offers(offers: tuple[StagedOffer, ...]) -> str:
+    """Serialise the immutable effective staged view of a publication."""
+    return _dump_json(
+        [
+            {
+                "offer_id": item.offer_id,
+                "lifecycle": item.lifecycle.value,
+                "is_pinned": item.is_pinned,
+                "share": item.share,
+                "state": item.state,
+                "position": item.position,
+            }
+            for item in offers
+        ]
+    )
+
+
+def _load_staged_offers(raw: str) -> tuple[StagedOffer, ...]:
+    """Deserialise the immutable effective staged view of a publication."""
+    data = json.loads(raw)
+    if not isinstance(data, list):
+        raise ValueError("publication staged offers are not a list")
+    return tuple(
+        StagedOffer(
+            offer_id=item["offer_id"],
+            lifecycle=BindingLifecycle(item["lifecycle"]),
+            is_pinned=item["is_pinned"],
+            share=item["share"],
+            state=item.get("state"),
+            position=item["position"],
+        )
+        for item in data
+    )
+
+
+def _find_ref_by_remote(session: Session, stream_ref: int) -> StreamRefModel | None:
+    """Find a cached stream reference by its remote id."""
+    return (
+        session.query(StreamRefModel)
+        .filter_by(keitaro_stream_id=stream_ref)
+        .one_or_none()
+    )
+
+
+def _has_unresolved_publication(session: Session, stream_ref_id: int) -> bool:
+    """Read the durable gate for one stream inside the current transaction."""
+    return (
+        session.query(StreamPublicationModel)
+        .filter_by(stream_ref_id=stream_ref_id)
+        .filter(StreamPublicationModel.status.in_(UNRESOLVED_STATUSES))
+        .first()
+        is not None
+    )
 
 
 class SqlAlchemyStreamReconciliationRepository:
@@ -864,6 +968,10 @@ class SqlAlchemyStreamDraftRepository:
         )
         if ref is None or ref.campaign_id != command.campaign_id:
             raise DraftInputError("stream does not belong to the requested campaign")
+        if _has_unresolved_publication(session, ref.id):
+            raise PublicationGateError(
+                f"stream {command.stream_ref} has an unresolved publication"
+            )
         return ref
 
     @staticmethod
@@ -1104,6 +1212,38 @@ class SqlAlchemyStreamDraftRepository:
             noop=False,
         )
 
+    def list_dirty(self, campaign_id: int) -> tuple[DirtyDraftView, ...]:
+        """List dirty drafts of one campaign for publication planning."""
+        with self._session_factory() as session:
+            rows = (
+                session.query(StreamDraftModel)
+                .join(
+                    StreamRefModel,
+                    StreamRefModel.id == StreamDraftModel.stream_ref_id,
+                )
+                .filter(StreamRefModel.campaign_id == campaign_id)
+                .filter(StreamDraftModel.is_dirty.is_(True))
+                .all()
+            )
+            return tuple(
+                DirtyDraftView(
+                    stream_ref=self._remote_id(session, row.stream_ref_id),
+                    version=row.version,
+                    intent=_load_intent(row.staged_changes_json).to_json(),
+                    is_dirty=row.is_dirty,
+                    is_stale=row.is_stale,
+                )
+                for row in rows
+            )
+
+    @staticmethod
+    def _remote_id(session: Session, stream_ref_id: int) -> int:
+        """Return the remote stream id of one cached reference."""
+        ref = session.get(StreamRefModel, stream_ref_id)
+        if ref is None:
+            raise ValueError(f"unknown stream reference {stream_ref_id}")
+        return ref.keitaro_stream_id
+
     def get_view(self, stream_ref: int) -> DraftView | None:
         """Load the derived staged view for one stream."""
         with self._session_factory() as session:
@@ -1146,3 +1286,430 @@ class SqlAlchemyStreamDraftRepository:
                 draft.is_stale,
                 _load_conflicts(draft.conflict_details_json),
             )
+
+
+class SqlAlchemyStreamPublicationRepository:
+    """Persist durable per-stream publication operations in SQLite."""
+
+    def __init__(self, session_factory: sessionmaker[Session] = SessionLocal):
+        """Use an injectable session factory so tests can use a temporary DB."""
+        self._session_factory = session_factory
+
+    @staticmethod
+    def _to_view(model: StreamPublicationModel) -> PublicationOperationView:
+        """Map a persisted publication row to its application view."""
+        return PublicationOperationView(
+            id=model.id,
+            operation_uuid=model.operation_uuid,
+            campaign_id=model.campaign_id,
+            stream_ref=model.stream_ref,
+            status=PublicationStatus(model.status),
+            draft_version=model.draft_version,
+            intent=_load_object(model.expected_intent_json),
+            request_payload=_load_object(model.request_payload_json),
+            remote_baseline_before=_load_object(model.remote_baseline_before_json),
+            remote_baseline_after=(
+                _load_offers(model.remote_baseline_after_json)
+                if model.remote_baseline_after_json is not None
+                else None
+            ),
+            effective_entries=_load_entries(model.effective_offers_json),
+            staged_offers=_load_staged_offers(model.staged_offers_json),
+            attempt_count=model.attempt_count,
+            error=model.error,
+            evidence=(
+                _load_object(model.evidence_json)
+                if model.evidence_json is not None
+                else None
+            ),
+        )
+
+    def create_pending(
+        self, plans: tuple[PublicationPlan, ...]
+    ) -> tuple[PublicationOperationView, ...]:
+        """Atomically capture drafts and create one pending operation per plan."""
+        if not plans:
+            return ()
+        with self._session_factory() as session:
+            try:
+                created: list[StreamPublicationModel] = []
+                for plan in plans:
+                    ref = _find_ref_by_remote(session, plan.stream_ref)
+                    if ref is None or ref.campaign_id != plan.campaign_id:
+                        raise PublicationConflictError(
+                            f"stream {plan.stream_ref} does not belong to campaign "
+                            f"{plan.campaign_id}"
+                        )
+                    draft = (
+                        session.query(StreamDraftModel)
+                        .filter_by(stream_ref_id=ref.id)
+                        .one_or_none()
+                    )
+                    if (
+                        draft is None
+                        or not draft.is_dirty
+                        or draft.is_stale
+                        or draft.version != plan.draft_version
+                    ):
+                        raise PublicationConflictError(
+                            f"draft for stream {plan.stream_ref} changed"
+                        )
+                    if _load_intent(draft.staged_changes_json).to_json() != dict(
+                        plan.intent
+                    ):
+                        raise PublicationConflictError(
+                            f"staged intent for stream {plan.stream_ref} changed"
+                        )
+                    if _has_unresolved_publication(session, ref.id):
+                        raise PublicationGateError(
+                            f"stream {plan.stream_ref} has an unresolved publication"
+                        )
+                    model = StreamPublicationModel(
+                        operation_uuid=plan.correlation_marker,
+                        campaign_id=plan.campaign_id,
+                        stream_ref=plan.stream_ref,
+                        stream_ref_id=ref.id,
+                        status=PublicationStatus.PENDING.value,
+                        draft_version=plan.draft_version,
+                        attempt_count=0,
+                        request_payload_json=_dump_json(dict(plan.payload)),
+                        remote_baseline_before_json=_dump_json(dict(plan.preimage)),
+                        expected_intent_json=_dump_json(dict(plan.intent)),
+                        effective_offers_json=_dump_entries(plan.expected_entries),
+                        staged_offers_json=_dump_staged_offers(plan.staged_offers),
+                    )
+                    session.add(model)
+                    created.append(model)
+                session.commit()
+                views = tuple(self._to_view(model) for model in created)
+            except IntegrityError as exc:
+                session.rollback()
+                raise PublicationConflictError(
+                    "concurrent publication creation"
+                ) from exc
+            except Exception:
+                session.rollback()
+                raise
+        return views
+
+    def get(self, operation_id: int) -> PublicationOperationView | None:
+        """Load one publication operation by its local id."""
+        with self._session_factory() as session:
+            model = session.get(StreamPublicationModel, operation_id)
+            return self._to_view(model) if model is not None else None
+
+    def claim(
+        self, operation_id: int, worker_token: str
+    ) -> PublicationOperationView | None:
+        """Atomically claim a pending operation before its mutating PUT."""
+        with self._session_factory() as session:
+            result = session.execute(
+                update(StreamPublicationModel)
+                .where(StreamPublicationModel.id == operation_id)
+                .where(StreamPublicationModel.status == PublicationStatus.PENDING.value)
+                .values(
+                    status=PublicationStatus.IN_PROGRESS.value,
+                    attempt_count=StreamPublicationModel.attempt_count + 1,
+                    worker_token=worker_token,
+                    started_at=_utc_now(),
+                    error=None,
+                )
+            )
+            session.commit()
+            if getattr(result, "rowcount", 0) != 1:
+                return None
+            model = session.get(StreamPublicationModel, operation_id)
+            return self._to_view(model) if model is not None else None
+
+    def mark_ambiguous(
+        self, operation_id: int, error: str
+    ) -> PublicationOperationView | None:
+        """Move an in-progress operation to ambiguous without authorizing retry."""
+        return self._update_terminal(
+            operation_id,
+            PublicationStatus.AMBIGUOUS,
+            error=error,
+        )
+
+    def mark_failed(
+        self,
+        operation_id: int,
+        error: str,
+        evidence: Mapping[str, object],
+    ) -> PublicationOperationView | None:
+        """Move an operation to failed only with explicit absence evidence."""
+        if not evidence:
+            raise PublicationConflictError(
+                "failed requires evidence that the side effect did not occur"
+            )
+        return self._update_terminal(
+            operation_id,
+            PublicationStatus.FAILED,
+            error=error,
+            evidence=evidence,
+        )
+
+    def _update_terminal(
+        self,
+        operation_id: int,
+        status: PublicationStatus,
+        *,
+        error: str,
+        evidence: Mapping[str, object] | None = None,
+    ) -> PublicationOperationView | None:
+        """Apply one conditional terminal transition to a claimed operation."""
+        values: dict[str, object] = {
+            "status": status.value,
+            "error": error,
+            "finished_at": _utc_now(),
+        }
+        if evidence is not None:
+            values["evidence_json"] = _dump_json(dict(evidence))
+        with self._session_factory() as session:
+            result = session.execute(
+                update(StreamPublicationModel)
+                .where(StreamPublicationModel.id == operation_id)
+                .where(
+                    StreamPublicationModel.status == PublicationStatus.IN_PROGRESS.value
+                )
+                .values(**values)
+            )
+            session.commit()
+            if getattr(result, "rowcount", 0) != 1:
+                return None
+            model = session.get(StreamPublicationModel, operation_id)
+            return self._to_view(model) if model is not None else None
+
+    def finalize_success(
+        self,
+        operation_id: int,
+        remote_baseline_after: tuple[RemoteOffer, ...],
+    ) -> PublicationOperationView | None:
+        """Commit bindings, cache and draft together with a verified success."""
+        with self._session_factory() as session:
+            try:
+                model = session.get(StreamPublicationModel, operation_id)
+                if model is None:
+                    return None
+                status = PublicationStatus(model.status)
+                if status is PublicationStatus.SUCCEEDED:
+                    return self._to_view(model)
+                if not can_transition(status, PublicationStatus.SUCCEEDED):
+                    return None
+                ref = session.get(StreamRefModel, model.stream_ref_id)
+                draft = (
+                    session.query(StreamDraftModel)
+                    .filter_by(stream_ref_id=model.stream_ref_id)
+                    .one_or_none()
+                )
+                if ref is None or draft is None:
+                    return None
+                expected = _load_object(model.expected_intent_json)
+                if (
+                    draft.version != model.draft_version
+                    or _load_intent(draft.staged_changes_json).to_json() != expected
+                ):
+                    return None
+
+                now = _utc_now()
+                self._apply_committed_changes(
+                    session, model, remote_baseline_after, now
+                )
+                self._advance_snapshot(
+                    session, model.stream_ref_id, remote_baseline_after, now
+                )
+                self._clear_draft(session, draft, ref)
+                result = session.execute(
+                    update(StreamPublicationModel)
+                    .where(StreamPublicationModel.id == operation_id)
+                    .where(
+                        StreamPublicationModel.status.in_(
+                            [
+                                PublicationStatus.IN_PROGRESS.value,
+                                PublicationStatus.AMBIGUOUS.value,
+                            ]
+                        )
+                    )
+                    .values(
+                        status=PublicationStatus.SUCCEEDED.value,
+                        remote_baseline_after_json=_dump_offers(remote_baseline_after),
+                        error=None,
+                        finished_at=now,
+                    )
+                )
+                if getattr(result, "rowcount", 0) != 1:
+                    session.rollback()
+                    raise PublicationConflictError(
+                        "publication changed during confirmation"
+                    )
+                session.commit()
+                view = self._to_view(model)
+            except Exception:
+                session.rollback()
+                raise
+        return view
+
+    @staticmethod
+    def _apply_committed_changes(
+        session: Session,
+        model: StreamPublicationModel,
+        observed: tuple[RemoteOffer, ...],
+        now: datetime,
+    ) -> None:
+        """Apply the captured staged lifecycle/pin intent to bindings."""
+        shares = {offer.offer_id: offer.share for offer in observed}
+        for staged in _load_staged_offers(model.staged_offers_json):
+            binding = (
+                session.query(StreamOfferBindingModel)
+                .filter_by(
+                    stream_ref_id=model.stream_ref_id,
+                    offer_id=staged.offer_id,
+                )
+                .one_or_none()
+            )
+            active = staged.lifecycle is BindingLifecycle.ACTIVE
+            if binding is None:
+                session.add(
+                    StreamOfferBindingModel(
+                        stream_ref_id=model.stream_ref_id,
+                        offer_id=staged.offer_id,
+                        lifecycle=staged.lifecycle.value,
+                        is_pinned=staged.is_pinned,
+                        last_remote_share=shares.get(staged.offer_id)
+                        if active
+                        else None,
+                        archived_at=None if active else now,
+                        reactivated_at=now if active else None,
+                    )
+                )
+                continue
+            binding.lifecycle = staged.lifecycle.value
+            binding.is_pinned = staged.is_pinned
+            binding.last_remote_share = shares.get(staged.offer_id) if active else None
+            if active:
+                binding.reactivated_at = now
+            else:
+                binding.archived_at = now
+
+    @staticmethod
+    def _advance_snapshot(
+        session: Session,
+        stream_ref_id: int,
+        offers: tuple[RemoteOffer, ...],
+        now: datetime,
+    ) -> None:
+        """Advance the remote cache only when this evidence is not stale."""
+        cached = (
+            session.query(RemoteOfferSnapshotModel)
+            .filter_by(stream_ref_id=stream_ref_id)
+            .one_or_none()
+        )
+        if cached is None:
+            session.add(
+                RemoteOfferSnapshotModel(
+                    stream_ref_id=stream_ref_id,
+                    offers_json=_dump_offers(offers),
+                    captured_at=now,
+                )
+            )
+        elif cached.captured_at <= now:
+            cached.offers_json = _dump_offers(offers)
+            cached.captured_at = now
+
+    @staticmethod
+    def _clear_draft(
+        session: Session,
+        draft: StreamDraftModel,
+        ref: StreamRefModel,
+    ) -> None:
+        """Normalise a clean draft or preserve sticky conflict state."""
+        if not draft.is_stale and not _load_conflicts(draft.conflict_details_json):
+            ref.draft_version_counter = max(ref.draft_version_counter, draft.version)
+            session.delete(draft)
+            return
+        draft.staged_changes_json = "{}"
+        draft.is_dirty = False
+
+    def list_recoverable(self, limit: int) -> tuple[PublicationOperationView, ...]:
+        """List bounded unresolved operations for startup reconciliation."""
+        with self._session_factory() as session:
+            rows = (
+                session.query(StreamPublicationModel)
+                .filter(StreamPublicationModel.status.in_(UNRESOLVED_STATUSES))
+                .order_by(StreamPublicationModel.id)
+                .limit(limit)
+                .all()
+            )
+            return tuple(self._to_view(row) for row in rows)
+
+    def get_latest(
+        self, campaign_id: int, stream_ref: int
+    ) -> PublicationOperationView | None:
+        """Load the newest publication record for one stream."""
+        with self._session_factory() as session:
+            row = (
+                session.query(StreamPublicationModel)
+                .filter_by(campaign_id=campaign_id, stream_ref=stream_ref)
+                .order_by(StreamPublicationModel.id.desc())
+                .first()
+            )
+            return self._to_view(row) if row is not None else None
+
+    def has_unresolved(self, campaign_id: int, stream_refs: tuple[int, ...]) -> bool:
+        """Report whether durable state gates any of the given streams."""
+        if not stream_refs:
+            return False
+        with self._session_factory() as session:
+            row = (
+                session.query(StreamPublicationModel)
+                .filter(StreamPublicationModel.campaign_id == campaign_id)
+                .filter(StreamPublicationModel.stream_ref.in_(stream_refs))
+                .filter(StreamPublicationModel.status.in_(UNRESOLVED_STATUSES))
+                .first()
+            )
+            return row is not None
+
+    def get_unresolved(
+        self, campaign_id: int, stream_ref: int
+    ) -> PublicationOperationView | None:
+        """Load one unresolved operation for safe pending resume."""
+        with self._session_factory() as session:
+            row = (
+                session.query(StreamPublicationModel)
+                .filter_by(campaign_id=campaign_id, stream_ref=stream_ref)
+                .filter(StreamPublicationModel.status.in_(UNRESOLVED_STATUSES))
+                .order_by(StreamPublicationModel.id.desc())
+                .first()
+            )
+            return self._to_view(row) if row is not None else None
+
+    def abandon(
+        self, operation_id: int, reason: str
+    ) -> PublicationOperationView | None:
+        """Explicitly abandon a pending or evidenced failed operation."""
+        with self._session_factory() as session:
+            model = session.get(StreamPublicationModel, operation_id)
+            if model is None:
+                return None
+            status = PublicationStatus(model.status)
+            if status is PublicationStatus.FAILED and not model.evidence_json:
+                raise PublicationConflictError(
+                    "failed publication needs absence evidence before Cancel"
+                )
+            if not can_transition(status, PublicationStatus.ABANDONED):
+                return None
+            result = session.execute(
+                update(StreamPublicationModel)
+                .where(StreamPublicationModel.id == operation_id)
+                .where(StreamPublicationModel.status.in_([status.value]))
+                .values(
+                    status=PublicationStatus.ABANDONED.value,
+                    error=reason,
+                    finished_at=_utc_now(),
+                )
+            )
+            session.commit()
+            if getattr(result, "rowcount", 0) != 1:
+                return None
+            session.refresh(model)
+            return self._to_view(model)

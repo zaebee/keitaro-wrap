@@ -4,7 +4,7 @@ Cross-reference: persistence design `docs/architecture/persistence.md`, domain m
 
 ## Status
 
-The dependency direction, data ownership and boundaries below are the accepted target design (`docs/decisions.md`, `docs/implementation/module-boundaries.md`). Implemented as of Slice 5: `app/main.py` (composition root and lifespan), `app/api/` (health route), `app/application/` (DTOs, `KeitaroClientPort`, campaign creation, Fetch and local draft editing workflows), `app/domain/` (pure allocation, operation state machine, offer reconciliation and staged draft planning), `app/keitaro_client/` (async adapter), `app/core/` (settings), `app/db/` and `alembic/` (SQLite/Alembic, `app_settings`, `campaign_creation_operations`, `stream_refs`, `remote_offer_snapshots`, `stream_offer_bindings` and `stream_drafts` tables, repository adapters). Publication commands and later workflows are target design; progress is tracked in `docs/implementation/implementation-plan.md`. Verified API observations are facts about Keitaro, not claims about implemented features.
+The dependency direction, data ownership and boundaries below are the accepted target design (`docs/decisions.md`, `docs/implementation/module-boundaries.md`). Implemented as of Slice 6: `app/main.py` (composition root and lifespan), `app/api/` (health route), `app/application/` (DTOs, `KeitaroClientPort`, campaign creation, Fetch, local draft editing and publication workflows), `app/domain/` (pure allocation, operation state machines, offer reconciliation, staged draft planning and publication eligibility/payload), `app/keitaro_client/` (async adapter), `app/core/` (settings), `app/db/` and `alembic/` (SQLite/Alembic, including `stream_publications`, with repository adapters). Later workflows are target design; progress is tracked in `docs/implementation/implementation-plan.md`. Verified API observations are facts about Keitaro, not claims about implemented features.
 
 ## Style
 Modular monolith. FastAPI app with:
@@ -32,8 +32,8 @@ Implemented in Slice 4 (entity names per `docs/architecture/persistence.md`):
 - `StreamOfferBinding` — committed binding lifecycle (`ACTIVE`/`ARCHIVED`), `is_pinned` and remote share cache.
 - `StreamDraft` — durable staged state with immutable offer/binding baselines; staging does not overwrite committed state.
 
-Target design, not implemented yet:
-- `StreamPublication` — per-stream publication history and outcomes.
+Implemented in Slice 6:
+- `StreamPublication` — per-stream publication history and outcomes, with a durable unresolved-operation gate.
 
 No full campaign mirror unless a concrete use case (e.g. offline listing) justifies it.
 
@@ -60,6 +60,14 @@ The pure allocation, operation state machine, reconciliation and draft-planning 
 - `app/domain/draft.py` reuses `allocate()` from Slice 2. Pinned shares are fixed inputs, a manual share edit auto-pins (D19) with integer 0..100 validation (D20), and explicit Unpin returns the offer to redistribution. Zero/one active offers, all-pinned states and unallocated remainders are allowed and surfaced as `policy_cases`/`unallocated` (D21); Push eligibility remains a Slice 6 decision.
 - Commands are conditional on `StreamDraft.version`; semantic no-ops normalise to empty intent without a version bump. A clean draft whose intent normalises to `{}` is deleted in the same transaction, and the next edit rebaselines from the current `RemoteSnapshot`. `stream_refs.draft_version_counter` keeps versions monotonic across cleanup/recreation so a stale client cannot reuse an old version. Stale drafts block editing and preserve sticky conflict data; local Cancel clears only staged intent and never resolves a conflict (D22).
 - Fetch conflict detection was corrected as an S4/S5 integration fix: share changes conflict when the offer still feeds staged LRM allocation (add/archive/restore/pin intents and other offers alongside share edits), with `expected` taken from the immutable draft baseline. An offer with an explicit share edit is excluded because its local fixed share replaces the remote input; clean drafts and locally archived offers likewise have no allocation dependency.
+
+## Publication (implemented Slice 6)
+- `PublicationService` is application-owned; `app/domain/publication.py` applies D23/D24, builds the exact offers-only body and defines the durable status transitions. Persistence is behind `StreamPublicationRepository`.
+- One pending operation per dirty stream is created in a transaction that re-verifies draft version, canonical staged intent and absence of an unresolved publication. A conditional claim must win before the single PUT; no DB transaction spans Keitaro I/O (D14).
+- The PUT body is exactly `{"offers": [...]}`; the `GET /streams/{id}` pre-image is used only for ownership validation, stale detection and evidence. Runtime-only/response-only fields are never copied, and there is no full-document fallback.
+- A PUT result is confirmed only by bounded read-back. On verified success, snapshot, bindings and draft are advanced together; failed/ambiguous outcomes retain the draft and operation evidence. All HTTP failures are ambiguous unless independent evidence establishes absence of the side effect.
+- Live Keitaro writes are disabled by default (`KEITARO_ALLOW_PUBLICATION_WRITES=false`) until offers-only PUT preservation is verified live. Mocked contract tests exercise the exact request sequence; no live mutation was performed.
+- Startup recovery is bounded and read-only. Unresolved durable rows gate new Push across all workers; read-only application functionality remains available.
 
 ## Cross-cutting
 - Persistence boundary (D14): sync SQLAlchemy operations must not execute directly inside an async request path on the event loop; use FastAPI threadpool or an explicit boundary.

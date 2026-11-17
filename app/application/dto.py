@@ -7,6 +7,11 @@ from datetime import datetime
 from app.domain.allocation import PolicyCase
 from app.domain.campaign_creation import OperationStatus
 from app.domain.draft import DraftCommand, DraftCommandKind, StagedOffer
+from app.domain.publication import (
+    EligibilityReason,
+    OfferEntry,
+    PublicationStatus,
+)
 from app.domain.reconciliation import ConflictDetail, RemoteOffer
 
 
@@ -376,6 +381,117 @@ class DraftCommandResult:
     view: DraftView
     created: bool = False
     noop: bool = False
+
+
+@dataclass(frozen=True)
+class PushStreamsCommand:
+    """Request to publish dirty drafts of one campaign."""
+
+    campaign_id: int
+    stream_refs: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True)
+class DirtyDraftView:
+    """Durable staged state captured for publication planning."""
+
+    stream_ref: int
+    version: int
+    intent: Mapping[str, object]
+    is_dirty: bool
+    is_stale: bool
+
+
+@dataclass(frozen=True)
+class PublicationPlan:
+    """Immutable publication intent persisted before any remote mutation."""
+
+    campaign_id: int
+    stream_ref: int
+    draft_version: int
+    intent: Mapping[str, object]
+    staged_offers: tuple[StagedOffer, ...]
+    payload: Mapping[str, object]
+    expected_entries: tuple[OfferEntry, ...]
+    preimage: Mapping[str, object]
+    correlation_marker: str
+
+
+@dataclass(frozen=True)
+class PublicationOperationView:
+    """Durable per-stream publication record returned by the repository."""
+
+    id: int
+    operation_uuid: str
+    campaign_id: int
+    stream_ref: int
+    status: PublicationStatus
+    draft_version: int
+    intent: Mapping[str, object]
+    request_payload: Mapping[str, object]
+    remote_baseline_before: Mapping[str, object]
+    remote_baseline_after: tuple[RemoteOffer, ...] | None
+    effective_entries: tuple[OfferEntry, ...]
+    staged_offers: tuple[StagedOffer, ...]
+    attempt_count: int
+    error: str | None
+    evidence: Mapping[str, object] | None
+
+
+@dataclass(frozen=True)
+class PushStreamOutcome:
+    """Independent outcome of one stream in a Push batch."""
+
+    stream_ref: int
+    status: PublicationStatus | None = None
+    operation_id: int | None = None
+    reason: str | None = None
+
+
+@dataclass(frozen=True)
+class PushResult:
+    """Non-atomic batch result with one outcome per selected stream."""
+
+    campaign_id: int
+    outcomes: tuple[PushStreamOutcome, ...]
+
+
+@dataclass(frozen=True)
+class RecoveryResult:
+    """Counts produced by one bounded startup reconciliation pass."""
+
+    processed: int = 0
+    confirmed: int = 0
+    unresolved: int = 0
+    degraded: int = 0
+    remaining: int = 0
+    deadline_reached: bool = False
+
+
+@dataclass(frozen=True)
+class CancelPublicationCommand:
+    """Request to cancel the publication lifecycle of one stream."""
+
+    campaign_id: int
+    stream_ref: int
+
+
+@dataclass(frozen=True)
+class CancelResult:
+    """Outcome of one publication-aware Cancel command."""
+
+    stream_ref: int
+    status: PublicationStatus | None = None
+    reason: str | None = None
+    draft_discarded: bool = False
+
+
+@dataclass(frozen=True)
+class PublicationSkip:
+    """Reason why a stream was rejected before a durable operation existed."""
+
+    stream_ref: int
+    reason: EligibilityReason | str
 
 
 def to_domain_command(command: DraftCommandBase) -> DraftCommand:
