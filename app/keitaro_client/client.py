@@ -24,6 +24,8 @@ from app.application.dto import (
 )
 from app.application.ports import KeitaroClientPort
 
+_CAMPAIGNS_PATH = "/campaigns"
+
 
 class KeitaroError(Exception):
     """KeitaroError."""
@@ -203,7 +205,7 @@ class KeitaroClient(KeitaroClientPort):
             body["group_id"] = payload.group_id
         if payload.traffic_source_id is not None:
             body["traffic_source_id"] = payload.traffic_source_id
-        c = await self._request("POST", "/campaigns", json=body)
+        c = await self._request("POST", _CAMPAIGNS_PATH, json=body)
         return CampaignDTO(
             id=c["id"],
             name=c.get("name", payload.name),
@@ -220,7 +222,7 @@ class KeitaroClient(KeitaroClientPort):
         """List campaigns (page-oriented; offset/limit)."""
         data = await self._request(
             "GET",
-            "/campaigns",
+            _CAMPAIGNS_PATH,
             params={"offset": offset, "limit": limit},
             retries=2,
         )
@@ -231,12 +233,12 @@ class KeitaroClient(KeitaroClientPort):
                 alias=c.get("alias"),
                 state=c.get("state"),
             )
-            for c in self._as_object_list(data, "/campaigns")
+            for c in self._as_object_list(data, _CAMPAIGNS_PATH)
         ]
 
     async def get_campaign(self, campaign_id: int) -> CampaignDTO:
         """get_campaign."""
-        c = await self._request("GET", f"/campaigns/{campaign_id}", retries=2)
+        c = await self._request("GET", f"{_CAMPAIGNS_PATH}/{campaign_id}", retries=2)
         return CampaignDTO(
             id=c["id"],
             name=c.get("name", ""),
@@ -246,12 +248,11 @@ class KeitaroClient(KeitaroClientPort):
 
     async def list_campaign_streams(self, campaign_id: int) -> list[StreamDTO]:
         """list_campaign_streams."""
-        data = await self._request(
-            "GET", f"/campaigns/{campaign_id}/streams", retries=2
-        )
+        streams_path = f"{_CAMPAIGNS_PATH}/{campaign_id}/streams"
+        data = await self._request("GET", streams_path, retries=2)
         return [
             self._to_stream(s, campaign_id)
-            for s in self._as_object_list(data, f"/campaigns/{campaign_id}/streams")
+            for s in self._as_object_list(data, streams_path)
         ]
 
     # streams
