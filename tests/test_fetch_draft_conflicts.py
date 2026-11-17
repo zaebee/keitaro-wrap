@@ -234,7 +234,8 @@ def test_conflict_is_sticky_and_cancel_preserves_it(factory):
     edit(factory, AddOfferCommand(5, 12, 0, 9))
     first = fetch(factory, offers(((5, 90), (8, 40))))
     second = fetch(factory, offers(((5, 90), (8, 40))))
-    assert first is not None and second is not None
+    assert first is not None
+    assert second is not None
     assert first.conflicts == second.conflicts
     assert len(second.conflicts) == 1
 
