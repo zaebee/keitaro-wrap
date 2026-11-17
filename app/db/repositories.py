@@ -6,7 +6,11 @@ from app.application.dto import ConfiguredResources
 from app.core.config import settings
 from app.db.models import AppSettings, CampaignCreationOperationModel
 from app.db.session import SessionLocal
-from app.domain.campaign_creation import CampaignCreationOperation, OperationStatus
+from app.domain.campaign_creation import (
+    CampaignCreationOperation,
+    OperationStatus,
+    StepState,
+)
 
 
 class SqlAlchemyCampaignCreationOperations:
@@ -28,8 +32,12 @@ class SqlAlchemyCampaignCreationOperations:
                 domain_id=operation.domain_id,
                 group_id=operation.group_id,
                 traffic_source_id=operation.traffic_source_id,
+                redirect_url=operation.redirect_url,
                 status=operation.status.value,
                 error_message=operation.error_message,
+                campaign_step=operation.campaign_step.value,
+                country_flow_step=operation.country_flow_step.value,
+                offer_flow_step=operation.offer_flow_step.value,
             )
             session.add(model)
             session.commit()
@@ -70,6 +78,9 @@ class SqlAlchemyCampaignCreationOperations:
             model.flow_country_id = operation.flow_country_id
             model.flow_offer_id = operation.flow_offer_id
             model.error_message = operation.error_message
+            model.campaign_step = operation.campaign_step.value
+            model.country_flow_step = operation.country_flow_step.value
+            model.offer_flow_step = operation.offer_flow_step.value
             session.commit()
             session.refresh(model)
             operation.updated_at = model.updated_at
@@ -90,11 +101,15 @@ class SqlAlchemyCampaignCreationOperations:
             domain_id=model.domain_id,
             group_id=model.group_id,
             traffic_source_id=model.traffic_source_id,
+            redirect_url=model.redirect_url,
             status=OperationStatus(model.status),
             keitaro_campaign_id=model.keitaro_campaign_id,
             flow_country_id=model.flow_country_id,
             flow_offer_id=model.flow_offer_id,
             error_message=model.error_message,
+            campaign_step=StepState(model.campaign_step),
+            country_flow_step=StepState(model.country_flow_step),
+            offer_flow_step=StepState(model.offer_flow_step),
             created_at=model.created_at,
             updated_at=model.updated_at,
         )

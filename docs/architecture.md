@@ -76,8 +76,10 @@ Stream (POST /streams timed out, campaign id known):
 
 If safe reconciliation cannot be established, keep operation `ambiguous` and require operator intervention. Never blindly retry non-idempotent POST.
 
-## Operation state machine (target design)
+## Operation state machine (implemented for Slice 3)
 States: `started`, `partial`, `ambiguous`, `created`, `failed`, `abandoned`.
+Each of the three mutations also has a durable step state (`not_started`, `in_flight`,
+`confirmed`, `ambiguous`); only `not_started` steps may execute a POST on resume.
 
 Transitions:
 - started → partial: campaign created (keitaro_campaign_id known), not all streams done.

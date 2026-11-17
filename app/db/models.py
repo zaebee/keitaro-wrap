@@ -43,8 +43,12 @@ class CampaignCreationOperationModel(Base):
     domain_id: Mapped[int] = mapped_column(Integer, nullable=False)
     group_id: Mapped[int] = mapped_column(Integer, nullable=False)
     traffic_source_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    redirect_url: Mapped[str] = mapped_column(String(2048), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     error_message: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    campaign_step: Mapped[str] = mapped_column(String(20), nullable=False)
+    country_flow_step: Mapped[str] = mapped_column(String(20), nullable=False)
+    offer_flow_step: Mapped[str] = mapped_column(String(20), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=func.now(), onupdate=func.now()

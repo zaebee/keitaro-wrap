@@ -1,4 +1,4 @@
-"""Campaign creation workflow: validation, durable operations and reconciliation."""
+"""Campaign creation workflow: durable steps, reconciliation and verification."""
 
 import asyncio
 import re
@@ -21,9 +21,13 @@ from app.application.ports import (
 )
 from app.domain.campaign_creation import (
     CampaignCreationOperation,
+    CreationStage,
     OperationStatus,
+    StepState,
+    get_step,
     is_terminal,
     make_alias,
+    set_step,
 )
 
 
@@ -43,6 +47,11 @@ def _client_error_status(exc: Exception) -> int | None:
     """Read a client error's ``status`` field without importing an adapter."""
     status = getattr(exc, "status", None)
     return status if isinstance(status, int) else None
+
+
+def _is_definitive_rejection(status: int | None) -> bool:
+    """Treat only explicit 4xx (except timeout/throttling) as a definitive rejection."""
+    return status is not None and 400 <= status < 500 and status not in (408, 429)
 
 
 class CampaignCreationService:
@@ -94,12 +103,13 @@ class CampaignCreationService:
                 domain_id=domain_id,
                 group_id=group_id,
                 traffic_source_id=traffic_source_id,
+                redirect_url=config.redirect_url,
             ),
         )
-        return await self._execute(operation, config.redirect_url)
+        return await self._execute(operation)
 
     async def resume(self, operation_uuid: str) -> CampaignCreationResult:
-        """Resume a durable operation without repeating confirmed mutations."""
+        """Resume a durable operation using its persisted intent, not current config."""
         operation = await asyncio.to_thread(
             self._operations.get_by_uuid, operation_uuid
         )
@@ -107,8 +117,7 @@ class CampaignCreationService:
             raise OperationNotFoundError(f"unknown operation {operation_uuid}")
         if is_terminal(operation.status):
             return self._to_result(operation)
-        config = await self._config()
-        return await self._execute(operation, config.redirect_url, resuming=True)
+        return await self._execute(operation)
 
     async def _config(self) -> ConfiguredResources:
         """Load operator configuration without blocking the event loop."""
@@ -132,7 +141,7 @@ class CampaignCreationService:
     def _campaign_id(operation: CampaignCreationOperation) -> int:
         """Return the confirmed campaign ID required for stream steps."""
         if operation.keitaro_campaign_id is None:
-            raise RuntimeError("campaign ID is required before stream creation")
+            raise RuntimeError("campaign ID is required before stream steps")
         return operation.keitaro_campaign_id
 
     async def _verify_offer(self, offer_id: int) -> None:
@@ -179,192 +188,140 @@ class CampaignCreationService:
         await asyncio.to_thread(self._operations.save, operation)
 
     async def _execute(
-        self,
-        operation: CampaignCreationOperation,
-        redirect_url: str,
-        *,
-        resuming: bool = False,
+        self, operation: CampaignCreationOperation
     ) -> CampaignCreationResult:
-        """Run only the missing steps of a durable operation."""
-        if resuming and not await self._precheck(operation):
-            return self._to_result(operation)
-        if operation.keitaro_campaign_id is None and not await self._create_campaign(
-            operation
-        ):
-            return self._to_result(operation)
-        if operation.flow_country_id is None and not await self._create_country_flow(
-            operation, redirect_url
-        ):
-            return self._to_result(operation)
-        if operation.flow_offer_id is None and not await self._create_offer_flow(
-            operation
-        ):
-            return self._to_result(operation)
+        """Execute or reconcile each step in order, never repeating a confirmed POST."""
+        for stage in CreationStage:
+            state = get_step(operation, stage)
+            if state is StepState.CONFIRMED:
+                continue
+            if state is StepState.NOT_STARTED:
+                if not await self._run_step(operation, stage):
+                    return self._to_result(operation)
+            elif not await self._recover_step(operation, stage):
+                return self._to_result(operation)
         return await self._verify_and_complete(operation)
 
-    async def _precheck(self, operation: CampaignCreationOperation) -> bool:
-        """Reconcile missing steps on resume before considering any new POST."""
-        steps = (
-            ("campaign", "keitaro_campaign_id"),
-            ("country_flow", "flow_country_id"),
-            ("offer_flow", "flow_offer_id"),
-        )
-        allow_zero = operation.status is not OperationStatus.AMBIGUOUS
-        for stage, field in steps:
-            if getattr(operation, field) is not None:
-                continue
-            if not await self._recover_resource(
-                operation, stage, allow_zero=allow_zero
-            ):
-                return False
-        return True
-
-    async def _recover_resource(
-        self,
-        operation: CampaignCreationOperation,
-        stage: str,
-        *,
-        allow_zero: bool,
+    async def _run_step(
+        self, operation: CampaignCreationOperation, stage: CreationStage
     ) -> bool:
-        """Adopt a single reconciled resource; never re-POST an ambiguous step."""
-        matches = await self._reconcile(operation, stage)
-        if len(matches) == 1:
-            self._adopt(operation, stage, matches[0])
-            await self._save(
-                operation,
-                status=OperationStatus.AMBIGUOUS,
-                error=f"{stage}: adopted one reconciled resource on resume",
-            )
-            return True
-        if len(matches) > 1 or not allow_zero:
-            await self._save(
-                operation,
-                status=OperationStatus.AMBIGUOUS,
-                error=f"{stage}: unresolved on resume ({len(matches)} matches)",
-            )
-            return False
-        return True
-
-    async def _create_campaign(self, operation: CampaignCreationOperation) -> bool:
-        """Create the Keitaro campaign with the operation-derived alias."""
-        payload = CampaignCreateDTO(
-            alias=operation.alias,
-            name=operation.name,
-            domain_id=operation.domain_id,
-            group_id=operation.group_id,
-            traffic_source_id=operation.traffic_source_id,
-        )
+        """Persist in-flight intent, POST once and persist confirmation."""
+        set_step(operation, stage, StepState.IN_FLIGHT)
+        await self._save(operation)
         try:
-            campaign = await self._client.create_campaign(payload)
+            resource = await self._post_step(operation, stage)
         except Exception as exc:
-            return await self._handle_mutation_failure(operation, exc, stage="campaign")
-        operation.keitaro_campaign_id = campaign.id
-        await self._save(
-            operation,
-            status=(
-                OperationStatus.PARTIAL
-                if operation.status is OperationStatus.STARTED
-                else None
-            ),
-        )
+            return await self._handle_step_failure(operation, stage, exc)
+        self._adopt(operation, stage, resource)
+        set_step(operation, stage, StepState.CONFIRMED)
+        if (
+            stage is CreationStage.CAMPAIGN
+            and operation.status is OperationStatus.STARTED
+        ):
+            await self._save(operation, status=OperationStatus.PARTIAL)
+        else:
+            await self._save(operation)
         return True
 
-    async def _create_country_flow(
-        self, operation: CampaignCreationOperation, redirect_url: str
-    ) -> bool:
-        """Create the forced GEO flow with the country filter and redirect."""
-        payload = StreamCreateDTO(
-            campaign_id=self._campaign_id(operation),
-            type="forced",
-            name=f"{operation.alias}-country",
-            schema="redirect",
-            action_type="http",
-            action_payload=redirect_url,
-            filters=[
-                StreamFilterInput(
-                    name="country", mode="accept", payload=[operation.country_code]
+    async def _post_step(
+        self, operation: CampaignCreationOperation, stage: CreationStage
+    ) -> Any:
+        """Perform the single mutating request for one step."""
+        if stage is CreationStage.CAMPAIGN:
+            return await self._client.create_campaign(
+                CampaignCreateDTO(
+                    alias=operation.alias,
+                    name=operation.name,
+                    domain_id=operation.domain_id,
+                    group_id=operation.group_id,
+                    traffic_source_id=operation.traffic_source_id,
                 )
-            ],
-            comments=operation.operation_uuid,
-        )
-        try:
-            stream = await self._client.create_stream(payload)
-        except Exception as exc:
-            return await self._handle_mutation_failure(
-                operation, exc, stage="country_flow"
             )
-        operation.flow_country_id = stream.id
-        await self._save(operation)
-        return True
-
-    async def _create_offer_flow(self, operation: CampaignCreationOperation) -> bool:
-        """Create the default offer flow carrying 100% of the selected offer."""
-        payload = StreamCreateDTO(
-            campaign_id=self._campaign_id(operation),
-            type="default",
-            name=f"{operation.alias}-offer",
-            schema="landings",
-            action_type="http",
-            offers=[
-                StreamOfferInput(offer_id=operation.offer_id, share=100, state="active")
-            ],
-            comments=operation.operation_uuid,
-        )
-        try:
-            stream = await self._client.create_stream(payload)
-        except Exception as exc:
-            return await self._handle_mutation_failure(
-                operation, exc, stage="offer_flow"
+        if stage is CreationStage.COUNTRY_FLOW:
+            return await self._client.create_stream(
+                StreamCreateDTO(
+                    campaign_id=self._campaign_id(operation),
+                    type="forced",
+                    name=f"{operation.alias}-country",
+                    schema="redirect",
+                    action_type="http",
+                    action_payload=operation.redirect_url,
+                    filters=[
+                        StreamFilterInput(
+                            name="country",
+                            mode="accept",
+                            payload=[operation.country_code],
+                        )
+                    ],
+                    comments=operation.operation_uuid,
+                )
             )
-        operation.flow_offer_id = stream.id
-        await self._save(operation)
-        return True
+        return await self._client.create_stream(
+            StreamCreateDTO(
+                campaign_id=self._campaign_id(operation),
+                type="default",
+                name=f"{operation.alias}-offer",
+                schema="landings",
+                action_type="http",
+                offers=[
+                    StreamOfferInput(
+                        offer_id=operation.offer_id, share=100, state="active"
+                    )
+                ],
+                comments=operation.operation_uuid,
+            )
+        )
 
-    async def _handle_mutation_failure(
+    async def _handle_step_failure(
         self,
         operation: CampaignCreationOperation,
+        stage: CreationStage,
         exc: Exception,
-        *,
-        stage: str,
     ) -> bool:
-        """Classify a failed mutation without ever blindly retrying it."""
+        """Classify a failed POST and reconcile only when the outcome is uncertain."""
+        set_step(operation, stage, StepState.AMBIGUOUS)
         status = _client_error_status(exc)
-        if status is None:
-            raise
-        if status != 0:
+        if _is_definitive_rejection(status):
             target = (
                 None
                 if operation.status is OperationStatus.AMBIGUOUS
                 else OperationStatus.FAILED
             )
-            await self._save(operation, status=target, error=f"{stage}: {exc}")
+            await self._save(operation, status=target, error=f"{stage.value}: {exc}")
             return False
+        await self._save(
+            operation,
+            status=(
+                None
+                if operation.status is OperationStatus.AMBIGUOUS
+                else OperationStatus.AMBIGUOUS
+            ),
+            error=f"{stage.value}: uncertain outcome ({exc})",
+        )
+        return await self._recover_step(operation, stage)
 
+    async def _recover_step(
+        self, operation: CampaignCreationOperation, stage: CreationStage
+    ) -> bool:
+        """Reconcile an attempted step; adoption is confirmed only by read-back."""
+        set_step(operation, stage, StepState.AMBIGUOUS)
         matches = await self._reconcile(operation, stage)
         if len(matches) == 1:
             self._adopt(operation, stage, matches[0])
-            await self._save(
-                operation,
-                status=OperationStatus.AMBIGUOUS,
-                error=f"{stage}: adopted one reconciled resource",
-            )
-            return True
-        await self._save(
-            operation,
-            status=OperationStatus.AMBIGUOUS,
-            error=f"{stage}: outcome ambiguous ({len(matches)} matches)",
-        )
+            await self._save(operation)
+            return await self._verify_step(operation, stage)
+        await self._save(operation, error=f"{stage.value}: unresolved ({len(matches)})")
         return False
 
     async def _reconcile(
-        self, operation: CampaignCreationOperation, stage: str
+        self, operation: CampaignCreationOperation, stage: CreationStage
     ) -> list[Any]:
-        """Run bounded read-only reconciliation for an ambiguous mutation."""
-        if stage == "campaign":
+        """Run bounded read-only reconciliation for one attempted step."""
+        if stage is CreationStage.CAMPAIGN:
             return await self._find_campaigns(operation.alias)
-        flow_type = "forced" if stage == "country_flow" else "default"
         if operation.keitaro_campaign_id is None:
             return []
+        flow_type = "forced" if stage is CreationStage.COUNTRY_FLOW else "default"
         return await self._find_streams(
             operation.keitaro_campaign_id, operation.operation_uuid, flow_type
         )
@@ -401,66 +358,131 @@ class CampaignCreationService:
         return matches
 
     @staticmethod
-    def _adopt(operation: CampaignCreationOperation, stage: str, resource: Any) -> None:
-        """Persist the ID of exactly one reconciled remote resource in memory."""
-        if stage == "campaign":
+    def _adopt(
+        operation: CampaignCreationOperation, stage: CreationStage, resource: Any
+    ) -> None:
+        """Persist the ID of a reconciled or confirmed remote resource in memory."""
+        if stage is CreationStage.CAMPAIGN:
             operation.keitaro_campaign_id = resource.id
-        elif stage == "country_flow":
+        elif stage is CreationStage.COUNTRY_FLOW:
             operation.flow_country_id = resource.id
         else:
             operation.flow_offer_id = resource.id
 
+    async def _verify_step(
+        self, operation: CampaignCreationOperation, stage: CreationStage
+    ) -> bool:
+        """Confirm one step's full remote configuration via read-only calls."""
+        try:
+            if stage is CreationStage.CAMPAIGN:
+                campaign = await self._client.get_campaign(self._campaign_id(operation))
+                matches = self._campaign_matches(operation, campaign)
+            else:
+                streams = await self._client.list_campaign_streams(
+                    self._campaign_id(operation)
+                )
+                expected_id = (
+                    operation.flow_country_id
+                    if stage is CreationStage.COUNTRY_FLOW
+                    else operation.flow_offer_id
+                )
+                stream = next(
+                    (item for item in streams if item.id == expected_id), None
+                )
+                if stage is CreationStage.COUNTRY_FLOW:
+                    matches = stream is not None and self._country_flow_matches(
+                        operation, stream
+                    )
+                else:
+                    matches = stream is not None and self._offer_flow_matches(
+                        operation, stream
+                    )
+        except Exception as exc:
+            await self._mark_unverified(operation, stage, f"readback failed: {exc}")
+            return False
+        if not matches:
+            await self._mark_unverified(
+                operation, stage, "readback verification failed"
+            )
+            return False
+        set_step(operation, stage, StepState.CONFIRMED)
+        await self._save(operation)
+        return True
+
+    async def _mark_unverified(
+        self,
+        operation: CampaignCreationOperation,
+        stage: CreationStage,
+        error: str,
+    ) -> None:
+        """Keep an unverified step recoverable without repeating its POST."""
+        set_step(operation, stage, StepState.AMBIGUOUS)
+        await self._save(
+            operation,
+            status=(
+                None
+                if operation.status is OperationStatus.AMBIGUOUS
+                else OperationStatus.AMBIGUOUS
+            ),
+            error=error,
+        )
+
+    @staticmethod
+    def _campaign_matches(operation: CampaignCreationOperation, campaign: Any) -> bool:
+        """Compare a read-back campaign with the persisted operation intent."""
+        return (
+            campaign.id == operation.keitaro_campaign_id
+            and campaign.alias == operation.alias
+            and campaign.name == operation.name
+            and campaign.domain_id == operation.domain_id
+            and campaign.group_id == operation.group_id
+            and campaign.traffic_source_id == operation.traffic_source_id
+        )
+
+    @staticmethod
+    def _country_flow_matches(
+        operation: CampaignCreationOperation, stream: Any
+    ) -> bool:
+        """Compare a read-back GEO flow with the persisted operation intent."""
+        filters = list(stream.filters)
+        return (
+            stream.id == operation.flow_country_id
+            and stream.campaign_id == operation.keitaro_campaign_id
+            and stream.comments == operation.operation_uuid
+            and stream.type == "forced"
+            and stream.schema == "redirect"
+            and stream.action_type == "http"
+            and stream.action_payload == operation.redirect_url
+            and len(filters) == 1
+            and filters[0].name == "country"
+            and filters[0].mode == "accept"
+            and list(filters[0].payload) == [operation.country_code]
+        )
+
+    @staticmethod
+    def _offer_flow_matches(operation: CampaignCreationOperation, stream: Any) -> bool:
+        """Compare a read-back offer flow with the persisted operation intent."""
+        offers = list(stream.offers)
+        return (
+            stream.id == operation.flow_offer_id
+            and stream.campaign_id == operation.keitaro_campaign_id
+            and stream.comments == operation.operation_uuid
+            and stream.type == "default"
+            and stream.schema == "landings"
+            and not stream.filters
+            and len(offers) == 1
+            and offers[0].offer_id == operation.offer_id
+            and offers[0].share == 100
+            and offers[0].state == "active"
+        )
+
     async def _verify_and_complete(
         self, operation: CampaignCreationOperation
     ) -> CampaignCreationResult:
-        """Read back resources before allowing the operation to become created."""
-        campaign_id = self._campaign_id(operation)
-        try:
-            campaign = await self._client.get_campaign(campaign_id)
-            streams = await self._client.list_campaign_streams(campaign_id)
-        except Exception as exc:
-            if _client_error_status(exc) is None:
-                raise
-            await self._save(
-                operation,
-                status=(
-                    None
-                    if operation.status is OperationStatus.AMBIGUOUS
-                    else OperationStatus.AMBIGUOUS
-                ),
-                error=f"readback failed: {exc}",
-            )
-            return self._to_result(operation)
-
-        country_ok = any(
-            stream.id == operation.flow_country_id
-            and stream.comments == operation.operation_uuid
-            and stream.type == "forced"
-            for stream in streams
-        )
-        offer_ok = any(
-            stream.id == operation.flow_offer_id
-            and stream.comments == operation.operation_uuid
-            and stream.type == "default"
-            for stream in streams
-        )
-        if (
-            campaign.id != operation.keitaro_campaign_id
-            or campaign.alias != operation.alias
-            or not country_ok
-            or not offer_ok
-        ):
-            await self._save(
-                operation,
-                status=(
-                    None
-                    if operation.status is OperationStatus.AMBIGUOUS
-                    else OperationStatus.AMBIGUOUS
-                ),
-                error="readback verification failed",
-            )
-            return self._to_result(operation)
-
+        """Verify every step before allowing the created status."""
+        for stage in CreationStage:
+            if not await self._verify_step(operation, stage):
+                return self._to_result(operation)
         await self._save(operation, status=OperationStatus.CREATED)
         return self._to_result(operation)
 

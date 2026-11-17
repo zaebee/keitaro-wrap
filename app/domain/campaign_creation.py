@@ -45,6 +45,30 @@ ALLOWED_TRANSITIONS: dict[OperationStatus, frozenset[OperationStatus]] = {
 }
 
 
+class StepState(StrEnum):
+    """Durable state of one mutating step within an operation."""
+
+    NOT_STARTED = "not_started"
+    IN_FLIGHT = "in_flight"
+    CONFIRMED = "confirmed"
+    AMBIGUOUS = "ambiguous"
+
+
+class CreationStage(StrEnum):
+    """The three mutating steps of campaign creation."""
+
+    CAMPAIGN = "campaign"
+    COUNTRY_FLOW = "country_flow"
+    OFFER_FLOW = "offer_flow"
+
+
+STEP_FIELDS: dict[CreationStage, str] = {
+    CreationStage.CAMPAIGN: "campaign_step",
+    CreationStage.COUNTRY_FLOW: "country_flow_step",
+    CreationStage.OFFER_FLOW: "offer_flow_step",
+}
+
+
 class InvalidOperationTransition(ValueError):
     """Requested operation status transition is not allowed."""
 
@@ -61,11 +85,15 @@ class CampaignCreationOperation:
     domain_id: int
     group_id: int
     traffic_source_id: int
+    redirect_url: str
     status: OperationStatus = OperationStatus.STARTED
     keitaro_campaign_id: int | None = None
     flow_country_id: int | None = None
     flow_offer_id: int | None = None
     error_message: str | None = None
+    campaign_step: StepState = StepState.NOT_STARTED
+    country_flow_step: StepState = StepState.NOT_STARTED
+    offer_flow_step: StepState = StepState.NOT_STARTED
     id: int | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -81,6 +109,18 @@ class CampaignCreationOperation:
         self.status = status
         if error_message is not None:
             self.error_message = error_message
+
+
+def get_step(operation: CampaignCreationOperation, stage: CreationStage) -> StepState:
+    """Read the durable state of one creation step."""
+    return StepState(getattr(operation, STEP_FIELDS[stage]))
+
+
+def set_step(
+    operation: CampaignCreationOperation, stage: CreationStage, state: StepState
+) -> None:
+    """Write the durable state of one creation step."""
+    setattr(operation, STEP_FIELDS[stage], state)
 
 
 def make_alias(operation_uuid: str) -> str:
