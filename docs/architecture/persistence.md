@@ -28,7 +28,7 @@ Fields: id, operation_uuid (unique), alias (unique, remote correlation), name, c
 Ownership: wrapper operational. Each mutating step is persisted as `in_flight` before its POST and as `confirmed` with the remote ID only after confirmation; the `not_started` → `in_flight` claim is an atomic conditional update, so only one worker may POST a step. `in_flight`/`ambiguous` steps may only reconcile on resume, and non-step `save()` calls cannot overwrite a newer step state.
 
 ### StreamRef (remote reference cache)
-Fields: id, campaign_id, keitaro_stream_id, type, name, schema, comments, created_at, updated_at.
+Fields: id, campaign_id, keitaro_stream_id, type, name, schema, comments, draft_version_counter (monotonic highest draft version used for the stream), created_at, updated_at.
 Constraint: UNIQUE(campaign_id, keitaro_stream_id); index on campaign_id. Stream names are not unique in Keitaro.
 Ownership: cached Keitaro identity only. Streams without offers are retained as refs; their filters and destinations are not parsed or edited.
 
@@ -50,7 +50,7 @@ The canonical `staged_changes` shape keeps `share_edits` as a mapping so Slice 4
 {"additions": [9], "archives": [7], "restores": [8],
  "pin_toggles": {"8": true}, "share_edits": {"7": 55}}
 ```
-Ownership: local draft state. Does not overwrite committed binding state. Slice 4 only prepared the table and wrote `is_stale` / `conflict_details`; Slice 5 adds lazy creation, staging commands and local Cancel.
+Ownership: local draft state. Does not overwrite committed binding state. Slice 4 only prepared the table and wrote `is_stale` / `conflict_details`; Slice 5 adds lazy creation, staging commands, local Cancel and cleanup of clean drafts whose intent normalises to `{}`.
 
 ### StreamPublication (publication)
 Fields: id, stream_ref, campaign_creation_operation_id (nullable), status (pending|in_progress|succeeded|failed|ambiguous|abandoned), attempt_count, correlation_marker, request_payload (redacted JSON), remote_baseline_before (JSON), remote_baseline_after (JSON nullable), error, started_at, finished_at.
@@ -61,7 +61,7 @@ Ownership: publication state.
 - Staged changes are stored in StreamDraft.staged_changes and never silently overwrite committed state or the remote snapshot cache.
 - A manual share edit also stages `is_pinned=true` (D19). Unpin removes that pin and its fixed share so redistribution resumes.
 - No-op is semantic: after applying accumulated intent, an effective state equal to the baseline normalises `staged_changes` to `{}`, `is_dirty=false`, with no version increment.
-- Stale drafts (D17/D22) block editing commands; local Cancel discards staged intent only and preserves `is_stale`/`conflict_details` unchanged. It never implies conflict resolution.
+- Stale drafts (D17/D22) block editing commands; local Cancel discards staged intent only and preserves `is_stale`/`conflict_details` unchanged. It never implies conflict resolution. Cleanup never applies to stale/conflicted drafts.
 - Cancel restores committed state by discarding staged_changes (draft becomes empty/non-dirty). Committed state unchanged.
 - Confirmed Push commits staged changes to committed state and advances remote baseline.
 - Failed/ambiguous Push retains draft.
@@ -115,7 +115,7 @@ Failed vs ambiguous:
 - Zero matches under incomplete pagination or uncertain read-after-write consistency does not establish absence.
 
 ## Concurrency
-- StreamDraft.version optimistic concurrency (wrapper-side only, not Keitaro version); Fetch does not change it. No draft is version 0; the first edit creates version 1, each effective edit/Cancel increments by one, and a semantic no-op does not.
+- StreamDraft.version optimistic concurrency (wrapper-side only, not Keitaro version); Fetch does not change it. No draft is version 0; the first edit creates version 1, each effective edit/Cancel increments by one, and a semantic no-op does not. Lazy creation uses `expected_version=0` as a sentinel and assigns `stream_refs.draft_version_counter + 1`; the counter never decreases, so deleting and recreating a draft cannot let a stale client reuse an old version (ABA protection). Cleanup returns version 0 to the caller.
 - Commands carry `expected_version`; a conditional update with a mismatched version is rejected, so concurrent edits cannot overwrite each other.
 - Binding identity is protected by UNIQUE(stream_ref_id, offer_id); conditional updates and a bounded local retry keep concurrent Fetches from creating duplicate rows. A losing Fetch can fail without leaving a partial snapshot.
 - Local DB transaction per user action; Keitaro calls outside transaction; one complete reconciliation per Fetch transaction.

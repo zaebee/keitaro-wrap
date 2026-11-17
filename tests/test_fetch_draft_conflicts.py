@@ -90,6 +90,7 @@ def seed_stream(
             type="regular",
             name="offers",
             schema="landings",
+            draft_version_counter=0,
         )
         session.add(ref)
         session.flush()
@@ -207,15 +208,13 @@ def test_restore_detects_both_reappearance_and_share_change(factory):
     assert (8, "share", 100, 70, "remote_share_changed") in conflict_tuples(draft)
 
 
-def test_normalized_empty_draft_has_no_share_dependency(factory):
-    """A clean draft has no staged allocation to protect (known limitation)."""
+def test_normalized_empty_draft_is_removed(factory):
+    """A clean normalized draft is removed, so later Fetch has no conflict."""
     standard_stream(factory)
     first = edit(factory, SetShareCommand(5, 12, 0, 5, 70))
     edit(factory, SetPinCommand(5, 12, first.view.version, 5, False))
-    draft = fetch(factory, offers(((5, 90), (8, 40))))
-    assert draft is not None
-    assert draft.is_stale is False
-    assert conflict_tuples(draft) == set()
+    assert SqlAlchemyStreamDraftRepository(factory).get_view(12) is None
+    assert fetch(factory, offers(((5, 90), (8, 40)))) is None
 
 
 def test_locally_archived_offer_share_is_not_an_allocation_input(factory):
@@ -327,12 +326,39 @@ def test_add_plus_share_edit_conflicts_only_for_other_offer(factory):
     assert conflict_tuples(draft) == {(8, "share", 40, 70, "remote_share_changed")}
 
 
-def test_set_share_then_unpin_has_no_share_dependency(factory):
-    """Unpin normalises intent to empty; the clean draft has no dependency."""
+def test_set_share_then_unpin_removes_clean_draft(factory):
+    """SetShare → Unpin removes the clean draft and keeps its version counter."""
+    standard_stream(factory)
+    first = edit(factory, SetShareCommand(5, 12, 0, 5, 70))
+    result = edit(factory, SetPinCommand(5, 12, first.view.version, 5, False))
+    assert result.view.staged_changes == {}
+    assert SqlAlchemyStreamDraftRepository(factory).get_view(12) is None
+    with factory() as session:
+        ref = session.query(StreamRefModel).filter_by(keitaro_stream_id=12).one()
+        assert ref.draft_version_counter == 1
+
+
+def test_next_edit_after_cleanup_uses_new_snapshot(factory):
+    """After cleanup, lazy creation rebases from the latest remote snapshot."""
     standard_stream(factory)
     first = edit(factory, SetShareCommand(5, 12, 0, 5, 70))
     edit(factory, SetPinCommand(5, 12, first.view.version, 5, False))
-    draft = fetch(factory, offers(((5, 90), (8, 40))))
-    assert draft is not None
-    assert draft.is_stale is False
-    assert conflict_tuples(draft) == set()
+    fetch(factory, offers(((5, 90), (8, 40))))
+
+    created = edit(factory, AddOfferCommand(5, 12, 0, 9))
+    assert created.created is True
+    assert created.view.version == 2
+    assert [item.share for item in created.view.baseline_offers] == [90, 40]
+
+
+def test_optimistic_concurrency_across_cleanup_and_recreation(factory):
+    """A stale version from before cleanup cannot edit the recreated draft."""
+    standard_stream(factory)
+    first = edit(factory, SetShareCommand(5, 12, 0, 5, 70))
+    edit(factory, SetPinCommand(5, 12, first.view.version, 5, False))
+    recreated = edit(factory, AddOfferCommand(5, 12, 0, 9))
+    assert recreated.view.version == 2
+
+    stale = AddOfferCommand(5, 12, 1, 10)
+    with pytest.raises(DraftVersionConflict):
+        edit(factory, stale)

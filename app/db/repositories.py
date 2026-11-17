@@ -5,7 +5,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import cast
 
-from sqlalchemy import update
+from sqlalchemy import delete, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -896,7 +896,7 @@ class SqlAlchemyStreamDraftRepository:
             bindings,
             cached.captured_at,
             DraftIntent(),
-            0,
+            ref.draft_version_counter + 1,
         )
 
     @staticmethod
@@ -960,27 +960,47 @@ class SqlAlchemyStreamDraftRepository:
         )
 
     @staticmethod
+    def _is_clean_draft(prepared: _DraftEditContext) -> bool:
+        """Return whether a draft can be removed without losing sticky state."""
+        return (
+            prepared.draft is not None
+            and not prepared.is_stale
+            and not prepared.conflicts
+        )
+
+    @classmethod
     def _normalize_noop(
+        cls,
         session: Session,
-        draft: StreamDraftModel | None,
+        prepared: _DraftEditContext,
         expected_version: int,
         new_intent: DraftIntent,
         current_intent: DraftIntent,
     ) -> None:
-        """Persist semantic normalisation without bumping the version."""
-        if draft is None or new_intent.to_json() == current_intent.to_json():
+        """Normalise an effective edit back to baseline without version bump."""
+        if new_intent.to_json() == current_intent.to_json():
             return
-        result = session.execute(
-            update(StreamDraftModel)
-            .where(StreamDraftModel.id == draft.id)
-            .where(StreamDraftModel.version == expected_version)
-            .values(
-                staged_changes_json=json.dumps(
-                    new_intent.to_json(), separators=(",", ":")
-                ),
-                is_dirty=False,
+        draft = prepared.draft
+        if draft is None:
+            return
+        if not new_intent.has_changes and cls._is_clean_draft(prepared):
+            result = session.execute(
+                delete(StreamDraftModel)
+                .where(StreamDraftModel.id == draft.id)
+                .where(StreamDraftModel.version == expected_version)
             )
-        )
+        else:
+            result = session.execute(
+                update(StreamDraftModel)
+                .where(StreamDraftModel.id == draft.id)
+                .where(StreamDraftModel.version == expected_version)
+                .values(
+                    staged_changes_json=json.dumps(
+                        new_intent.to_json(), separators=(",", ":")
+                    ),
+                    is_dirty=False,
+                )
+            )
         if getattr(result, "rowcount", 0) != 1:
             raise DraftVersionConflict(DRAFT_VERSION_CONFLICT)
 
@@ -992,9 +1012,27 @@ class SqlAlchemyStreamDraftRepository:
         command: DraftCommandBase,
         plan_intent: DraftIntent,
     ) -> tuple[int, bool]:
-        """Insert a new draft or conditionally update an existing one."""
+        """Insert, update or clean up a draft in one conditional write."""
+        draft = prepared.draft
+        if (
+            draft is not None
+            and not plan_intent.has_changes
+            and cls._is_clean_draft(prepared)
+        ):
+            prepared.ref.draft_version_counter = max(
+                prepared.ref.draft_version_counter, command.expected_version
+            )
+            result = session.execute(
+                delete(StreamDraftModel)
+                .where(StreamDraftModel.id == draft.id)
+                .where(StreamDraftModel.version == command.expected_version)
+            )
+            if getattr(result, "rowcount", 0) != 1:
+                raise DraftVersionConflict(DRAFT_VERSION_CONFLICT)
+            return 0, False
         serialized = json.dumps(plan_intent.to_json(), separators=(",", ":"))
-        if prepared.draft is None:
+        if draft is None:
+            version = prepared.baselines.version
             session.add(
                 StreamDraftModel(
                     stream_ref_id=prepared.ref.id,
@@ -1002,25 +1040,30 @@ class SqlAlchemyStreamDraftRepository:
                     baseline_bindings_json=_dump_bindings(prepared.baselines.bindings),
                     baseline_captured_at=prepared.baselines.captured_at,
                     staged_changes_json=serialized,
-                    version=1,
+                    version=version,
                     is_dirty=plan_intent.has_changes,
                     is_stale=False,
                 )
             )
-            return 1, True
+            prepared.ref.draft_version_counter = version
+            return version, True
+        version = command.expected_version + 1
         result = session.execute(
             update(StreamDraftModel)
-            .where(StreamDraftModel.id == prepared.draft.id)
+            .where(StreamDraftModel.id == draft.id)
             .where(StreamDraftModel.version == command.expected_version)
             .values(
                 staged_changes_json=serialized,
-                version=command.expected_version + 1,
+                version=version,
                 is_dirty=plan_intent.has_changes,
             )
         )
         if getattr(result, "rowcount", 0) != 1:
             raise DraftVersionConflict(DRAFT_VERSION_CONFLICT)
-        return command.expected_version + 1, False
+        prepared.ref.draft_version_counter = max(
+            prepared.ref.draft_version_counter, version
+        )
+        return version, False
 
     def _apply(
         self, session: Session, command: DraftCommandBase, intent: DraftCommand
@@ -1040,7 +1083,7 @@ class SqlAlchemyStreamDraftRepository:
         if plan.noop:
             self._normalize_noop(
                 session,
-                prepared.draft,
+                prepared,
                 command.expected_version,
                 plan.intent,
                 prepared.plan_context.intent,

@@ -103,6 +103,7 @@ def seed_stream(
             type="regular",
             name=f"stream-{stream_ref}",
             schema="landings",
+            draft_version_counter=0,
         )
         session.add(ref)
         session.flush()
@@ -156,6 +157,7 @@ def seed_draft(
         ref = (
             session.query(StreamRefModel).filter_by(keitaro_stream_id=stream_ref).one()
         )
+        ref.draft_version_counter = max(ref.draft_version_counter, version)
         session.add(
             StreamDraftModel(
                 stream_ref_id=ref.id,
@@ -239,8 +241,8 @@ def test_noop_does_not_create_or_dirty_a_draft(session_factory):
         assert session.query(StreamDraftModel).count() == 0
 
 
-def test_semantic_noop_normalizes_without_version_bump(session_factory):
-    """Archive then restore a clean offer collapses to empty intent."""
+def test_semantic_noop_removes_clean_draft(session_factory):
+    """Archive then restore a clean offer removes the draft without version reuse."""
     seed_stream(session_factory)
     repository = SqlAlchemyStreamDraftRepository(session_factory)
     from app.application.dto import to_domain_command
@@ -255,10 +257,11 @@ def test_semantic_noop_normalizes_without_version_bump(session_factory):
     assert second.noop is True
     assert second.view.version == 1
     assert second.view.is_dirty is False
+    assert repository.get_view(12) is None
     with session_factory() as session:
-        draft = session.query(StreamDraftModel).one()
-        assert json.loads(draft.staged_changes_json) == {}
-        assert draft.version == 1
+        assert session.query(StreamDraftModel).count() == 0
+        ref = session.query(StreamRefModel).filter_by(keitaro_stream_id=12).one()
+        assert ref.draft_version_counter == 1
 
 
 def test_manual_share_auto_pins_and_unpin_clears_fixed_share(session_factory):
@@ -414,3 +417,49 @@ def test_streams_are_isolated_and_durable_across_repositories(session_factory):
     assert view is not None
     assert view.version == 1
     assert PolicyCase.UNALLOCATED_REMAINDER not in view.policy_cases
+
+
+def test_empty_intent_stale_draft_is_retained_unchanged(session_factory):
+    """Clean-up never touches a stale draft or its conflict history."""
+    seed_stream(session_factory)
+    conflict = ConflictDetail(12, 5, "share", 30, 70, "remote_share_changed")
+    seed_draft(
+        session_factory,
+        staged={},
+        version=3,
+        is_stale=True,
+        conflicts=(conflict,),
+    )
+    repository = SqlAlchemyStreamDraftRepository(session_factory)
+    from app.application.dto import to_domain_command
+
+    command = CancelDraftCommand(5, 12, 3)
+    result = repository.apply(command, to_domain_command(command))
+    assert result.noop is True
+    view = repository.get_view(12)
+    assert view is not None
+    assert (view.version, view.is_stale, view.conflicts) == (3, True, (conflict,))
+    assert view.staged_changes == {}
+
+
+def test_true_noop_does_not_delete_or_change_version(session_factory):
+    """A command with no effective change leaves a draft untouched."""
+    seed_stream(session_factory)
+    seed_draft(
+        session_factory,
+        staged={"share_edits": {"5": 55}, "pin_toggles": {"5": True}},
+        version=2,
+    )
+    repository = SqlAlchemyStreamDraftRepository(session_factory)
+    from app.application.dto import to_domain_command
+
+    command = SetPinCommand(5, 12, 2, 5, True)
+    result = repository.apply(command, to_domain_command(command))
+    assert result.noop is True
+    view = repository.get_view(12)
+    assert view is not None
+    assert view.version == 2
+    assert view.staged_changes == {
+        "share_edits": {"5": 55},
+        "pin_toggles": {"5": True},
+    }

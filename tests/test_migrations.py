@@ -48,6 +48,9 @@ def test_alembic_upgrade_head(tmp_path):
     assert "baseline_bindings_json" in {
         item["name"] for item in inspector.get_columns("stream_drafts")
     }
+    assert "draft_version_counter" in {
+        item["name"] for item in inspector.get_columns("stream_refs")
+    }
 
     # downgrade and upgrade again
     subprocess.run(
@@ -67,4 +70,7 @@ def test_alembic_upgrade_head(tmp_path):
     assert S4_TABLES.issubset(final_inspector.get_table_names())
     assert "baseline_bindings_json" in {
         item["name"] for item in final_inspector.get_columns("stream_drafts")
+    }
+    assert "draft_version_counter" in {
+        item["name"] for item in final_inspector.get_columns("stream_refs")
     }
