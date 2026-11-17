@@ -14,7 +14,7 @@
 - Campaign creation sequence calls endpoints in order.
 - Partial failure at each step sets status=partial.
 - Ambiguous POST outcome (timeout) → status=ambiguous, no blind retry.
-- Reconciliation: 0 after bounded attempts → ambiguous; 1 → adopt; >1 → ambiguous.
+- Reconciliation: 0 after bounded attempts → remain ambiguous (no retry); 1 → adopt; >1 → ambiguous.
 - Resume/reconciliation reads Keitaro state.
 - Multiple candidate flows selection.
 - Concurrent edits handling.
@@ -31,5 +31,5 @@
 - AC2: Offer editor add/remove recalculates shares to sum 100 (provisional).
 - AC3: No secrets in repo.
 - AC4: Ambiguous POST leaves operation ambiguous; no duplicate resources created by blind retry.
-- AC5: Zero reconciliation matches after bounded attempts does not trigger automatic retry.
+- AC5: Zero reconciliation matches after bounded attempts does not trigger automatic retry and leaves operation ambiguous.
 EOF

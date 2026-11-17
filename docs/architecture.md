@@ -35,22 +35,23 @@ Domain/group/traffic source IDs are operator-configured defaults stored in app_s
 ## Uniqueness guarantees (verified 2026-11-17)
 - Campaign alias: uniqueness enforced by Keitaro (verified: duplicate alias → 422 "Alias has already used"). Application relies on this for correlation.
 - Stream name: NOT unique within a campaign (verified: duplicate names accepted). Therefore application must not rely on stream name alone.
-- Correlation marker: store operation id in the stream `comments` field (verified persisted and returned). This is application-level uniqueness, not Keitaro-enforced; treat as best-effort marker.
+- Correlation marker: store operation id in the stream `comments` field (verified persisted and returned, and readable via GET /campaigns/{id}/streams). Reconciliation query filters on this field. This is application-level uniqueness, not Keitaro-enforced; treat as best-effort marker.
 
 ## Reconciliation after ambiguous POST
 Correlation must not rely on campaign name alone.
 
 Campaign (POST /campaigns timed out, id unknown):
 - Reconcile by unique alias (Keitaro-enforced). Iterate GET /campaigns (paginated, offset/limit). 
-- 0 matches → do NOT immediately retry. Use bounded repeated reconciliation (e.g., N attempts with backoff) because read-after-write consistency and pagination completeness are not guaranteed. If still 0 after bounded attempts → ambiguous.
+- 0 matches after bounded attempts → remain ambiguous. Do NOT retry automatically. Bounded repeated reconciliation may be attempted, but zero results alone never authorize a retry.
 - 1 match → adopt its id.
 - >1 matches → impossible if alias unique; if observed, ambiguous + operator intervention.
 
 Stream (POST /streams timed out, campaign id known):
-- Reconcile by `comments` marker (operation id) via GET /campaigns/{id}/streams.
-- 0 matches → bounded repeated reconciliation; if still 0 → ambiguous (do not blind retry).
+- Reconcile by `comments` marker (operation id) via GET /campaigns/{id}/streams (field is readable and used as filter).
+- 0 matches after bounded attempts → remain ambiguous (do NOT retry automatically; delayed visibility/pagination may hide a created resource).
 - 1 match → adopt.
 - >1 matches → ambiguous + operator intervention.
+- Retry of the original POST is permitted only after explicit operator confirmation or a documented API safety guarantee.
 
 If safe reconciliation cannot be established, keep operation `ambiguous` and require operator intervention. Never blindly retry non-idempotent POST.
 
@@ -65,7 +66,7 @@ Transitions:
 - partial → ambiguous: a stream POST timed out / outcome uncertain.
 - partial → failed: non-recoverable error with definitive response.
 - ambiguous → created: reconciliation found exactly one matching resource and completed missing steps.
-- ambiguous → partial: reconciliation found 0 matches after bounded attempts; safe to retry the missing step.
+- ambiguous → partial: only after explicit operator confirmation that the resource does not exist (or a documented API guarantee making retry safe); reconciliation alone with 0 matches is NOT sufficient.
 - ambiguous → failed: reconciliation impossible or operator aborted.
 - created, failed: terminal (failed may be retried via a new operation).
 
