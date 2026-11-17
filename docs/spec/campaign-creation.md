@@ -1,5 +1,8 @@
 # Campaign creation workflow
 
+## Campaign activation assumption
+The plan does NOT assume campaigns can be created paused/disabled and activated after all streams are created. This behavior is unverified against the target Keitaro API. Do not introduce paused → active workflow unless API support is independently verified.
+
 Cross-reference: domain model `docs/spec/domain-model.md`, persistence `docs/architecture/persistence.md`.
 
 ## Input
@@ -34,7 +37,7 @@ Domain/group/traffic source IDs are operator-configured defaults (app_settings),
 - 0 matches after bounded attempts → remain ambiguous. Do not retry automatically.
 - 1 match → adopt.
 - >1 → ambiguous + operator intervention.
-- Retry permitted only after reconciliation confirms absence of external effect. Operator confirmation alone does not establish absence; unresolved outcome remains ambiguous with no retry.
+- Retry is permitted only when reliable evidence establishes that the previous external side effect did not occur, or when a documented API guarantee makes retry safe. Zero matches after bounded reconciliation are never sufficient by themselves. Incomplete pagination or uncertain read-after-write consistency cannot establish absence. Operator confirmation alone cannot establish absence. If absence cannot be reliably established, preserve `ambiguous`; do not retry.
 
 ## State machine
 See architecture.md. `failed` = definitive error, does not guarantee absence of external resources. `ambiguous` may become `abandoned` on operator decision without implying resources absent.

@@ -27,6 +27,7 @@ Notes: Campaign creation does not depend on allocation. Fetch/reconciliation dep
 - Completion: `alembic upgrade head` ok, `/health` ok.
 
 ### Slice 1 — Keitaro client
+- Selected transport: async (httpx.AsyncClient). See D13.
 - Capability: typed HTTP client for domains/groups/sources/offers/campaigns/streams + discovery.
 - Modules: keitaro_client adapter, DTOs.
 - Prerequisites: Slice 0.
@@ -101,7 +102,7 @@ Notes: Campaign creation does not depend on allocation. Fetch/reconciliation dep
 - Ambiguous HTTP outcome: reconciliation before retry (Slices 3/6).
 - Incomplete reconciliation: bounded retries, ambiguous if unresolved.
 - Remote changes during draft: conflict detection in Slice 4/5.
-- Retry authorization: only after absence confirmed.
+- Retry authorization: only when reliable evidence establishes absence of the previous external side effect, or a documented API guarantee makes retry safe. Zero-result reconciliation alone is insufficient.
 
 ## Diagrams
 
