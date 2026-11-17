@@ -1,39 +1,56 @@
-# Architecture (proposed)
+# Architecture
 
-Cross-reference: persistence design `docs/architecture/persistence.md`, domain model `docs/spec/domain-model.md`.
+Cross-reference: persistence design `docs/architecture/persistence.md`, domain model `docs/spec/domain-model.md`, module boundaries `docs/implementation/module-boundaries.md`.
+
+## Status
+
+The dependency direction, data ownership and boundaries below are the accepted target design (`docs/decisions.md`, `docs/implementation/module-boundaries.md`). Implemented as of Slice 1: `app/main.py` (composition root and lifespan), `app/api/` (health route), `app/application/` (DTOs and `KeitaroClientPort`), `app/keitaro_client/` (async adapter), `app/core/` (settings), `app/db/` and `alembic/` (SQLite/Alembic with the `app_settings` table). Workflows, operation tables, reconciliation and editor behavior are target design for later slices; progress is tracked in `docs/implementation/implementation-plan.md`. Verified API observations are facts about Keitaro, not claims about implemented features.
 
 ## Style
 Modular monolith. FastAPI app with:
-- routes (HTTP)
-- application services (campaign creation, offer editing)
-- Keitaro client adapter
-- SQLAlchemy persistence (minimal local state)
+- `app/api/` — HTTP transport (routes, schemas, errors).
+- `app/application/` — workflows, DTOs and application-owned ports; DTOs and `KeitaroClientPort` exist, workflows are planned.
+- `app/keitaro_client/` — Keitaro client adapter.
+- `app/db/` — SQLAlchemy persistence (minimal local state).
+- `app/core/` — settings from `.env`; no business logic.
+- `app/main.py` — composition root.
+
+Module roles and dependency direction are canonical in `docs/implementation/module-boundaries.md`.
 
 ## Data ownership
-Keitaro is source of truth for campaigns/streams/offers. Local DB stores minimal operational state:
-- app_settings (default/configured IDs and operator choices)
-- campaign_creation_operations (operation state, external IDs, step status, errors)
-- offer_edit_log (optional audit)
+Keitaro is source of truth for campaigns/streams/offers. Local DB stores minimal operational state.
+
+Implemented in Slice 0:
+- `app_settings` — default/configured IDs and operator choices (model `AppSettings`).
+
+Target design (entity names per `docs/architecture/persistence.md`; not implemented yet):
+- `CampaignCreationOperation` — operation state, external IDs, step status, errors.
+- `StreamOfferBinding` — committed binding lifecycle (`ACTIVE`/`ARCHIVED`), `is_pinned` and remote share cache.
+- `StreamDraft` — staged changes per stream; does not overwrite committed state.
+- `StreamPublication` — per-stream publication history and outcomes.
 
 No full campaign mirror unless a concrete use case (e.g. offline listing) justifies it.
 
 ## Boundaries
-- `app/services/keitaro.py` — HTTP adapter, auth from env.
-- `app/services/campaign_service.py` — orchestration.
-- `app/services/offer_editor_service.py` — share arithmetic + update.
-- `app/db/` — models, session.
-- `app/api/routes.py` — HTTP.
+- `app/main.py` — composition root: FastAPI app, lifespan-managed `httpx.AsyncClient`, adapter wiring.
+- `app/api/` — transport: routes, schemas, HTTP errors.
+- `app/application/` — orchestration, DTOs and ports owned by the application; adapters are not imported here.
+- `app/keitaro_client/` — adapter implementing `KeitaroClientPort`; HTTP transport, auth from env.
+- `app/core/` — settings from `.env`.
+- `app/db/`, `alembic/` — SQLAlchemy models/session and migrations.
+
+Domain entities and allocation (pure Python) and the persistence repositories are target modules for later slices; see `docs/implementation/module-boundaries.md`.
 
 ## Cross-cutting
 - Persistence boundary (D14): sync SQLAlchemy operations must not execute directly inside an async request path on the event loop; use FastAPI threadpool or an explicit boundary.
 - HTTP transport: httpx.AsyncClient (D13). Async methods; lifespan-managed; no sync calls in async path.
 - Config via pydantic-settings (.env).
-- Errors: KeitaroError translated to HTTP 502 with message.
+- Errors (target): `KeitaroError` from the adapter translated to HTTP 502 with a message in the transport layer.
 - Retries: only for safe/idempotent operations; never blindly retry non-idempotent POST. Reconcile by re-reading state first.
 - Logging: no secrets.
-- Testability: Keitaro client behind interface; use fake client in tests.
+- Testability: Keitaro client behind the application-owned `KeitaroClientPort`; current tests use `httpx.MockTransport`.
 
-## Resource selection
+## Resource selection (target design)
 Domain/group/traffic source IDs are operator-configured defaults stored in app_settings, selectable via settings page. If unset, the app may suggest the first active resource as UI convenience, but must not silently use it in creation. Missing or inactive configured IDs → validation error requiring operator action.
 
 ## Uniqueness guarantees (verified 2026-11-17)
@@ -41,7 +58,7 @@ Domain/group/traffic source IDs are operator-configured defaults stored in app_s
 - Stream name: NOT unique within a campaign (verified: duplicate names accepted). Therefore application must not rely on stream name alone.
 - Correlation marker: store operation id in the stream `comments` field (verified persisted and returned, and readable via GET /campaigns/{id}/streams). Reconciliation query filters on this field. This is application-level uniqueness, not Keitaro-enforced; treat as best-effort marker.
 
-## Reconciliation after ambiguous POST
+## Reconciliation after ambiguous POST (target design)
 Correlation must not rely on campaign name alone.
 
 Campaign (POST /campaigns timed out, id unknown):
@@ -59,7 +76,7 @@ Stream (POST /streams timed out, campaign id known):
 
 If safe reconciliation cannot be established, keep operation `ambiguous` and require operator intervention. Never blindly retry non-idempotent POST.
 
-## Operation state machine
+## Operation state machine (target design)
 States: `started`, `partial`, `ambiguous`, `created`, `failed`, `abandoned`.
 
 Transitions:
@@ -82,7 +99,7 @@ Guarantees:
 - failed: operation aborted due to a definitive error. Does NOT guarantee absence of external resources; cleanup may be required. Distinguish from ambiguous (uncertain outcome).
 - abandoned: operator stopped without establishing external outcome. External resources may or may not exist; no cleanup assumption.
 
-## Sequence: create campaign (provisional; Q1 open)
+## Sequence: create campaign (target design, provisional; Q1 open)
 ```mermaid
 sequenceDiagram
   participant U as Operator
@@ -100,13 +117,13 @@ sequenceDiagram
   A-->>U: campaign details
 ```
 
-## Partial failure recovery
+## Partial failure recovery (target design)
 - Operation row persisted before the first mutating external request; read-only GET resolution may precede it.
 - Persist returned IDs immediately after each successful POST.
 - On timeout/ambiguous POST outcome: reconcile per algorithm above; no blind retry.
 - Statuses: started, partial, ambiguous, created, failed, abandoned.
 
-## Entity relationships
+## Entity relationships (target domain model)
 ```mermaid
 erDiagram
   Campaign ||--o{ Stream : contains
