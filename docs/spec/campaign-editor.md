@@ -59,18 +59,17 @@ Core workflow supported by demo video (2026-11-17). Edge cases listed under "Unr
 4. Manual share input constraints: permitted range, integer/decimal entry, validation. (pinned_sum > 100% is confirmed invalid and blocks Push.)
 6. Edge cases: zero active offers, one active offer, removing/restoring last offer, all offers pinned, no remaining unpinned offers.
 7. Duplicate offers: whether UI prevents selecting an offer already present (including archived entries).
-8. Push/Cancel failure semantics: partial success across multiple modified streams; Push fail/timeout; Cancel availability after partial push.
+8. Push/Cancel failure semantics: partial success across multiple modified streams and Push fail/timeout are specified. Remaining genuinely unresolved: exact Cancel availability after partial Push, if not specified elsewhere.
 9. Persistence boundary: RESOLVED — durable (see persistence.md). Remaining: storage mechanism details (SQLite) only.
 
 ## Explicitly not supported (do not assume)
 - Earlier assumptions "remove deletes from the list and rebalances", "manual edit unrestricted subject to sum=100", "remainder goes to first offers", "all streams are a single designated target" are NOT supported by the video.
 - Manual share editing constraints.
-- Behavior when pinned shares exceed 100%.
 - Behavior with zero or one active offers.
 - Behavior when all offers are pinned.
 - Duplicate-offer handling.
-- Permanent retention / archive persistence policy.
+- Permanent retention / archive persistence policy: archive persistence is durable; only an indefinite retention guarantee may remain open.
 
 ## Notes
 - Archive is wrapper-owned business concept, not Keitaro-native state.
-- No claim that pending changes or archive state survive page reload or application restart.
+- Durable drafts and archive state are explicitly specified (see persistence.md).
