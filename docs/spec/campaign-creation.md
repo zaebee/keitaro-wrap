@@ -11,9 +11,9 @@ Cross-reference: domain model `docs/spec/domain-model.md`, persistence `docs/arc
 - offer_id (int, required, existing Keitaro offer)
 
 ## Verified flow semantics (from live instance)
-- Flow 1: type=forced, schema=redirect, action_type=http, action_payload=https://www.google.com, filters=[{name:country, mode:accept, payload:[CODE]}].
-- Flow 2: observed as type=regular, schema=landings, action_type=http, offers=[{offer_id, share:100, state:active}], filters=[].
-- Q1 (default vs regular / catch-all fallback) remains OPEN. Only one existing campaign observed. Do not assume fallback semantics until verified.
+- Flow 1: type=forced, schema=redirect, action_type=http, destination from the configured redirect URL (default https://www.google.com), filters=[{name:country, mode:accept, payload:[CODE]}].
+- Flow 2: type=default (owner decision #26; the earlier live observation of type=regular was a single instance), schema=landings, action_type=http, offers=[{offer_id, share:100, state:active}], filters=[].
+- Q1 resolved by the owner in issue #26: use `default` for the offer fallback; do not use `regular` for this two-flow configuration and do not invent a priority field.
 
 ## Resource selection
 Domain/group/traffic source IDs are operator-configured defaults (app_settings), selectable via settings page. If unset, UI may suggest first active but must not silently use it. Missing or inactive configured ID → validation error.

@@ -89,8 +89,8 @@ Notes: Campaign creation does not depend on allocation. Fetch/reconciliation dep
 | remote share changes during draft | open | Provisional seam (S4/S5) |
 | Cancel after partial Push | open | Provisional seam (S6) |
 | multiple offer-bearing streams | open | Provisional seam (S4/S5/S6) |
-| flow type/priority | open | Blocking (S3) |
-| Google destination fixed/configurable | open | Blocking (S3) |
+| flow type/priority | Resolved by owner (#26): offer flow uses `default` | S3 implements two flows without a priority field |
+| Google destination fixed/configurable | Resolved by owner (#26): configurable setting, Google default | S3 uses `KEITARO_REDIRECT_URL`, no UI |
 
 ## Retry safety
 - Automatic retries may be used for safe read-only requests.

@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass, field
 
+from app.domain.campaign_creation import OperationStatus
+
 
 @dataclass
 class DomainDTO:
@@ -176,3 +178,35 @@ class StreamUpdateDTO:
     """
 
     fields: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class CreateCampaignCommand:
+    """Validated input for a campaign creation attempt."""
+
+    name: str
+    country_code: str
+    offer_id: int
+
+
+@dataclass(frozen=True)
+class ConfiguredResources:
+    """Operator-owned IDs and redirect destination used by campaign creation."""
+
+    domain_id: int | None
+    group_id: int | None
+    traffic_source_id: int | None
+    redirect_url: str
+
+
+@dataclass(frozen=True)
+class CampaignCreationResult:
+    """Public outcome of a campaign creation or resume attempt."""
+
+    operation_uuid: str
+    alias: str
+    status: OperationStatus
+    campaign_id: int | None = None
+    country_flow_id: int | None = None
+    offer_flow_id: int | None = None
+    error_message: str | None = None

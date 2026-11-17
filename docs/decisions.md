@@ -16,3 +16,5 @@
 | D12 | Deterministic offer_id tie-break for LRM | Accepted | Stable allocation |
 | D13 | HTTP client transport | Accepted | Use httpx.AsyncClient; async methods; FastAPI lifespan manages client; async tests; no sync calls in async path. Persistence async is separate decision. |
 | D14 | Persistence SQLAlchemy sync vs async | Accepted | Slice 0 uses sync SQLAlchemy. Constraint: sync SQLAlchemy operations must not run directly on async event loop; use FastAPI threadpool for sync endpoints or explicit boundary. Async persistence remains separate decision. |
+| D15 | Offer flow type `default` for campaign creation | Accepted | Owner decision in issue #26: forced GEO flow precedes the default fallback; `regular` is not used for this two-flow configuration. |
+| D16 | Configurable redirect destination, `https://www.google.com` by default | Accepted | Owner decision in issue #26: setting `KEITARO_REDIRECT_URL`; no UI work authorized in Slice 3. |
