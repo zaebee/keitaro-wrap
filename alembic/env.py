@@ -1,14 +1,16 @@
 import os
 import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from logging.config import fileConfig
-from sqlalchemy import engine_from_config, pool
-from alembic import context
 
-from app.db.base import Base
-from app.db import models  # noqa
+from sqlalchemy import engine_from_config, pool
+
+from alembic import context
 from app.core.config import settings
+from app.db import models  # noqa
+from app.db.base import Base
 
 config = context.config
 if config.config_file_name is not None:
@@ -28,7 +30,14 @@ def run_migrations_offline():
 
 
 def run_migrations_online():
-    connectable = engine_from_config(config.get_section(config.config_ini_section), prefix="sqlalchemy.", poolclass=pool.NullPool)
+    section = config.get_section(config.config_ini_section)
+    if section is None:
+        raise RuntimeError("alembic configuration section is missing")
+    connectable = engine_from_config(
+        section,
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
+    )
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():

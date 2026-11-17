@@ -1,8 +1,17 @@
+"""Application settings loaded from environment."""
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore", env_parse_none_str="")
+    """Typed application configuration."""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        env_parse_none_str="",
+    )
 
     KEITARO_BASE_URL: str = "https://tlgk.host"
     KEITARO_API_KEY: str = ""

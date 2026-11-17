@@ -1,3 +1,5 @@
+"""Database session management."""
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -8,6 +10,7 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
 def get_session():
+    """Yield a database session."""
     session = SessionLocal()
     try:
         yield session
