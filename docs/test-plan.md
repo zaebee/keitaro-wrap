@@ -1,5 +1,11 @@
 # Test plan
 
+## Confirmed (tests)
+- LRM with offer_id ascending tie-break.
+- pinned_sum > 100% invalid blocks Push.
+- Drafts/archive durable.
+- Per-stream Push outcomes, partial success, failed/ambiguous retention, reconciliation.
+
 ## Confirmed constraints (tests)
 - pinned_sum > 100% invalid blocks Push.
 - Draft/archive state survives restart.
@@ -68,4 +74,3 @@
 - AC3: No secrets in repo.
 - AC4: Ambiguous POST leaves operation ambiguous; no duplicate resources created by blind retry.
 - AC5: Zero reconciliation matches after bounded attempts does not trigger automatic retry and leaves operation ambiguous.
-EOF

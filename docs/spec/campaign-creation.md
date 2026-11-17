@@ -42,4 +42,3 @@ See architecture.md. `failed` = definitive error, does not guarantee absence of 
 ## Validation
 - country_code must be 2 letters.
 - offer_id must exist (GET /offers/{id}).
-EOF

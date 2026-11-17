@@ -113,4 +113,3 @@ erDiagram
   Campaign }o--|| Group : "campaign group"
   Campaign }o--|| TrafficSource : uses
 ```
-EOF

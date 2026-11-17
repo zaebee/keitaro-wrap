@@ -22,7 +22,8 @@
 - stream_ref, offer array {offer_id, share, state}, captured_at.
 
 ### LocalDraft (wrapper-owned staged state)
-- stream_ref (unique), baseline_snapshot, staged_changes (additions, archives, restores, pin toggles, share edits), version (wrapper-side optimistic concurrency), is_dirty, timestamps.
+- stream_ref (unique), baseline_snapshot, staged_changes (additions, archives, restores, pin toggles, share edits), version (wrapper-side optimistic concurrency), is_dirty, is_stale, conflict_details (nullable), timestamps.
+- Naming: LocalDraft corresponds to StreamDraft in persistence.md; fields identical.
 - Does not overwrite committed binding state until Push commits.
 
 ### PublicationOperation (wrapper-owned)

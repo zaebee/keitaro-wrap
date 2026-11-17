@@ -8,6 +8,7 @@
 Core workflow supported by demo video (2026-11-17). Edge cases listed under "Unresolved" remain provisional.
 
 ## Confirmed constraints
+- Allocation uses Largest Remainder Method with deterministic offer_id ascending tie-break.
 - pinned_sum > 100% is invalid and blocks Push (UI validation).
 - Drafts and wrapper-owned archive state survive restart (durable).
 - Per-stream Push outcomes, partial success, failed/ambiguous draft retention, and reconciliation are specified (see persistence.md).
@@ -48,7 +49,7 @@ Core workflow supported by demo video (2026-11-17). Edge cases listed under "Unr
 - Comments field persisted and returned.
 
 ## Inferred (not verified)
-- Wrapper-owned archive concept (not Keitaro-native). Persistence durability across reload/restart not established.
+- Wrapper-owned archive concept (not Keitaro-native). Persistence durability across reload/restart is specified (durable drafts/archive).
 - Targeted GEO first / offer fallback routing intent (video shows, but exact Keitaro mechanism open).
 
 ## Unresolved product questions (from video)
@@ -60,7 +61,7 @@ Core workflow supported by demo video (2026-11-17). Edge cases listed under "Unr
 6. Edge cases: zero active offers, one active offer, removing/restoring last offer, all offers pinned, no remaining unpinned offers.
 7. Duplicate offers: whether UI prevents selecting an offer already present (including archived entries).
 8. Push/Cancel failure semantics: partial success across multiple modified streams; Push fail/timeout; Cancel availability after partial push.
-9. Persistence boundary: whether wrapper-local archived/pending state is durable across browser reloads/restarts and how stored.
+9. Persistence boundary: RESOLVED — durable (see persistence.md). Remaining: storage mechanism details (SQLite) only.
 
 ## Explicitly not supported (do not assume)
 - Earlier assumptions "remove deletes from the list and rebalances", "manual edit unrestricted subject to sum=100", "remainder goes to first offers", "all streams are a single designated target" are NOT supported by the video.
@@ -75,4 +76,3 @@ Core workflow supported by demo video (2026-11-17). Edge cases listed under "Unr
 ## Notes
 - Archive is wrapper-owned business concept, not Keitaro-native state.
 - No claim that pending changes or archive state survive page reload or application restart.
-EOF

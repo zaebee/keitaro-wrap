@@ -35,4 +35,3 @@ If remaining 76 across 3: base 25, remainder 1 → B=26, C=25, D=25.
 - Remote shares become baseline for active offers.
 - Wrapper-owned pinning preserved (proposed).
 - Archived bindings remain wrapper-owned.
-EOF
