@@ -13,16 +13,20 @@ from app.keitaro_client.client import KeitaroClient
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan."""
+    """Application lifespan; always close the owned HTTP client on exit."""
     http_client = httpx.AsyncClient(
         base_url=settings.KEITARO_BASE_URL, timeout=settings.KEITARO_TIMEOUT
     )
     app.state.keitaro_client = KeitaroClient(
         http_client, api_key=settings.KEITARO_API_KEY
     )
-    yield
-    await http_client.aclose()
-    engine.dispose()
+    try:
+        yield
+    finally:
+        try:
+            await http_client.aclose()
+        finally:
+            engine.dispose()
 
 
 app = FastAPI(title="Keitaro Wrap", lifespan=lifespan)

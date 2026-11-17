@@ -1,7 +1,6 @@
 """Module."""
 
 from dataclasses import dataclass, field
-from typing import Any
 
 
 @dataclass
@@ -168,6 +167,12 @@ class StreamCreateDTO:
 
 @dataclass
 class StreamUpdateDTO:
-    """StreamUpdateDTO."""
+    """Open-ended PUT body for a stream.
 
-    fields: dict[str, Any] = field(default_factory=dict)
+    StreamRequestPut references the full StreamObject in docs/openapi.json, and
+    Keitaro also uses runtime-only fields such as action_payload (see
+    docs/discovery/keitaro-api.md). The map stays open instead of inventing a
+    schema; known offer entries use the StreamOfferInput shape.
+    """
+
+    fields: dict[str, object] = field(default_factory=dict)

@@ -297,3 +297,76 @@ async def test_error_message_no_secret():
     with pytest.raises(KeitaroError) as exc:
         await client.list_domains()
     assert "secret-token-123" not in str(exc.value)
+
+
+COLLECTION_METHODS = [
+    ("list_stream_types", {}),
+    ("list_stream_schemas", {}),
+    ("list_stream_filters", {}),
+    ("list_stream_actions", {}),
+    ("list_domains", {}),
+    ("list_groups", {"gtype": "campaigns"}),
+    ("list_traffic_sources", {}),
+    ("list_offers", {}),
+    ("list_campaigns", {}),
+    ("list_campaign_streams", {"campaign_id": 1}),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("method", "kwargs"), COLLECTION_METHODS)
+@pytest.mark.parametrize("payload", [{"unexpected": True}, [1, 2]])
+async def test_collection_methods_reject_malformed_shapes(method, kwargs, payload):
+    """Malformed collection responses raise KeitaroError, never empty data."""
+
+    def handler(request):
+        return httpx.Response(200, json=payload)
+
+    client = make_client(handler)
+    call = getattr(client, method)
+    with pytest.raises(KeitaroError, match="unexpected response shape"):
+        await call(**kwargs)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["filters", "offers"])
+async def test_stream_nested_collection_rejects_malformed_shape(field):
+    """Nested stream filters/offers must be lists when present."""
+
+    def handler(request):
+        return httpx.Response(200, json={"id": 5, field: {"bad": True}})
+
+    client = make_client(handler)
+    with pytest.raises(KeitaroError, match=f"stream.{field}"):
+        await client.get_stream(5)
+
+
+@pytest.mark.asyncio
+async def test_stream_without_nested_collections():
+    """Missing nested collections stay empty; malformed data still raises."""
+
+    def handler(request):
+        return httpx.Response(200, json={"id": 5})
+
+    client = make_client(handler)
+    stream = await client.get_stream(5)
+    assert stream.filters == []
+    assert stream.offers == []
+
+
+@pytest.mark.asyncio
+async def test_list_groups_encodes_query_parameter():
+    """Group type is encoded by httpx, not interpolated into the URL path."""
+    seen: dict[str, httpx.URL] = {}
+
+    def handler(request):
+        seen["url"] = request.url
+        return httpx.Response(200, json=[])
+
+    client = make_client(handler)
+    groups = await client.list_groups("campaigns & offers/ü")
+
+    assert groups == []
+    assert seen["url"].path.endswith("/admin_api/v1/groups")
+    assert seen["url"].params["type"] == "campaigns & offers/ü"
+    assert "%26" in str(seen["url"])
