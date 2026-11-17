@@ -4,7 +4,7 @@ Cross-reference: persistence design `docs/architecture/persistence.md`, domain m
 
 ## Status
 
-The dependency direction, data ownership and boundaries below are the accepted target design (`docs/decisions.md`, `docs/implementation/module-boundaries.md`). Implemented as of Slice 1: `app/main.py` (composition root and lifespan), `app/api/` (health route), `app/application/` (DTOs and `KeitaroClientPort`), `app/keitaro_client/` (async adapter), `app/core/` (settings), `app/db/` and `alembic/` (SQLite/Alembic with the `app_settings` table). Workflows, operation tables, reconciliation and editor behavior are target design for later slices; progress is tracked in `docs/implementation/implementation-plan.md`. Verified API observations are facts about Keitaro, not claims about implemented features.
+The dependency direction, data ownership and boundaries below are the accepted target design (`docs/decisions.md`, `docs/implementation/module-boundaries.md`). Implemented as of Slice 2: `app/main.py` (composition root and lifespan), `app/api/` (health route), `app/application/` (DTOs and `KeitaroClientPort`), `app/domain/` (pure allocation), `app/keitaro_client/` (async adapter), `app/core/` (settings), `app/db/` and `alembic/` (SQLite/Alembic with the `app_settings` table). Workflows, operation tables, reconciliation and editor behavior are target design for later slices; progress is tracked in `docs/implementation/implementation-plan.md`. Verified API observations are facts about Keitaro, not claims about implemented features.
 
 ## Style
 Modular monolith. FastAPI app with:
@@ -39,7 +39,7 @@ No full campaign mirror unless a concrete use case (e.g. offline listing) justif
 - `app/core/` — settings from `.env`.
 - `app/db/`, `alembic/` — SQLAlchemy models/session and migrations.
 
-Domain entities and allocation (pure Python) and the persistence repositories are target modules for later slices; see `docs/implementation/module-boundaries.md`.
+The pure allocation module (`app/domain/`) is implemented; domain entities and persistence repositories are target modules for later slices; see `docs/implementation/module-boundaries.md`.
 
 ## Cross-cutting
 - Persistence boundary (D14): sync SQLAlchemy operations must not execute directly inside an async request path on the event loop; use FastAPI threadpool or an explicit boundary.

@@ -8,15 +8,16 @@ or with an owner decision, flag the conflict rather than silently choosing one.
 
 Keitaro Wrap is a modular monolith: a FastAPI app with minimal local state that wraps the
 Keitaro Admin API for campaign creation and offer editing. Python 3.12, uv, SQLite +
-Alembic, Ruff, Pyrefly, pytest. Slices 0 (foundation) and 1 (Keitaro client) are
-implemented; later slices are planned, not present — check the docs and `git log` before
-assuming a capability exists.
+Alembic, Ruff, Pyrefly, pytest. Slices 0 (foundation), 1 (Keitaro client) and 2
+(allocation domain) are implemented; later slices are planned, not present — check the
+docs and `git log` before assuming a capability exists.
 
 Code map:
 
 - `app/main.py` — FastAPI app, lifespan, composition root (wires the HTTP client).
 - `app/api/` — HTTP transport (routes/schemas).
 - `app/application/` — workflows, DTOs and application-owned ports.
+- `app/domain/` — pure domain logic (allocation); no I/O or framework imports.
 - `app/core/` — settings from `.env`.
 - `app/db/`, `alembic/` — SQLAlchemy models/session and migrations.
 - `app/keitaro_client/` — HTTP adapter implementing the Keitaro port.
