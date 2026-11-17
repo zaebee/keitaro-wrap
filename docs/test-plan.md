@@ -3,18 +3,21 @@
 ## Unit tests (no live Keitaro)
 - Offer share rebalance arithmetic (worked examples) — provisional.
 - Country code validation.
-- Alias slug generation.
+- Alias slug generation (unique operation-derived).
 - Error translation.
-- Operation state transitions.
+- Operation state transitions (allowed/forbidden).
+- Reconciliation matching (0/1/>1).
 
 ## Contract tests (mocked HTTP)
 - Keitaro client parses responses.
 - Campaign creation sequence calls endpoints in order.
 - Partial failure at each step sets status=partial.
 - Ambiguous POST outcome (timeout) → status=ambiguous, no blind retry.
+- Reconciliation: 0 matches → retry; 1 → adopt; >1 → ambiguous.
 - Resume/reconciliation reads Keitaro state.
 - Multiple candidate flows selection.
 - Concurrent edits handling.
+- Missing/inactive configured resource IDs → validation error.
 
 ## Integration tests (optional, with test instance + .env)
 - Create campaign end-to-end.
@@ -24,4 +27,5 @@
 - AC1: Given name/country/offer, campaign created with 2 flows; first flow has country filter and redirects to Google; second flow has offer with 100% share. (Q1 open for default vs regular)
 - AC2: Offer editor add/remove recalculates shares to sum 100 (provisional).
 - AC3: No secrets in repo.
+- AC4: Ambiguous POST leaves operation ambiguous; no duplicate resources created by blind retry.
 EOF
