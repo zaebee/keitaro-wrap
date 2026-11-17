@@ -15,3 +15,4 @@
 | D11 | Largest Remainder Method for allocation | Accepted | Deterministic integer allocation |
 | D12 | Deterministic offer_id tie-break for LRM | Accepted | Stable allocation |
 | D13 | HTTP client transport | Accepted | Use httpx.AsyncClient; async methods; FastAPI lifespan manages client; async tests; no sync calls in async path. Persistence async is separate decision. |
+| D14 | Persistence SQLAlchemy sync vs async | Proposed (provisional) | Slice 0 uses sync SQLAlchemy for simplicity; async persistence remains separate owner decision (D13 covers HTTP only) |
