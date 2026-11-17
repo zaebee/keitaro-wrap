@@ -28,11 +28,27 @@ Keitaro is source of truth for campaigns/streams/offers. Local DB stores:
 - Testability: Keitaro client behind interface; use fake client in tests.
 
 ## Sequence: create campaign
-1. route → service.create
-2. service resolves defaults (client list endpoints)
-3. client create campaign
-4. client create flow1
-5. client create flow2
-6. service persist local row
-7. return
+```mermaid
+sequenceDiagram
+  participant U as Operator
+  participant A as App
+  participant K as Keitaro API
+  U->>A: POST /campaigns (name, country, offer_id)
+  A->>K: GET /domains, /groups, /traffic_sources
+  A->>K: POST /campaigns
+  A->>K: POST /streams (forced, country->Google)
+  A->>K: POST /streams (default, offer)
+  A->>A: persist local campaign (status=created)
+  A-->>U: campaign details
+```
+
+## Entity relationships
+```mermaid
+erDiagram
+  Campaign ||--o{ Stream : contains
+  Stream }o--|| Domain : uses
+  Stream }o--o{ Offer : "offers with share"
+  Campaign }o--|| Group : "campaign group"
+  Campaign }o--|| TrafficSource : uses
+```
 EOF
