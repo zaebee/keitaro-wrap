@@ -1,0 +1,7 @@
+from app.core.config import Settings
+
+
+def test_settings_defaults():
+    s = Settings(KEITARO_API_KEY="x")
+    assert s.APP_PORT == 8000
+    assert s.DATABASE_URL.startswith("sqlite")

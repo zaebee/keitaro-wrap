@@ -1,0 +1,10 @@
+.venv/
+.env
+*.db
+*.sqlite
+*.sqlite3
+__pycache__/
+*.pyc
+.DS_Store
+alembic/__pycache__/
+alembic/versions/__pycache__/

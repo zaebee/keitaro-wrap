@@ -25,6 +25,7 @@ No full campaign mirror unless a concrete use case (e.g. offline listing) justif
 - `app/api/routes.py` — HTTP.
 
 ## Cross-cutting
+- Persistence boundary (D14): sync SQLAlchemy operations must not execute directly inside an async request path on the event loop; use FastAPI threadpool or an explicit boundary.
 - HTTP transport: httpx.AsyncClient (D13). Async methods; lifespan-managed; no sync calls in async path.
 - Config via pydantic-settings (.env).
 - Errors: KeitaroError translated to HTTP 502 with message.
