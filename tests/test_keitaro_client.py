@@ -48,13 +48,12 @@ async def test_422():
     def handler(request):
         return httpx.Response(422, json={"error": "validation"})
 
+    from app.application.dto import CampaignCreateDTO
+
+    payload = CampaignCreateDTO(alias="a", name="n")
     client = make_client(handler)
     with pytest.raises(KeitaroError) as exc:
-        await client.create_campaign(
-            __import__(
-                "app.application.dto", fromlist=["CampaignCreateDTO"]
-            ).CampaignCreateDTO(alias="a", name="n")
-        )
+        await client.create_campaign(payload)
     assert exc.value.status == 422
 
 

@@ -42,32 +42,40 @@ class KeitaroClient(KeitaroClientPort):
     async def _request(
         self, method: str, path: str, *, json: Any = None, retries: int = 0
     ) -> Any:
-        """_request."""
+        """Execute an HTTP request with bounded retries for safe reads."""
         url = self._base + path
-        last_exc = None
         for attempt in range(retries + 1):
             try:
                 resp = await self._client.request(method, url, json=json)
             except (httpx.TimeoutException, httpx.ConnectError) as exc:
-                last_exc = exc
                 if method == "GET" and attempt < retries:
                     await asyncio.sleep(0.1)
                     continue
                 raise KeitaroError(0, str(exc)) from exc
-            if resp.status_code >= 400:
-                try:
-                    data = resp.json()
-                    msg = data.get("error") if isinstance(data, dict) else str(data)
-                except Exception:
-                    msg = resp.text
-                raise KeitaroError(resp.status_code, msg or resp.reason_phrase)
-            if not resp.content:
-                return None
-            try:
-                return resp.json()
-            except Exception as exc:
-                raise KeitaroError(resp.status_code, "malformed response") from exc
-        raise KeitaroError(0, str(last_exc))
+            return self._handle_response(resp)
+        raise KeitaroError(0, "request failed")
+
+    def _handle_response(self, resp: httpx.Response) -> Any:
+        """Parse a successful response or raise a Keitaro error."""
+        if resp.status_code >= 400:
+            msg = self._extract_error(resp)
+            raise KeitaroError(resp.status_code, msg or resp.reason_phrase)
+        if not resp.content:
+            return None
+        try:
+            return resp.json()
+        except Exception as exc:
+            raise KeitaroError(resp.status_code, "malformed response") from exc
+
+    def _extract_error(self, resp: httpx.Response) -> str:
+        """Extract an error message from a failed response."""
+        try:
+            data = resp.json()
+            if isinstance(data, dict):
+                return data.get("error") or str(data)
+            return str(data)
+        except Exception:
+            return resp.text
 
     # discovery
     async def list_stream_types(self) -> list[dict]:
