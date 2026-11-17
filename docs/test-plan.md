@@ -6,6 +6,13 @@
 - Drafts/archive durable (survive restart).
 - Per-stream Push outcomes, partial success, failed/ambiguous retention, reconciliation.
 
+## Executed for Slice 4 (issue #29)
+- Pure reconciliation: duplicate/invalid remote offers, add/remove/reappearance/share transitions, idempotency, sticky conflicts, staged share-edit intersection.
+- Apply-level: one remote read before any DB write, response validation before reconciliation (including campaign ownership), Keitaro failure leaves local state untouched, synchronous repository offloaded from the event loop (D14).
+- Repository on real SQLite: first Fetch, remote add/delete/reappearance with pin preserved, share cache update, multi-stream isolation by stream_ref, repeated Fetch idempotency, draft conflict without touching staged state/baseline/version/dirty flag, whole-snapshot rollback on duplicate ids, two concurrent Fetches without duplicate bindings.
+- Mocked HTTP contract: full `/campaigns/{id}/streams` response including a stream without offers and ordered offer entries; no Keitaro write request; an offer missing `share` fails Fetch with the HTTP status preserved and leaves local state unchanged.
+- Migration: upgrade/downgrade/upgrade with the four new tables, binding uniqueness and draft uniqueness/indexes.
+
 ## Committed vs staged tests
 - Staged changes do not overwrite committed binding state until Push commits.
 - Cancel restores committed state and discards staged changes.
@@ -52,7 +59,7 @@
 - Manual share input constraints and validation.
 - Behavior with zero or one active offers.
 - Behavior when all offers are pinned.
-- Duplicate-offer handling.
+- Duplicate-offer handling in later slices (Fetch rejection is resolved by issue #29).
 - Multiple offer-bearing stream selection.
 
 ## Integration tests (optional, with test instance + .env)

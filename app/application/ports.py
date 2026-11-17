@@ -7,12 +7,18 @@ from app.application.dto import (
     CampaignDTO,
     ConfiguredResources,
     DomainDTO,
+    FetchOutcome,
+    FetchSnapshot,
     GroupDTO,
     OfferDTO,
+    RemoteSnapshotView,
     StreamActionDTO,
+    StreamBindingView,
     StreamCreateDTO,
+    StreamDraftView,
     StreamDTO,
     StreamFilterOptionDTO,
+    StreamRefView,
     StreamSchemaDTO,
     StreamTypeDTO,
     StreamUpdateDTO,
@@ -155,4 +161,28 @@ class SettingsRepository(Protocol):
 
     def get_config(self) -> ConfiguredResources:
         """Return configured resource IDs and the redirect destination."""
+        ...
+
+
+class StreamReconciliationRepository(Protocol):
+    """Synchronous store for remote snapshots and committed bindings."""
+
+    def reconcile(self, snapshot: FetchSnapshot) -> FetchOutcome:
+        """Apply one complete remote observation in a single transaction."""
+        ...
+
+    def get_stream_ref(self, stream_ref: int) -> StreamRefView | None:
+        """Load a cached remote stream reference by its Keitaro id."""
+        ...
+
+    def get_bindings(self, stream_ref: int) -> tuple[StreamBindingView, ...]:
+        """Load committed bindings for one remote stream."""
+        ...
+
+    def get_remote_snapshot(self, stream_ref: int) -> RemoteSnapshotView | None:
+        """Load the last remote offer cache for one remote stream."""
+        ...
+
+    def get_draft(self, stream_ref: int) -> StreamDraftView | None:
+        """Load the staged state for one remote stream, if one exists."""
         ...

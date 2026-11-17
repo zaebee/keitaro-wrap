@@ -52,7 +52,7 @@ Notes: Campaign creation does not depend on allocation. Fetch/reconciliation dep
 - Failure cases: timeout, 422, ambiguous POST.
 - Completion: end-to-end campaign creation with recovery.
 
-### Slice 4 — Fetch/reconciliation
+### Slice 4 — Fetch/reconciliation (implemented, issue #29)
 - Capability: fetch all streams, reconcile remote offers into bindings, detect conflicts.
 - Modules: application fetch service.
 - Prerequisites: Slices 0-2 (client + allocation domain for binding invariants).
@@ -80,15 +80,15 @@ Notes: Campaign creation does not depend on allocation. Fetch/reconciliation dep
 | active total == 100%? | open | Provisional seam (S6) |
 | empty offers array | open | Safely deferred (S3/S6) |
 | manual share implies pinning? | open | Provisional seam (S5) |
-| pin preservation on reappear | open | Provisional seam (S4) |
-| duplicate bindings | open | Provisional seam (S4/S5) |
+| pin preservation on reappear | Resolved by owner (#29): D9 A, preserve `is_pinned` on reactivation | S4 preserves committed pin |
+| duplicate bindings | Resolved by owner (#29): D8 A, UNIQUE(stream_ref, offer_id) and explicit whole-Fetch failure on duplicate remote offer ids | S4 fails before any local write; no occurrence-based identity |
 | zero/one active offers | open | Provisional seam (S2/S6) |
 | all-pinned remainder | open | Provisional seam (S2/S6) |
 | manual pinned-share changes | open | Provisional seam (S5) |
-| duplicate archived offers | open | Provisional seam (S4/S5) |
-| remote share changes during draft | open | Provisional seam (S4/S5) |
+| duplicate archived offers | Resolved by owner (#29): same as duplicate bindings, Fetch fails explicitly | S4 rejects any duplicate offer id in one remote stream |
+| remote share changes during draft | Resolved by owner (#29): cache/baseline update plus sticky conflict marker, no staged overwrite | S4 writes only `is_stale` and `conflict_details` |
 | Cancel after partial Push | open | Provisional seam (S6) |
-| multiple offer-bearing streams | open | Provisional seam (S4/S5/S6) |
+| multiple offer-bearing streams | Resolved by owner (#29): independent per-stream reconciliation; non-empty offers array defines offer-bearing | S4 has no designated target or selection policy |
 | flow type/priority | Resolved by owner (#26): offer flow uses `default` | S3 implements two flows without a priority field |
 | Google destination fixed/configurable | Resolved by owner (#26): configurable setting, Google default | S3 uses `KEITARO_REDIRECT_URL`, no UI |
 

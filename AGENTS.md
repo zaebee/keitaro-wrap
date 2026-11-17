@@ -9,17 +9,21 @@ or with an owner decision, flag the conflict rather than silently choosing one.
 Keitaro Wrap is a modular monolith: a FastAPI app with minimal local state that wraps the
 Keitaro Admin API for campaign creation and offer editing. Python 3.12, uv, SQLite +
 Alembic, Ruff, Pyrefly, pytest. Slices 0 (foundation), 1 (Keitaro client), 2
-(allocation domain) and 3 (campaign creation) are implemented; later slices are planned,
-not present — check the docs and `git log` before assuming a capability exists.
+(allocation domain), 3 (campaign creation) and 4 (Fetch/reconciliation) are
+implemented; later slices are planned, not present — check the docs and `git log`
+before assuming a capability exists.
 
 Code map:
 
 - `app/main.py` — FastAPI app, lifespan, composition root (wires the HTTP client).
 - `app/api/` — HTTP transport (routes/schemas).
-- `app/application/` — workflows (including campaign creation), DTOs and ports.
-- `app/domain/` — pure domain logic (allocation, operation state machine); no I/O.
+- `app/application/` — workflows (campaign creation, Fetch), DTOs and ports.
+- `app/domain/` — pure domain logic (allocation, operation state machine, offer
+  reconciliation); no I/O.
 - `app/core/` — settings from `.env`.
-- `app/db/`, `alembic/` — SQLAlchemy models, repositories, sessions and migrations.
+- `app/db/`, `alembic/` — SQLAlchemy models, repositories, sessions and migrations,
+  including stream refs, remote offer snapshots, committed bindings and the minimal
+  draft conflict seam.
 - `app/keitaro_client/` — HTTP adapter implementing the Keitaro port.
 - `tests/` — unit and mocked-HTTP contract tests.
 
@@ -58,14 +62,19 @@ Preserve these unless the assigned task explicitly changes them:
 - Keitaro remains the external source of truth where specified. Do not invent API
   behavior: verified vs unverified behavior is recorded in `docs/discovery/keitaro-api.md`
   and `docs/openapi.json`; unresolved questions are decision gates, not facts.
+- Fetch is read-only: remote reads happen outside DB transactions; one snapshot is
+  reconciled atomically; the remote snapshot cache, committed bindings and staged draft
+  state remain separate.
 
 ## 4. Accepted vs proposed/open decisions
 
-- Accepted: D1–D3, D10–D16 in `docs/decisions.md` (modular monolith, SQLite/Alembic,
-  Keitaro as source of truth, committed vs staged separation, LRM allocation, offer_id
+- Accepted: D1–D3, D8–D18 in `docs/decisions.md` (modular monolith, SQLite/Alembic,
+  Keitaro as source of truth, unique binding with explicit duplicate failure, pin
+  preservation on reappearance, committed vs staged separation, LRM allocation, offer_id
   tie-break, async HTTP, sync persistence with an event-loop boundary, `default` offer
-  flow, configurable redirect URL).
-- Proposed or open: D4–D9 and the remaining decision gates in
+  flow, configurable redirect URL, sticky Fetch conflicts and per-stream independence).
+  D8/D9 and the two new Fetch decisions were approved in issue #29.
+- Proposed or open: D4–D7 and the remaining decision gates in
   `docs/implementation/implementation-plan.md`. The editor's video-supported core is
   usable; edge cases marked provisional or unresolved are not settled product decisions.
 - Never resolve an open product/contract decision by implication while implementing a

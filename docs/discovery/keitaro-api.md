@@ -18,7 +18,7 @@ Keitaro version: unknown (not exposed in OpenAPI). Record from admin panel when 
 
 ## Fields
 - `action_payload`: used in requests/responses (Observed), but NOT declared in OpenAPI `StreamObject` (OpenAPI gap). Treat as runtime-only.
-- `offers` in stream: OpenAPI declares `offers` in StreamObject and OfferStreamRequest.
+- `offers` in stream: OpenAPI declares `offers` in StreamObject and OfferStreamRequest. An offer entry without `share` is malformed: `share=0` is a valid value and is not interchangeable with a missing field.
 
 ## Domains (OpenAPI)
 - `GET /domains` → Domain[]
@@ -89,5 +89,6 @@ PUT /admin_api/v1/streams/42
 ```
 
 ## Notes
+- `GET /campaigns/{id}/streams` declares only the campaign id path parameter in the published OpenAPI; no offset/limit. Slice 4 consumes the full returned array and does not invent pagination query parameters. Runtime pagination of streams is unverified.
 - Partial failure: separate calls; no transactional guarantee. Implement operation state + reconciliation.
 - OpenAPI does not declare `action_payload`; runtime uses it.

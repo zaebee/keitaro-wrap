@@ -1,11 +1,31 @@
 """Synchronous SQLAlchemy adapters for application-owned repository ports."""
 
+import json
+from datetime import UTC, datetime
+
 from sqlalchemy import update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.application.dto import ConfiguredResources
+from app.application.dto import (
+    ConfiguredResources,
+    FetchedStream,
+    FetchOutcome,
+    FetchSnapshot,
+    RemoteSnapshotView,
+    StreamBindingView,
+    StreamDraftView,
+    StreamRefView,
+)
 from app.core.config import settings
-from app.db.models import AppSettings, CampaignCreationOperationModel
+from app.db.models import (
+    AppSettings,
+    CampaignCreationOperationModel,
+    RemoteOfferSnapshotModel,
+    StreamDraftModel,
+    StreamOfferBindingModel,
+    StreamRefModel,
+)
 from app.db.session import SessionLocal
 from app.domain.campaign_creation import (
     STEP_FIELDS,
@@ -14,6 +34,17 @@ from app.domain.campaign_creation import (
     OperationStatus,
     StepState,
     get_step,
+)
+from app.domain.reconciliation import (
+    BindingLifecycle,
+    BindingState,
+    BindingTransition,
+    ConflictDetail,
+    DraftState,
+    RemoteOffer,
+    TransitionKind,
+    plan_reconciliation,
+    validate_remote_offers,
 )
 
 _STEP_ID_FIELDS: dict[CreationStage, str] = {
@@ -249,3 +280,401 @@ class SqlAlchemySettingsRepository:
             ),
             redirect_url=settings.KEITARO_REDIRECT_URL,
         )
+
+
+def _utc_now() -> datetime:
+    """Return a naive UTC timestamp compatible with DateTime columns."""
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+def _dump_offers(offers: tuple[RemoteOffer, ...]) -> str:
+    """Serialize an ordered remote offer array."""
+    return json.dumps(
+        [
+            {
+                "offer_id": offer.offer_id,
+                "share": offer.share,
+                "state": offer.state,
+                "position": offer.position,
+            }
+            for offer in offers
+        ],
+        separators=(",", ":"),
+    )
+
+
+def _load_offers(raw: str) -> tuple[RemoteOffer, ...]:
+    """Deserialize and validate an ordered remote offer array."""
+    data = json.loads(raw)
+    if not isinstance(data, list):
+        raise ValueError("remote offer snapshot is not a list")
+    offers = tuple(
+        RemoteOffer(
+            offer_id=item["offer_id"],
+            share=item["share"],
+            state=item.get("state"),
+            position=item.get("position", index),
+        )
+        for index, item in enumerate(data)
+    )
+    return validate_remote_offers(offers)
+
+
+def _dump_conflicts(conflicts: tuple[ConflictDetail, ...]) -> str:
+    """Serialize structured draft conflicts."""
+    return json.dumps(
+        [
+            {
+                "stream_ref": conflict.stream_ref,
+                "offer_id": conflict.offer_id,
+                "field": conflict.field,
+                "expected": conflict.expected,
+                "observed": conflict.observed,
+                "reason": conflict.reason,
+            }
+            for conflict in conflicts
+        ],
+        separators=(",", ":"),
+    )
+
+
+def _load_conflicts(raw: str | None) -> tuple[ConflictDetail, ...]:
+    """Deserialize structured draft conflicts; absent means no conflicts."""
+    if raw is None:
+        return ()
+    data = json.loads(raw)
+    if not isinstance(data, list):
+        raise ValueError("draft conflict details are not a list")
+    return tuple(
+        ConflictDetail(
+            stream_ref=item["stream_ref"],
+            offer_id=item["offer_id"],
+            field=item["field"],
+            expected=item.get("expected"),
+            observed=item.get("observed"),
+            reason=item["reason"],
+        )
+        for item in data
+    )
+
+
+def _load_staged_changes(raw: str) -> dict[str, object]:
+    """Deserialize staged changes without interpreting their contents."""
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise ValueError("draft staged changes are not an object")
+    return data
+
+
+class SqlAlchemyStreamReconciliationRepository:
+    """Apply one remote Fetch to local persistence in a single transaction."""
+
+    def __init__(
+        self,
+        session_factory: sessionmaker[Session] = SessionLocal,
+        *,
+        max_attempts: int = 2,
+    ):
+        """Use an injectable session factory so tests can use a temporary DB."""
+        if max_attempts < 1:
+            raise ValueError("max_attempts must be positive")
+        self._session_factory = session_factory
+        self._max_attempts = max_attempts
+
+    def reconcile(self, snapshot: FetchSnapshot) -> FetchOutcome:
+        """Reconcile a whole snapshot, retrying only local unique-constraint races."""
+        for attempt in range(self._max_attempts):
+            try:
+                return self._reconcile_once(snapshot)
+            except IntegrityError:
+                if attempt + 1 >= self._max_attempts:
+                    raise
+        raise RuntimeError("reconciliation attempts exhausted")
+
+    def _reconcile_once(self, snapshot: FetchSnapshot) -> FetchOutcome:
+        """Write all streams inside one transaction; anything else rolls back."""
+        counts = {
+            "created_bindings": 0,
+            "archived_bindings": 0,
+            "reactivated_bindings": 0,
+            "share_updates": 0,
+            "conflicted_drafts": 0,
+        }
+        reconciled = 0
+        with self._session_factory() as session:
+            try:
+                for stream in snapshot.streams:
+                    if self._reconcile_stream(session, snapshot, stream, counts):
+                        reconciled += 1
+                session.commit()
+            except Exception:
+                session.rollback()
+                raise
+        return FetchOutcome(
+            campaign_id=snapshot.campaign_id,
+            stream_count=len(snapshot.streams),
+            reconciled_stream_count=reconciled,
+            created_bindings=counts["created_bindings"],
+            archived_bindings=counts["archived_bindings"],
+            reactivated_bindings=counts["reactivated_bindings"],
+            share_updates=counts["share_updates"],
+            conflicted_drafts=counts["conflicted_drafts"],
+        )
+
+    def _reconcile_stream(
+        self,
+        session: Session,
+        snapshot: FetchSnapshot,
+        stream: FetchedStream,
+        counts: dict[str, int],
+    ) -> bool:
+        """Reconcile one stream; return whether it had local reconciliation state."""
+        ref = self._get_or_create_ref(session, snapshot.campaign_id, stream)
+        bindings = self._load_bindings(session, ref.id)
+        cached = (
+            session.query(RemoteOfferSnapshotModel)
+            .filter_by(stream_ref_id=ref.id)
+            .one_or_none()
+        )
+        draft = (
+            session.query(StreamDraftModel)
+            .filter_by(stream_ref_id=ref.id)
+            .one_or_none()
+        )
+        if not stream.offers and not bindings and cached is None and draft is None:
+            return False
+        remote = validate_remote_offers(stream.offers)
+        plan = plan_reconciliation(
+            stream_ref=stream.stream_ref,
+            remote_offers=remote,
+            previous_bindings=bindings,
+            draft=self._draft_state(draft),
+        )
+        self._apply_transitions(session, ref.id, plan.transitions, counts)
+        self._upsert_remote_snapshot(
+            session, ref.id, plan.remote_offers, snapshot.captured_at, cached
+        )
+        if draft is not None and plan.conflicts:
+            serialized = _dump_conflicts(plan.conflicts)
+            is_new_marker = (
+                not draft.is_stale or draft.conflict_details_json != serialized
+            )
+            draft.is_stale = True
+            draft.conflict_details_json = serialized
+            if is_new_marker:
+                counts["conflicted_drafts"] += 1
+        return True
+
+    @staticmethod
+    def _find_ref(session: Session, stream_ref: int) -> StreamRefModel | None:
+        """Look up a cached stream by its remote id."""
+        return (
+            session.query(StreamRefModel)
+            .filter_by(keitaro_stream_id=stream_ref)
+            .one_or_none()
+        )
+
+    def _get_or_create_ref(
+        self, session: Session, campaign_id: int, stream: FetchedStream
+    ) -> StreamRefModel:
+        """Insert or refresh the minimal cached identity of a remote stream."""
+        ref = self._find_ref(session, stream.stream_ref)
+        if ref is None:
+            ref = StreamRefModel(
+                campaign_id=campaign_id,
+                keitaro_stream_id=stream.stream_ref,
+                type=stream.type,
+                name=stream.name,
+                schema=stream.schema,
+                comments=stream.comments,
+            )
+            session.add(ref)
+            session.flush()
+            return ref
+        ref.campaign_id = campaign_id
+        ref.type = stream.type
+        ref.name = stream.name
+        ref.schema = stream.schema
+        ref.comments = stream.comments
+        return ref
+
+    @staticmethod
+    def _load_bindings(
+        session: Session, stream_ref_id: int
+    ) -> tuple[BindingState, ...]:
+        """Load committed binding state for one stream."""
+        rows = (
+            session.query(StreamOfferBindingModel)
+            .filter_by(stream_ref_id=stream_ref_id)
+            .all()
+        )
+        return tuple(
+            BindingState(
+                offer_id=row.offer_id,
+                lifecycle=BindingLifecycle(row.lifecycle),
+                is_pinned=row.is_pinned,
+                last_remote_share=row.last_remote_share,
+            )
+            for row in rows
+        )
+
+    @staticmethod
+    def _draft_state(row: StreamDraftModel | None) -> DraftState | None:
+        """Load only the parts of a draft Fetch is allowed to read."""
+        if row is None:
+            return None
+        baseline = (
+            _load_offers(row.baseline_snapshot_json)
+            if row.baseline_snapshot_json is not None
+            else ()
+        )
+        return DraftState(
+            baseline_offers=baseline,
+            staged_changes=_load_staged_changes(row.staged_changes_json),
+            is_stale=row.is_stale,
+            conflicts=_load_conflicts(row.conflict_details_json),
+        )
+
+    def _apply_transitions(
+        self,
+        session: Session,
+        stream_ref_id: int,
+        transitions: tuple[BindingTransition, ...],
+        counts: dict[str, int],
+    ) -> None:
+        """Apply planned binding changes without touching wrapper-owned pin state."""
+        now = _utc_now()
+        for transition in transitions:
+            if transition.kind is TransitionKind.CREATED:
+                session.add(
+                    StreamOfferBindingModel(
+                        stream_ref_id=stream_ref_id,
+                        offer_id=transition.offer_id,
+                        lifecycle=BindingLifecycle.ACTIVE.value,
+                        is_pinned=False,
+                        last_remote_share=transition.share,
+                    )
+                )
+                counts["created_bindings"] += 1
+                continue
+            binding = (
+                session.query(StreamOfferBindingModel)
+                .filter_by(stream_ref_id=stream_ref_id, offer_id=transition.offer_id)
+                .one_or_none()
+            )
+            if binding is None:
+                raise RuntimeError(
+                    f"missing binding for offer {transition.offer_id} "
+                    f"in stream {stream_ref_id}"
+                )
+            if transition.kind is TransitionKind.ARCHIVED:
+                binding.lifecycle = BindingLifecycle.ARCHIVED.value
+                binding.last_remote_share = None
+                binding.archived_at = now
+                counts["archived_bindings"] += 1
+            elif transition.kind is TransitionKind.REACTIVATED:
+                binding.lifecycle = BindingLifecycle.ACTIVE.value
+                binding.last_remote_share = transition.share
+                binding.reactivated_at = now
+                counts["reactivated_bindings"] += 1
+            elif transition.kind is TransitionKind.SHARE_CHANGED:
+                binding.last_remote_share = transition.share
+                counts["share_updates"] += 1
+
+    @staticmethod
+    def _upsert_remote_snapshot(
+        session: Session,
+        stream_ref_id: int,
+        offers: tuple[RemoteOffer, ...],
+        captured_at: datetime,
+        cached: RemoteOfferSnapshotModel | None,
+    ) -> None:
+        """Keep exactly one current remote cache row per stream."""
+        serialized = _dump_offers(offers)
+        if cached is None:
+            session.add(
+                RemoteOfferSnapshotModel(
+                    stream_ref_id=stream_ref_id,
+                    offers_json=serialized,
+                    captured_at=captured_at,
+                )
+            )
+            return
+        cached.offers_json = serialized
+        cached.captured_at = captured_at
+
+    def get_stream_ref(self, stream_ref: int) -> StreamRefView | None:
+        """Load a cached remote stream reference by its Keitaro id."""
+        with self._session_factory() as session:
+            row = self._find_ref(session, stream_ref)
+            if row is None:
+                return None
+            return StreamRefView(
+                stream_ref=row.keitaro_stream_id,
+                campaign_id=row.campaign_id,
+                type=row.type,
+                name=row.name,
+                schema=row.schema,
+                comments=row.comments,
+            )
+
+    def get_bindings(self, stream_ref: int) -> tuple[StreamBindingView, ...]:
+        """Load committed bindings for one remote stream."""
+        with self._session_factory() as session:
+            row = self._find_ref(session, stream_ref)
+            if row is None:
+                return ()
+            bindings = self._load_bindings(session, row.id)
+        return tuple(
+            StreamBindingView(
+                offer_id=item.offer_id,
+                lifecycle=item.lifecycle.value,
+                is_pinned=item.is_pinned,
+                last_remote_share=item.last_remote_share,
+            )
+            for item in sorted(bindings, key=lambda item: item.offer_id)
+        )
+
+    def get_remote_snapshot(self, stream_ref: int) -> RemoteSnapshotView | None:
+        """Load the last remote offer observation for one stream."""
+        with self._session_factory() as session:
+            row = self._find_ref(session, stream_ref)
+            if row is None:
+                return None
+            cached = (
+                session.query(RemoteOfferSnapshotModel)
+                .filter_by(stream_ref_id=row.id)
+                .one_or_none()
+            )
+            if cached is None:
+                return None
+            return RemoteSnapshotView(
+                offers=_load_offers(cached.offers_json),
+                captured_at=cached.captured_at,
+            )
+
+    def get_draft(self, stream_ref: int) -> StreamDraftView | None:
+        """Load the staged state for one remote stream, if one exists."""
+        with self._session_factory() as session:
+            row = self._find_ref(session, stream_ref)
+            if row is None:
+                return None
+            draft = (
+                session.query(StreamDraftModel)
+                .filter_by(stream_ref_id=row.id)
+                .one_or_none()
+            )
+            if draft is None:
+                return None
+            return StreamDraftView(
+                baseline_offers=(
+                    _load_offers(draft.baseline_snapshot_json)
+                    if draft.baseline_snapshot_json is not None
+                    else ()
+                ),
+                staged_changes=_load_staged_changes(draft.staged_changes_json),
+                version=draft.version,
+                is_dirty=draft.is_dirty,
+                is_stale=draft.is_stale,
+                conflicts=_load_conflicts(draft.conflict_details_json),
+            )
