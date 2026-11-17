@@ -15,6 +15,7 @@ class Settings(BaseSettings):
 
     KEITARO_BASE_URL: str = "https://tlgk.host"
     KEITARO_API_KEY: str = ""
+    KEITARO_TIMEOUT: float = 30.0
     KEITARO_DEFAULT_DOMAIN_ID: int | None = None
     KEITARO_DEFAULT_GROUP_ID: int | None = None
     KEITARO_DEFAULT_TRAFFIC_SOURCE_ID: int | None = None
