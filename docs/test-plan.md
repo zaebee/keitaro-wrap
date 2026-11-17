@@ -1,5 +1,12 @@
 # Test plan
 
+## Committed vs staged tests
+- Staged changes do not overwrite committed binding state until Push commits.
+- Cancel restores committed state and discards staged changes.
+- Failed/ambiguous Push retains draft.
+- Remote deletion reconciliation archives binding without creating draft.
+- Reappearance reactivates binding and updates cache.
+
 ## Unit tests (no live Keitaro)
 - Country code validation.
 - Alias slug generation (unique operation-derived).
