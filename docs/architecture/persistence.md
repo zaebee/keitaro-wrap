@@ -95,7 +95,7 @@ Resolution: draft marked stale with conflict details; user chooses keep draft or
 States: pending → in_progress → succeeded | failed | ambiguous.
 - ambiguous → abandoned (operator) or succeeded after reconciliation.
 - failed may be retried via a new publication record only when reliable evidence establishes that the previous external side effect did not occur, or a documented API guarantee makes retry safe; otherwise remains ambiguous.
-- Startup recovery: reconcile in-progress/ambiguous publications (bounded) before new Push. If reconciliation cannot establish the outcome, leave publication ambiguous (or abandoned on operator decision); do not assume failure.
+- Startup recovery: reconcile in-progress/ambiguous publications (bounded) before new Push. The deadline is enforced across the whole pass and around every read; a hanging GET is cancelled at the remaining budget, unprocessed operations stay unresolved, and startup continues. If reconciliation cannot establish the outcome, leave publication ambiguous (or abandoned on operator decision); do not assume failure.
 
 Slice 6 implementation details:
 - `stream_publications` stores the correlation marker, exact offers-only request payload, raw pre-image, captured draft version and canonical intent, effective/staged offer views, error evidence and timestamps. A partial unique index allows only one unresolved operation per stream.
@@ -105,6 +105,7 @@ Slice 6 implementation details:
 - A `pending` operation left by a crash is resumed by Push only when its captured draft version/intent and fresh pre-image still match; otherwise it gates the stream. `in_progress`/`ambiguous` operations always gate and may only be reconciled.
 - Verified read-back commits the remote snapshot, committed bindings and draft in one transaction. A newer concurrent Fetch capture is never overwritten by older read-back evidence; sticky conflicts are preserved.
 - All non-2xx/transport outcomes are ambiguous unless explicit absence evidence exists. `failed` is only reachable with an evidence record; D25 Cancel of `failed` likewise requires it.
+- Publication Cancel is one local transaction: it re-verifies captured draft version/intent, marks the operation `abandoned` and discards/normalises the draft together. A crash before commit leaves both unchanged, so there is no unrecoverable ABANDONED-with-dirty-draft state.
 - Live writes are disabled by `KEITARO_ALLOW_PUBLICATION_WRITES=false` until offers-only PUT preservation is verified live. No full-document PUT fallback exists.
 
 Failed vs ambiguous:

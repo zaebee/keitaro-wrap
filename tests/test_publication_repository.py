@@ -6,7 +6,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.application.dto import PublicationPlan
@@ -147,10 +147,12 @@ def test_create_pending_atomically_verifies_version_and_intent(session_factory):
     """A stale version or a changed intent never creates a durable operation."""
     seed_stream(session_factory)
     repository = SqlAlchemyStreamPublicationRepository(session_factory)
+    stale_plan = make_plan(version=2)
     with pytest.raises(PublicationConflictError):
-        repository.create_pending((make_plan(version=2),))
+        repository.create_pending((stale_plan,))
+    changed_plan = make_plan(intent={"share_edits": {"8": 50}})
     with pytest.raises(PublicationConflictError):
-        repository.create_pending((make_plan(intent={"share_edits": {"8": 50}}),))
+        repository.create_pending((changed_plan,))
     assert count_publications(session_factory) == 0
     created = repository.create_pending((make_plan(),))
     assert len(created) == 1
@@ -197,9 +199,11 @@ def test_finalize_success_commits_all_state_in_one_transaction(session_factory):
         pinned = session.query(StreamOfferBindingModel).filter_by(offer_id=8).one()
         assert pinned.is_pinned is True
         ref = session.get(StreamRefModel, 1)
-        assert ref is not None and ref.draft_version_counter == 1
+        assert ref is not None
+        assert ref.draft_version_counter == 1
         cache = session.scalar(select(RemoteOfferSnapshotModel))
-        assert cache is not None and "60" in cache.offers_json
+        assert cache is not None
+        assert "60" in cache.offers_json
 
 
 def test_finalize_preserves_sticky_conflict_state(session_factory):
@@ -247,7 +251,8 @@ def test_finalize_rejects_a_draft_changed_since_capture(session_factory):
         session.commit()
     assert repository.finalize_success(operation.id, observed_offers()) is None
     latest = repository.get(operation.id)
-    assert latest is not None and latest.status is PublicationStatus.IN_PROGRESS
+    assert latest is not None
+    assert latest.status is PublicationStatus.IN_PROGRESS
 
 
 def test_ambiguous_operation_can_be_confirmed_without_a_new_mutation(session_factory):
@@ -258,7 +263,56 @@ def test_ambiguous_operation_can_be_confirmed_without_a_new_mutation(session_fac
     repository.claim(operation.id, "worker-a")
     repository.mark_ambiguous(operation.id, "timeout")
     finalized = repository.finalize_success(operation.id, observed_offers())
-    assert finalized is not None and finalized.status is PublicationStatus.SUCCEEDED
+    assert finalized is not None
+    assert finalized.status is PublicationStatus.SUCCEEDED
+
+
+def test_cancel_is_atomic_when_commit_fails(session_factory):
+    """A crash before commit cannot leave ABANDONED with a dirty draft."""
+    seed_stream(session_factory)
+    repository = SqlAlchemyStreamPublicationRepository(session_factory)
+    operation = repository.create_pending((make_plan(),))[0]
+
+    def crash(session):
+        """Simulate a process crash at commit time."""
+        raise RuntimeError("crash before commit")
+
+    event.listen(session_factory, "before_commit", crash)
+    try:
+        with pytest.raises(RuntimeError, match="crash before commit"):
+            repository.cancel(5, 12, "operator cancel")
+    finally:
+        event.remove(session_factory, "before_commit", crash)
+    latest = repository.get(operation.id)
+    assert latest is not None
+    assert latest.status is PublicationStatus.PENDING
+    with session_factory() as session:
+        draft = session.scalar(select(StreamDraftModel))
+        assert draft is not None
+        assert draft.is_dirty is True
+        assert draft.version == 1
+
+
+def test_cancel_rejects_a_changed_draft_without_writing_state(session_factory):
+    """Version and intent checks are part of the atomic Cancel transaction."""
+    seed_stream(session_factory)
+    repository = SqlAlchemyStreamPublicationRepository(session_factory)
+    operation = repository.create_pending((make_plan(),))[0]
+    with session_factory() as session:
+        draft = session.scalar(select(StreamDraftModel))
+        assert draft is not None
+        draft.version = 2
+        session.commit()
+    with pytest.raises(PublicationConflictError):
+        repository.cancel(5, 12, "operator cancel")
+    latest = repository.get(operation.id)
+    assert latest is not None
+    assert latest.status is PublicationStatus.PENDING
+    with session_factory() as session:
+        draft = session.scalar(select(StreamDraftModel))
+        assert draft is not None
+        assert draft.version == 2
+        assert draft.is_dirty is True
 
 
 def test_failed_requires_absence_evidence_and_is_cancellable_with_it(session_factory):
@@ -270,6 +324,9 @@ def test_failed_requires_absence_evidence_and_is_cancellable_with_it(session_fac
     with pytest.raises(PublicationConflictError):
         repository.mark_failed(operation.id, "rejected", {})
     failed = repository.mark_failed(operation.id, "rejected", {"source": "operator"})
-    assert failed is not None and failed.status is PublicationStatus.FAILED
-    assert repository.abandon(operation.id, "operator cancel") is not None
+    assert failed is not None
+    assert failed.status is PublicationStatus.FAILED
+    cancelled = repository.cancel(5, 12, "operator cancel")
+    assert cancelled is not None
+    assert cancelled[0].status is PublicationStatus.ABANDONED
     assert repository.has_unresolved(5, (12,)) is False

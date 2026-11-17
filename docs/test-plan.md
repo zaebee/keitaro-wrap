@@ -28,6 +28,7 @@
 - Real temporary SQLite: atomic draft capture (version + canonical intent + no unresolved operation), unique unresolved index, single-winner claim, evidenced failure, ambiguous-after-restart confirmation, combined binding/cache/draft commit, sticky conflict preservation and rejection of a changed draft at confirmation.
 - Mocked async HTTP contract: exact offers-only PUT body with a runtime-only field present in the pre-image, 400 treated as ambiguous with exactly one PUT.
 - Migration: `stream_publications`, its partial unique index and new columns verified on upgrade/downgrade/upgrade.
+- Review regressions: a hanging reconciliation GET is cancelled by the remaining recovery deadline and leaves later operations untouched; a simulated commit crash during publication Cancel rolls back both abandonment and draft discard; a changed draft version/intent rejects Cancel without writing either.
 
 ## Committed vs staged tests
 - Staged changes do not overwrite committed binding state until Push commits.

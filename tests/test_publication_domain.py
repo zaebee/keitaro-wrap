@@ -43,8 +43,10 @@ def test_strict_total_accepts_exact_100_and_degenerate_complete_states():
     all_pinned = evaluate_eligibility(
         (offer(5, 40, pinned=True), offer(8, 60, pinned=True))
     )
-    assert single.eligible and single.active_total == 100
-    assert all_pinned.eligible and all_pinned.pinned_total == 100
+    assert single.eligible
+    assert single.active_total == 100
+    assert all_pinned.eligible
+    assert all_pinned.pinned_total == 100
 
 
 def test_eligibility_rejects_empty_unallocated_and_pinned_overflow():
@@ -83,8 +85,9 @@ def test_payload_contains_only_documented_offer_fields():
 
 def test_payload_rejects_duplicate_active_offers():
     """Duplicate ids are refused before any remote mutation."""
+    entries = (offer(8, 50), offer(8, 50))
     with pytest.raises(ValueError, match="duplicate"):
-        build_offer_entries((offer(8, 50), offer(8, 50)))
+        build_offer_entries(entries)
 
 
 def test_readback_match_ignores_remote_order():

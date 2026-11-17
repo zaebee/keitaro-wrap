@@ -161,7 +161,7 @@ class Publications:
         """No recovery operations in this test."""
         return ()
 
-    def abandon(self, operation_id: int, reason: str):
+    def cancel(self, campaign_id: int, stream_ref: int, reason: str):
         """Not used here."""
         return None
 

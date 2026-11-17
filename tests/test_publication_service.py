@@ -1,6 +1,8 @@
 """Application-level Slice 6 tests with fakes and an explicit D14 assertion."""
 
+import asyncio
 import threading
+import time
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import cast
@@ -27,6 +29,7 @@ from app.application.ports import (
     StreamReconciliationRepository,
 )
 from app.application.publication import (
+    PublicationConflictError,
     PublicationGateError,
     PublicationService,
 )
@@ -155,6 +158,7 @@ class FakeClient:
         self.calls: list[str] = []
         self.puts: list[dict[str, object]] = []
         self.get_counts: dict[int, int] = {}
+        self.get_delay = 0.0
 
     def add_stream(self, stream_ref: int, share8: int = 60) -> None:
         """Register a document used by every GET for one stream."""
@@ -166,6 +170,8 @@ class FakeClient:
         self.calls.append(f"GET {stream_ref}")
         if self.get_error is not None:
             raise self.get_error
+        if self.get_delay:
+            await asyncio.sleep(self.get_delay)
         count = self.get_counts.get(stream_ref, 0) + 1
         self.get_counts[stream_ref] = count
         docs = self.readbacks[stream_ref]
@@ -194,6 +200,8 @@ class FakePublications:
         self.claim_fails = False
         self.finalize_fails = False
         self.recoverable: tuple[PublicationOperationView, ...] = ()
+        self.discardable: set[int] = set()
+        self.cancel_conflict = False
 
     def _store(self, plan: PublicationPlan, status: PublicationStatus):
         """Create one operation view from a plan."""
@@ -312,15 +320,19 @@ class FakePublications:
         """Return configured unresolved operations."""
         return self.recoverable[:limit]
 
-    def abandon(self, operation_id: int, reason: str):
-        """Mark an operation abandoned."""
-        current = self.operations[operation_id]
-        updated = replace(current, status=PublicationStatus.ABANDONED, error=reason)
-        self.operations[operation_id] = updated
-        return updated
+    def cancel(self, campaign_id: int, stream_ref: int, reason: str):
+        """Atomically abandon and report the discarded draft in memory."""
+        if self.cancel_conflict:
+            raise PublicationConflictError("draft changed")
+        operation = self.get_unresolved(campaign_id, stream_ref)
+        if operation is None:
+            return None
+        updated = replace(operation, status=PublicationStatus.ABANDONED, error=reason)
+        self.operations[operation.id] = updated
+        return updated, stream_ref in self.discardable
 
 
-def make_service(allow_live_writes: bool = True):
+def make_service(allow_live_writes: bool = True, **overrides):
     """Build a service with fresh fakes for one test."""
     drafts = FakeDrafts()
     snapshots = FakeSnapshots()
@@ -333,6 +345,7 @@ def make_service(allow_live_writes: bool = True):
         cast(StreamReconciliationRepository, snapshots),
         allow_live_writes=allow_live_writes,
         reconcile_delay=0,
+        **overrides,
     )
     return service, drafts, snapshots, client, publications
 
@@ -439,7 +452,8 @@ async def test_matching_pending_operation_is_resumed_without_a_new_capture():
     publications._store(plan, PublicationStatus.PENDING)
     result = await service.push(PushStreamsCommand(5))
     assert result.outcomes[0].status is PublicationStatus.SUCCEEDED
-    assert client.puts and client.calls.count("PUT 12") == 1
+    assert client.puts
+    assert client.calls.count("PUT 12") == 1
     assert publications.plans == []
 
 
@@ -497,6 +511,35 @@ async def test_recovery_confirms_only_matching_reads_and_never_puts():
 
 
 @pytest.mark.asyncio
+async def test_recovery_deadline_cancels_a_hanging_get():
+    """One hanging GET cannot hold startup past the configured deadline."""
+    service, _, _, client, publications = make_service(
+        recovery_deadline_seconds=0.05, reconcile_attempts=3
+    )
+    for stream_ref in (12, 13):
+        plan = PublicationPlan(5, stream_ref, 1, {}, (), {"offers": []}, (), {}, "m")
+        operation = publications._store(plan, PublicationStatus.IN_PROGRESS)
+        publications.operations[operation.id] = replace(
+            operation,
+            effective_entries=(
+                OfferEntry(5, 40, "active"),
+                OfferEntry(8, 60, "active"),
+            ),
+        )
+        publications.recoverable = (*publications.recoverable, operation)
+        client.add_stream(stream_ref)
+    client.get_delay = 1.0
+    started = time.monotonic()
+    result = await service.recover()
+    elapsed = time.monotonic() - started
+    assert elapsed < 0.5
+    assert result.deadline_reached is True
+    assert len(client.calls) == 1
+    for operation in publications.operations.values():
+        assert operation.status is PublicationStatus.IN_PROGRESS
+
+
+@pytest.mark.asyncio
 async def test_cancel_is_reconcile_first():
     """D25 blocks Cancel for unresolved state and requires evidence for failed."""
     service, drafts, _, _, publications = make_service()
@@ -515,9 +558,23 @@ async def test_cancel_is_reconcile_first():
 
     pending = publications._store(plan, PublicationStatus.PENDING)
     publications.operations = {pending.id: pending}
+    publications.discardable = {12}
     result = await service.cancel(CancelPublicationCommand(5, 12))
     assert result.status is PublicationStatus.ABANDONED
     assert result.draft_discarded is True
+
+
+@pytest.mark.asyncio
+async def test_cancel_conflict_keeps_operation_and_draft_unchanged():
+    """A changed draft rejects Cancel without abandoning the operation."""
+    service, drafts, _, _, publications = make_service()
+    drafts.add(12)
+    plan = PublicationPlan(5, 12, 1, {}, (), {"offers": []}, (), {}, "m")
+    pending = publications._store(plan, PublicationStatus.PENDING)
+    publications.cancel_conflict = True
+    result = await service.cancel(CancelPublicationCommand(5, 12))
+    assert result.reason == "DRAFT_CHANGED"
+    assert publications.operations[pending.id].status is PublicationStatus.PENDING
 
 
 @pytest.mark.asyncio

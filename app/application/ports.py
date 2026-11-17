@@ -276,8 +276,8 @@ class StreamPublicationRepository(Protocol):
         """Load one unresolved operation for safe pending resume."""
         ...
 
-    def abandon(
-        self, operation_id: int, reason: str
-    ) -> PublicationOperationView | None:
-        """Explicitly abandon a pending or evidenced failed operation."""
+    def cancel(
+        self, campaign_id: int, stream_ref: int, reason: str
+    ) -> tuple[PublicationOperationView, bool] | None:
+        """Atomically abandon a cancellable operation and discard its draft."""
         ...

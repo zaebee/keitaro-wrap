@@ -67,7 +67,8 @@ The pure allocation, operation state machine, reconciliation and draft-planning 
 - The PUT body is exactly `{"offers": [...]}`; the `GET /streams/{id}` pre-image is used only for ownership validation, stale detection and evidence. Runtime-only/response-only fields are never copied, and there is no full-document fallback.
 - A PUT result is confirmed only by bounded read-back. On verified success, snapshot, bindings and draft are advanced together; failed/ambiguous outcomes retain the draft and operation evidence. All HTTP failures are ambiguous unless independent evidence establishes absence of the side effect.
 - Live Keitaro writes are disabled by default (`KEITARO_ALLOW_PUBLICATION_WRITES=false`) until offers-only PUT preservation is verified live. Mocked contract tests exercise the exact request sequence; no live mutation was performed.
-- Startup recovery is bounded and read-only. Unresolved durable rows gate new Push across all workers; read-only application functionality remains available.
+- Startup recovery is bounded and read-only, with the deadline enforced across the whole pass and around each GET. Unresolved durable rows gate new Push across all workers; read-only application functionality remains available.
+- Publication Cancel is atomic: operation abandonment and draft discard commit together after version/intent revalidation.
 
 ## Cross-cutting
 - Persistence boundary (D14): sync SQLAlchemy operations must not execute directly inside an async request path on the event loop; use FastAPI threadpool or an explicit boundary.

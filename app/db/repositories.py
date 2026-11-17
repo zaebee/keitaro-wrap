@@ -1549,8 +1549,9 @@ class SqlAlchemyStreamPublicationRepository:
                 raise
         return view
 
-    @staticmethod
+    @classmethod
     def _apply_committed_changes(
+        cls,
         session: Session,
         model: StreamPublicationModel,
         observed: tuple[RemoteOffer, ...],
@@ -1567,29 +1568,46 @@ class SqlAlchemyStreamPublicationRepository:
                 )
                 .one_or_none()
             )
-            active = staged.lifecycle is BindingLifecycle.ACTIVE
             if binding is None:
-                session.add(
-                    StreamOfferBindingModel(
-                        stream_ref_id=model.stream_ref_id,
-                        offer_id=staged.offer_id,
-                        lifecycle=staged.lifecycle.value,
-                        is_pinned=staged.is_pinned,
-                        last_remote_share=shares.get(staged.offer_id)
-                        if active
-                        else None,
-                        archived_at=None if active else now,
-                        reactivated_at=now if active else None,
-                    )
-                )
-                continue
-            binding.lifecycle = staged.lifecycle.value
-            binding.is_pinned = staged.is_pinned
-            binding.last_remote_share = shares.get(staged.offer_id) if active else None
-            if active:
-                binding.reactivated_at = now
+                session.add(cls._new_binding(model, staged, shares, now))
             else:
-                binding.archived_at = now
+                cls._update_binding(binding, staged, shares, now)
+
+    @staticmethod
+    def _new_binding(
+        model: StreamPublicationModel,
+        staged: StagedOffer,
+        shares: dict[int, int],
+        now: datetime,
+    ) -> StreamOfferBindingModel:
+        """Build a new committed binding from the captured staged offer."""
+        active = staged.lifecycle is BindingLifecycle.ACTIVE
+        return StreamOfferBindingModel(
+            stream_ref_id=model.stream_ref_id,
+            offer_id=staged.offer_id,
+            lifecycle=staged.lifecycle.value,
+            is_pinned=staged.is_pinned,
+            last_remote_share=shares.get(staged.offer_id) if active else None,
+            archived_at=None if active else now,
+            reactivated_at=now if active else None,
+        )
+
+    @staticmethod
+    def _update_binding(
+        binding: StreamOfferBindingModel,
+        staged: StagedOffer,
+        shares: dict[int, int],
+        now: datetime,
+    ) -> None:
+        """Update an existing binding from the captured staged offer."""
+        active = staged.lifecycle is BindingLifecycle.ACTIVE
+        binding.lifecycle = staged.lifecycle.value
+        binding.is_pinned = staged.is_pinned
+        binding.last_remote_share = shares.get(staged.offer_id) if active else None
+        if active:
+            binding.reactivated_at = now
+        else:
+            binding.archived_at = now
 
     @staticmethod
     def _advance_snapshot(
@@ -1683,33 +1701,94 @@ class SqlAlchemyStreamPublicationRepository:
             )
             return self._to_view(row) if row is not None else None
 
-    def abandon(
-        self, operation_id: int, reason: str
-    ) -> PublicationOperationView | None:
-        """Explicitly abandon a pending or evidenced failed operation."""
+    def cancel(
+        self, campaign_id: int, stream_ref: int, reason: str
+    ) -> tuple[PublicationOperationView, bool] | None:
+        """Atomically abandon a cancellable operation and discard its draft."""
         with self._session_factory() as session:
-            model = session.get(StreamPublicationModel, operation_id)
-            if model is None:
-                return None
-            status = PublicationStatus(model.status)
-            if status is PublicationStatus.FAILED and not model.evidence_json:
-                raise PublicationConflictError(
-                    "failed publication needs absence evidence before Cancel"
+            try:
+                model = (
+                    session.query(StreamPublicationModel)
+                    .filter_by(campaign_id=campaign_id, stream_ref=stream_ref)
+                    .order_by(StreamPublicationModel.id.desc())
+                    .first()
                 )
-            if not can_transition(status, PublicationStatus.ABANDONED):
-                return None
+                if model is None:
+                    return None
+                status = PublicationStatus(model.status)
+                if status is PublicationStatus.FAILED and not model.evidence_json:
+                    raise PublicationConflictError(
+                        "failed publication needs absence evidence before Cancel"
+                    )
+                if not can_transition(status, PublicationStatus.ABANDONED):
+                    return None
+                ref = _find_ref_by_remote(session, stream_ref)
+                if ref is None or ref.campaign_id != campaign_id:
+                    raise PublicationConflictError("stream belongs to another campaign")
+                discarded = self._discard_cancelled_draft(session, model, ref)
+                result = session.execute(
+                    update(StreamPublicationModel)
+                    .where(StreamPublicationModel.id == model.id)
+                    .where(StreamPublicationModel.status == status.value)
+                    .values(
+                        status=PublicationStatus.ABANDONED.value,
+                        error=reason,
+                        finished_at=_utc_now(),
+                    )
+                )
+                if getattr(result, "rowcount", 0) != 1:
+                    raise PublicationConflictError("publication changed during Cancel")
+                session.commit()
+                session.refresh(model)
+                return self._to_view(model), discarded
+            except Exception:
+                session.rollback()
+                raise
+
+    @staticmethod
+    def _discard_cancelled_draft(
+        session: Session,
+        model: StreamPublicationModel,
+        ref: StreamRefModel,
+    ) -> bool:
+        """Discard captured intent with version checks inside the Cancel transaction."""
+        draft = (
+            session.query(StreamDraftModel)
+            .filter_by(stream_ref_id=ref.id)
+            .one_or_none()
+        )
+        if draft is None:
+            return False
+        expected = _load_object(model.expected_intent_json)
+        if (
+            draft.version != model.draft_version
+            or _load_intent(draft.staged_changes_json).to_json() != expected
+        ):
+            raise PublicationConflictError("draft changed before Cancel")
+        was_dirty = draft.is_dirty
+        if not draft.is_stale and not _load_conflicts(draft.conflict_details_json):
             result = session.execute(
-                update(StreamPublicationModel)
-                .where(StreamPublicationModel.id == operation_id)
-                .where(StreamPublicationModel.status.in_([status.value]))
+                delete(StreamDraftModel)
+                .where(StreamDraftModel.id == draft.id)
+                .where(StreamDraftModel.version == model.draft_version)
+            )
+            ref.draft_version_counter = max(
+                ref.draft_version_counter, model.draft_version
+            )
+        else:
+            result = session.execute(
+                update(StreamDraftModel)
+                .where(StreamDraftModel.id == draft.id)
+                .where(StreamDraftModel.version == model.draft_version)
                 .values(
-                    status=PublicationStatus.ABANDONED.value,
-                    error=reason,
-                    finished_at=_utc_now(),
+                    staged_changes_json="{}",
+                    is_dirty=False,
+                    version=model.draft_version + 1,
                 )
             )
-            session.commit()
-            if getattr(result, "rowcount", 0) != 1:
-                return None
-            session.refresh(model)
-            return self._to_view(model)
+            ref.draft_version_counter = max(
+                ref.draft_version_counter, model.draft_version + 1
+            )
+        if getattr(result, "rowcount", 0) != 1:
+            raise PublicationConflictError("draft changed during Cancel")
+        return was_dirty

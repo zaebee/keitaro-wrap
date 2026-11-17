@@ -4,10 +4,9 @@ import asyncio
 import time
 import uuid
 from collections.abc import Mapping
-from dataclasses import replace
+from dataclasses import dataclass
 
 from app.application.dto import (
-    CancelDraftCommand,
     CancelPublicationCommand,
     CancelResult,
     DirtyDraftView,
@@ -26,7 +25,6 @@ from app.application.ports import (
     StreamPublicationRepository,
     StreamReconciliationRepository,
 )
-from app.domain.draft import DraftCommand, DraftCommandKind
 from app.domain.publication import (
     PublicationStatus,
     build_offer_entries,
@@ -51,6 +49,16 @@ class PublicationInputError(ValueError):
 _LIVE_WRITES_DISABLED = (
     "LIVE_WRITES_DISABLED: offers-only PUT preservation is not verified"
 )
+
+
+@dataclass(frozen=True)
+class _RecoveryAttempt:
+    """Internal outcome of one bounded operation reconciliation."""
+
+    confirmed: bool
+    degraded: bool
+    expired: bool
+    attempted: bool
 
 
 class PublicationService:
@@ -89,31 +97,11 @@ class PublicationService:
         if not targets:
             return PushResult(command.campaign_id, tuple(outcomes))
 
-        planning: list[DirtyDraftView] = []
-        resumable: list[PublicationOperationView] = []
-        for target in targets:
-            operation = await asyncio.to_thread(
-                self._publications.get_unresolved,
-                command.campaign_id,
-                target.stream_ref,
-            )
-            if operation is None:
-                planning.append(target)
-            elif (
-                operation.status is PublicationStatus.PENDING
-                and operation.draft_version == target.version
-                and dict(operation.intent) == dict(target.intent)
-            ):
-                resumable.append(operation)
-            else:
-                outcomes.append(
-                    PushStreamOutcome(
-                        target.stream_ref, reason="UNRESOLVED_PUBLICATION"
-                    )
-                )
-        active_refs = tuple(target.stream_ref for target in planning) + tuple(
-            operation.stream_ref for operation in resumable
+        planning, resumable, blocked = await self._classify_targets(
+            command.campaign_id, targets
         )
+        outcomes.extend(blocked)
+        active_refs = self._active_refs(planning, resumable)
         if not active_refs:
             return PushResult(command.campaign_id, tuple(outcomes))
         if not self._allow_live_writes:
@@ -123,43 +111,118 @@ class PublicationService:
             )
             return PushResult(command.campaign_id, tuple(outcomes))
 
-        plans: list[PublicationPlan] = []
-        for target in planning:
-            plan, reason = await self._build_plan(command.campaign_id, target)
-            if plan is not None:
-                plans.append(plan)
-            else:
-                outcomes.append(PushStreamOutcome(target.stream_ref, reason=reason))
-
-        operations: list[PublicationOperationView] = []
-        if plans:
-            try:
-                operations.extend(
-                    await asyncio.to_thread(
-                        self._publications.create_pending, tuple(plans)
-                    )
-                )
-            except (PublicationConflictError, PublicationGateError):
-                outcomes.extend(
-                    PushStreamOutcome(
-                        target.stream_ref, reason="CONCURRENT_PUBLICATION"
-                    )
-                    for target in planning
-                    if target.stream_ref in {plan.stream_ref for plan in plans}
-                )
-        for operation in resumable:
-            reason = await self._validate_resume(operation)
-            if reason is None:
-                operations.append(operation)
-            else:
-                outcomes.append(PushStreamOutcome(operation.stream_ref, reason=reason))
+        operations = await self._prepare_operations(
+            command.campaign_id, planning, resumable, outcomes
+        )
         if not operations:
             return PushResult(command.campaign_id, tuple(outcomes))
-
         worker_token = str(uuid.uuid4())
         for operation in operations:
             outcomes.append(await self._push_one(operation, worker_token))
         return PushResult(command.campaign_id, tuple(outcomes))
+
+    async def _classify_targets(
+        self, campaign_id: int, targets: list[DirtyDraftView]
+    ) -> tuple[
+        list[DirtyDraftView],
+        list[PublicationOperationView],
+        list[PushStreamOutcome],
+    ]:
+        """Split dirty drafts into new, resumable and blocked streams."""
+        planning: list[DirtyDraftView] = []
+        resumable: list[PublicationOperationView] = []
+        blocked: list[PushStreamOutcome] = []
+        for target in targets:
+            operation = await asyncio.to_thread(
+                self._publications.get_unresolved, campaign_id, target.stream_ref
+            )
+            if operation is None:
+                planning.append(target)
+            elif self._is_resumable(operation, target):
+                resumable.append(operation)
+            else:
+                blocked.append(
+                    PushStreamOutcome(
+                        target.stream_ref, reason="UNRESOLVED_PUBLICATION"
+                    )
+                )
+        return planning, resumable, blocked
+
+    @staticmethod
+    def _is_resumable(
+        operation: PublicationOperationView, target: DirtyDraftView
+    ) -> bool:
+        """Return whether a pending operation still matches its captured draft."""
+        return (
+            operation.status is PublicationStatus.PENDING
+            and operation.draft_version == target.version
+            and dict(operation.intent) == dict(target.intent)
+        )
+
+    @staticmethod
+    def _active_refs(
+        planning: list[DirtyDraftView], resumable: list[PublicationOperationView]
+    ) -> tuple[int, ...]:
+        """Return the stream refs that could still be published."""
+        return tuple(target.stream_ref for target in planning) + tuple(
+            operation.stream_ref for operation in resumable
+        )
+
+    async def _prepare_operations(
+        self,
+        campaign_id: int,
+        planning: list[DirtyDraftView],
+        resumable: list[PublicationOperationView],
+        outcomes: list[PushStreamOutcome],
+    ) -> list[PublicationOperationView]:
+        """Create new operations and revalidate resumable ones."""
+        operations = await self._create_new_operations(campaign_id, planning, outcomes)
+        operations.extend(await self._resume_operations(resumable, outcomes))
+        return operations
+
+    async def _create_new_operations(
+        self,
+        campaign_id: int,
+        planning: list[DirtyDraftView],
+        outcomes: list[PushStreamOutcome],
+    ) -> list[PublicationOperationView]:
+        """Build and atomically persist new publication operations."""
+        plans: list[PublicationPlan] = []
+        for target in planning:
+            plan, reason = await self._build_plan(campaign_id, target)
+            if plan is None:
+                outcomes.append(PushStreamOutcome(target.stream_ref, reason=reason))
+            else:
+                plans.append(plan)
+        if not plans:
+            return []
+        try:
+            return list(
+                await asyncio.to_thread(self._publications.create_pending, tuple(plans))
+            )
+        except (PublicationConflictError, PublicationGateError):
+            planned = {plan.stream_ref for plan in plans}
+            outcomes.extend(
+                PushStreamOutcome(target.stream_ref, reason="CONCURRENT_PUBLICATION")
+                for target in planning
+                if target.stream_ref in planned
+            )
+            return []
+
+    async def _resume_operations(
+        self,
+        resumable: list[PublicationOperationView],
+        outcomes: list[PushStreamOutcome],
+    ) -> list[PublicationOperationView]:
+        """Revalidate captured pre-images before reusing pending operations."""
+        ready: list[PublicationOperationView] = []
+        for operation in resumable:
+            reason = await self._validate_resume(operation)
+            if reason is None:
+                ready.append(operation)
+            else:
+                outcomes.append(PushStreamOutcome(operation.stream_ref, reason=reason))
+        return ready
 
     async def _validate_resume(self, operation: PublicationOperationView) -> str | None:
         """Revalidate a captured pending operation before reusing it."""
@@ -191,20 +254,34 @@ class PublicationService:
         remaining = len(operations)
         result = RecoveryResult(remaining=remaining)
         for operation in operations:
-            if time.monotonic() >= deadline:
-                return replace(result, deadline_reached=True)
             if operation.status is PublicationStatus.PENDING:
                 continue
-            confirmed, degraded = await self._reconcile_operation(operation)
+            attempt = await self._reconcile_operation(operation, deadline)
+            if not attempt.attempted:
+                return self._deadline_result(result)
             remaining -= 1
             result = RecoveryResult(
                 processed=result.processed + 1,
-                confirmed=result.confirmed + int(confirmed),
-                unresolved=result.unresolved + int(not confirmed),
-                degraded=result.degraded + int(degraded),
+                confirmed=result.confirmed + int(attempt.confirmed),
+                unresolved=result.unresolved + int(not attempt.confirmed),
+                degraded=result.degraded + int(attempt.degraded),
                 remaining=remaining,
             )
+            if attempt.expired:
+                return self._deadline_result(result)
         return result
+
+    @staticmethod
+    def _deadline_result(result: RecoveryResult) -> RecoveryResult:
+        """Return the same counts with the bounded deadline flag set."""
+        return RecoveryResult(
+            processed=result.processed,
+            confirmed=result.confirmed,
+            unresolved=result.unresolved,
+            degraded=result.degraded,
+            remaining=result.remaining,
+            deadline_reached=True,
+        )
 
     async def cancel(self, command: CancelPublicationCommand) -> CancelResult:
         """Cancel publication state without ever rolling back a remote success."""
@@ -226,23 +303,18 @@ class PublicationService:
             return CancelResult(command.stream_ref, status, "ABSENCE_EVIDENCE_REQUIRED")
         if status not in (PublicationStatus.PENDING, PublicationStatus.FAILED):
             return CancelResult(command.stream_ref, status, "NOT_CANCELLABLE")
-        abandoned = await asyncio.to_thread(
-            self._publications.abandon, operation.id, "operator cancel"
-        )
-        if abandoned is None:
-            return CancelResult(command.stream_ref, status, "CONCURRENT_PUBLICATION")
-        discarded = False
-        view = await asyncio.to_thread(self._drafts.get_view, command.stream_ref)
-        if view is not None:
-            intent = DraftCommand(DraftCommandKind.CANCEL)
-            await asyncio.to_thread(
-                self._drafts.apply,
-                CancelDraftCommand(
-                    command.campaign_id, command.stream_ref, view.version
-                ),
-                intent,
+        try:
+            result = await asyncio.to_thread(
+                self._publications.cancel,
+                command.campaign_id,
+                command.stream_ref,
+                "operator cancel",
             )
-            discarded = view.is_dirty
+        except PublicationConflictError:
+            return CancelResult(command.stream_ref, status, "DRAFT_CHANGED")
+        if result is None:
+            return CancelResult(command.stream_ref, status, "CONCURRENT_PUBLICATION")
+        _, discarded = result
         return CancelResult(
             command.stream_ref,
             PublicationStatus.ABANDONED,
@@ -441,12 +513,20 @@ class PublicationService:
             operation.stream_ref, PublicationStatus.AMBIGUOUS, operation.id, error
         )
 
-    async def _reconcile_operation(self, operation) -> tuple[bool, bool]:
-        """Reconcile one operation with reads only; never repeat a PUT."""
+    async def _reconcile_operation(
+        self, operation, deadline: float
+    ) -> _RecoveryAttempt:
+        """Reconcile one operation with reads bounded by the remaining budget."""
         degraded = False
         for _ in range(self._reconcile_attempts):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return _RecoveryAttempt(False, degraded, True, False)
             try:
-                document = await self._client.get_stream_document(operation.stream_ref)
+                async with asyncio.timeout(remaining):
+                    document = await self._client.get_stream_document(
+                        operation.stream_ref
+                    )
                 observed = self._document_offers(document, operation.stream_ref)
                 entries = tuple(
                     OfferEntry(
@@ -467,13 +547,15 @@ class PublicationService:
                         observed,
                     )
                     if verified is not None:
-                        return True, False
+                        return _RecoveryAttempt(True, False, False, True)
                     await asyncio.to_thread(
                         self._publications.mark_ambiguous,
                         operation.id,
                         "draft changed before confirmation",
                     )
-                    return False, False
+                    return _RecoveryAttempt(False, False, False, True)
+            except TimeoutError:
+                return _RecoveryAttempt(False, True, True, True)
             except Exception as exc:
                 degraded = True
                 error = f"reconciliation read failed: {exc}"
@@ -483,4 +565,4 @@ class PublicationService:
                 await asyncio.to_thread(
                     self._publications.mark_ambiguous, operation.id, error
                 )
-        return False, degraded
+        return _RecoveryAttempt(False, degraded, False, True)
