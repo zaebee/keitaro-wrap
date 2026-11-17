@@ -427,8 +427,6 @@ def _handle_set_pin(
 
 def _handle_set_share(
     state: _IntentState,
-    intent: DraftIntent,
-    current: DraftViewData,
     target: StagedOffer | None,
     command: DraftCommand,
     offer_id: int,
@@ -480,8 +478,6 @@ def _dispatch_command(
     if command.kind is DraftCommandKind.SET_SHARE:
         return _handle_set_share(
             state,
-            context.intent,
-            current,
             target,
             command,
             offer_id,
