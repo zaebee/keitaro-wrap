@@ -74,23 +74,23 @@ Notes: Campaign creation does not depend on allocation. Fetch/reconciliation dep
 - Completion: recovery without blind retries.
 
 ## Decision gates (open unless resolved)
-| Question | Classification | Blocks / seam |
+| Question | Status | Implementation impact |
 |---|---|---|
-| pinned_sum > 100% | confirmed invalid | S2/S6 |
-| active total == 100%? | open | S6 (seam) |
-| empty offers array | open | S3/S6 (defer) |
-| manual share implies pinning? | open | S5 (seam) |
-| pin preservation on reappear | open | S4 (seam) |
-| duplicate bindings | open | S4/S5 (seam) |
-| zero/one active offers | open | S2/S6 (seam) |
-| all-pinned remainder | open | S2/S6 (seam) |
-| manual pinned-share changes | open | S5 (seam) |
-| duplicate archived offers | open | S4/S5 (seam) |
-| remote share changes during draft | open | S4/S5 (seam) |
-| Cancel after partial Push | open | S6 (seam) |
-| multiple offer-bearing streams | open | S4/S5/S6 (seam) |
-| flow type/priority | open | S3 (seam) |
-| Google destination fixed/configurable | open | S3 (seam) |
+| pinned_sum > 100% | confirmed invalid | Safely deferred (validation already specified) |
+| active total == 100%? | open | Provisional seam (S6) |
+| empty offers array | open | Safely deferred (S3/S6) |
+| manual share implies pinning? | open | Provisional seam (S5) |
+| pin preservation on reappear | open | Provisional seam (S4) |
+| duplicate bindings | open | Provisional seam (S4/S5) |
+| zero/one active offers | open | Provisional seam (S2/S6) |
+| all-pinned remainder | open | Provisional seam (S2/S6) |
+| manual pinned-share changes | open | Provisional seam (S5) |
+| duplicate archived offers | open | Provisional seam (S4/S5) |
+| remote share changes during draft | open | Provisional seam (S4/S5) |
+| Cancel after partial Push | open | Provisional seam (S6) |
+| multiple offer-bearing streams | open | Provisional seam (S4/S5/S6) |
+| flow type/priority | open | Blocking (S3) |
+| Google destination fixed/configurable | open | Blocking (S3) |
 
 ## Retry safety
 - Automatic retries may be used for safe read-only requests.
