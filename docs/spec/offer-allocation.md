@@ -8,9 +8,9 @@ Given active offers with pinned shares:
 - if unpinned_count == 0: each unpinned gets 0 (if remaining > 0, unresolved whether block)
 - base = floor(remaining / unpinned_count)
 - remainder = remaining - base * unpinned_count
-- distribute remainder +1 to first `remainder` unpinned offers in stable order (by offer_id ascending, or binding creation order — specify).
+- distribute remainder +1 to first `remainder` unpinned offers in stable order (by offer_id ascending).
 
-Tie-break: offer_id ascending (deterministic).
+Tie-break: offer_id ascending only (single deterministic rule).
 
 ## Worked example
 Pinned offer A = 25%. Remaining 75% across 3 unpinned (B,C,D): base 25, remainder 0 → 25/25/25. Total 100.

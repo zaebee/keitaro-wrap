@@ -1,5 +1,10 @@
 # Test plan
 
+## Confirmed constraints (tests)
+- pinned_sum > 100% invalid blocks Push.
+- Draft/archive state survives restart.
+- Per-stream Push outcomes, partial success, failed/ambiguous retention, reconciliation.
+
 ## Committed vs staged tests
 - Staged changes do not overwrite committed binding state until Push commits.
 - Cancel restores committed state and discards staged changes.

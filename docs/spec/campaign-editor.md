@@ -7,6 +7,11 @@
 ## Status
 Core workflow supported by demo video (2026-11-17). Edge cases listed under "Unresolved" remain provisional.
 
+## Confirmed constraints
+- pinned_sum > 100% is invalid and blocks Push (UI validation).
+- Drafts and wrapper-owned archive state survive restart (durable).
+- Per-stream Push outcomes, partial success, failed/ambiguous draft retention, and reconciliation are specified (see persistence.md).
+
 ## Confirmed by demo video
 
 ### Flow discovery and scope
