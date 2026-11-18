@@ -52,6 +52,7 @@
 }
 
 .pending {
+  display: block;
   border-left: 3px solid var(--color-info);
   color: var(--color-text);
   padding-left: var(--space-3);

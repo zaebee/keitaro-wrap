@@ -94,9 +94,9 @@ function Workspace({ campaignId }: Readonly<{ campaignId: number }>) {
       </div>
 
       {fetchMutation.isPending && (
-        <p className={styles.pending} role="status">
+        <output className={styles.pending}>
           Fetch is running. Duplicate submissions are disabled.
-        </p>
+        </output>
       )}
 
       {streamsQuery.isError && (
@@ -126,7 +126,7 @@ function Workspace({ campaignId }: Readonly<{ campaignId: number }>) {
       <section aria-labelledby="streams-heading" className={styles.streams}>
         <h2 id="streams-heading">Cached stream references</h2>
         {streamsQuery.isPending && (
-          <p role="status">Loading cached stream references…</p>
+          <output>Loading cached stream references…</output>
         )}
         {finishedWithZeroStreams && (
           <p className={styles.empty}>

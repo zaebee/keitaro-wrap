@@ -61,7 +61,7 @@ describe("CampaignWorkspacePage", () => {
     expect(screen.getByText("Second stream")).toBeInTheDocument();
     expect(screen.getByText("retargeting")).toBeInTheDocument();
     expect(screen.getByText("offers")).toBeInTheDocument();
-    expect(screen.queryByText("Comments")).toBeInTheDocument();
+    expect(screen.getByText("Comments")).toBeInTheDocument();
     expect(screen.queryByText("Fetch summary")).toBeNull();
     expect(postCount).toBe(0);
   });
