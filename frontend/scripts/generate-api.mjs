@@ -53,6 +53,10 @@ const WRAPPER_SCHEMAS = [
   "PinDraftRequest",
   "SetShareDraftRequest",
   "CancelDraftRequest",
+  "PublicationStatus",
+  "OfferEntryResponse",
+  "PublicPublicationResponse",
+  "PublicationStateResponse",
   "HTTPValidationError",
   "ValidationError",
 ];

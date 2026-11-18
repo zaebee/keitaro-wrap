@@ -147,6 +147,29 @@ export interface CancelDraftRequest {
   expected_version: number;
 }
 
+export type PublicationStatus = "pending" | "in_progress" | "succeeded" | "failed" | "ambiguous" | "abandoned";
+
+export interface OfferEntryResponse {
+  offer_id: number;
+  share: number;
+  state?: (string | null);
+}
+
+export interface PublicPublicationResponse {
+  operation_uuid: string;
+  campaign_id: number;
+  stream_ref: number;
+  status: PublicationStatus;
+  draft_version: number;
+  effective_entries: OfferEntryResponse[];
+  attempt_count: number;
+}
+
+export interface PublicationStateResponse {
+  stream_ref: number;
+  operation: (PublicPublicationResponse | null);
+}
+
 export interface HTTPValidationError {
   detail?: ValidationError[];
 }

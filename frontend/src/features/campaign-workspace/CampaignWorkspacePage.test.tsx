@@ -8,6 +8,7 @@ import {
   draftStateFixture,
   errorResponse,
   fetchOutcomeFixture,
+  publicationStateFixture,
   streamFixture,
 } from "../../test/fixtures";
 import { renderApp } from "../../test/renderApp";
@@ -76,6 +77,9 @@ describe("CampaignWorkspacePage", () => {
       ),
       http.get("*/api/campaigns/42/streams/101/draft", () =>
         HttpResponse.json(draftStateFixture()),
+      ),
+      http.get("*/api/campaigns/42/streams/101/publication", () =>
+        HttpResponse.json(publicationStateFixture()),
       ),
     );
     const user = userEvent.setup();

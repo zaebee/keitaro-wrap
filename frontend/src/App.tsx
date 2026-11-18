@@ -7,6 +7,7 @@ import { OperationPage } from "./features/campaign-creation/OperationPage";
 import { CampaignWorkspacePage } from "./features/campaign-workspace/CampaignWorkspacePage";
 import { OpenCampaignPage } from "./features/campaign-workspace/OpenCampaignPage";
 import { OfferEditorPage } from "./features/offer-editor/OfferEditorPage";
+import { RecoveryQueuePage } from "./features/publication/RecoveryQueuePage";
 import { queryKeys } from "./queries/queryClient";
 import styles from "./App.module.css";
 
@@ -40,6 +41,7 @@ export function App() {
         </Link>
         <nav aria-label="Primary">
           <Link to="/campaigns/open">Open campaign</Link>
+          <Link to="/recovery">Recovery queue</Link>
           <Link to="/campaigns/new">Create campaign</Link>
         </nav>
         <HealthIndicator />
@@ -61,6 +63,7 @@ export function App() {
             path="/campaign-creations/:operationUuid"
             element={<OperationRoute />}
           />
+          <Route path="/recovery" element={<RecoveryQueuePage />} />
           <Route
             path="*"
             element={

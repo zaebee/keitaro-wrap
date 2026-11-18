@@ -66,6 +66,9 @@ async function mockReads(page: Page) {
   await page.route("**/api/campaigns/42/streams/101/draft", (route) =>
     route.fulfill({ json: { stream_ref: 101, draft: draftView } }),
   );
+  await page.route("**/api/campaigns/42/streams/101/publication", (route) =>
+    route.fulfill({ json: { stream_ref: 101, operation: null } }),
+  );
 }
 
 test("editor loads both server views and has no serious accessibility findings", async ({

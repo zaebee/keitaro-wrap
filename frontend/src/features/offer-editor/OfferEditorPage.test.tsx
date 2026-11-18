@@ -10,6 +10,8 @@ import {
   draftStateFixture,
   draftViewFixture,
   errorResponse,
+  publicationOperationFixture,
+  publicationStateFixture,
   REMOTE_OFFERS,
 } from "../../test/fixtures";
 import { renderApp } from "../../test/renderApp";
@@ -27,6 +29,9 @@ function serveReads(
   server.use(
     http.get(COMMITTED_PATH, () => HttpResponse.json(committed)),
     http.get(DRAFT_PATH, () => HttpResponse.json(draft)),
+    http.get("*/api/campaigns/42/streams/101/publication", () =>
+      HttpResponse.json(publicationStateFixture()),
+    ),
   );
 }
 
@@ -946,5 +951,163 @@ describe("OfferEditorPage", () => {
     expect(
       (await screen.findByRole("region", { name: "Offer Editor" })).className,
     ).toContain("narrow");
+  });
+
+  it("shows the latest publication status from its own GET and sends no publication POSTs", async () => {
+    let publicationGets = 0;
+    let postCount = 0;
+    serveReads();
+    server.use(
+      http.get("*/api/campaigns/42/streams/101/publication", () => {
+        publicationGets += 1;
+        return HttpResponse.json(
+          publicationStateFixture(
+            publicationOperationFixture({
+              status: "ambiguous",
+              draft_version: 4,
+              attempt_count: 2,
+            }),
+          ),
+        );
+      }),
+      http.post("*/api/campaigns/42/push", () => {
+        postCount += 1;
+        return HttpResponse.json({});
+      }),
+      http.post("*/api/campaigns/42/streams/101/publication/cancel", () => {
+        postCount += 1;
+        return HttpResponse.json({});
+      }),
+      http.post("*/api/publications/recover", () => {
+        postCount += 1;
+        return HttpResponse.json({});
+      }),
+    );
+
+    renderApp(EDITOR_PATH);
+
+    expect(
+      await screen.findByRole("heading", { name: "Latest publication status" }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Ambiguous")).toBeInTheDocument();
+    expect(screen.getByText("operation-1")).toBeInTheDocument();
+    expect(screen.getByText("4")).toBeInTheDocument();
+    expect(screen.getByText("2")).toBeInTheDocument();
+    expect(screen.getByText("Offer #7 · share 60 · state active")).toBeInTheDocument();
+    expect(screen.getByText(/point-in-time view, not publication history/)).toBeInTheDocument();
+    expect(publicationGets).toBe(1);
+    expect(postCount).toBe(0);
+  });
+
+  it("renders no publication recorded without inventing a status", async () => {
+    serveReads();
+    server.use(
+      http.get("*/api/campaigns/42/streams/101/publication", () =>
+        HttpResponse.json(publicationStateFixture(null)),
+      ),
+    );
+
+    renderApp(EDITOR_PATH);
+
+    expect(
+      await screen.findByText("No publication recorded for this stream."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Succeeded")).toBeNull();
+  });
+
+  it("retries a publication status API error with GET only", async () => {
+    let publicationGets = 0;
+    let postCount = 0;
+    serveReads();
+    server.use(
+      http.get("*/api/campaigns/42/streams/101/publication", () => {
+        publicationGets += 1;
+        if (publicationGets === 1) {
+          return errorResponse("PUBLICATION_UNRESOLVED", 409, {});
+        }
+        return HttpResponse.json(publicationStateFixture());
+      }),
+      http.post("*/api/campaigns/42/push", () => {
+        postCount += 1;
+        return HttpResponse.json({});
+      }),
+    );
+    const user = userEvent.setup();
+    renderApp(EDITOR_PATH);
+
+    expect(
+      await screen.findByText("Latest publication status unavailable"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("API error code: PUBLICATION_UNRESOLVED")).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Retry publication status read" }),
+    );
+
+    expect(await screen.findByText("Succeeded")).toBeInTheDocument();
+    expect(publicationGets).toBe(2);
+    expect(postCount).toBe(0);
+  });
+
+  it.each([
+    {
+      name: "top-level stream_ref",
+      response: { stream_ref: 999, operation: publicationOperationFixture() },
+    },
+    {
+      name: "operation stream_ref",
+      response: publicationStateFixture(
+        publicationOperationFixture({ stream_ref: 999 }),
+      ),
+    },
+  ])("rejects a publication response with mismatched $name", async ({ response }) => {
+    serveReads();
+    server.use(
+      http.get("*/api/campaigns/42/streams/101/publication", () =>
+        HttpResponse.json(response),
+      ),
+    );
+
+    renderApp(EDITOR_PATH);
+
+    expect(
+      await screen.findByText("Latest publication status unavailable"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "The publication status response does not match the requested stream.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Retry publication status read" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("operation-1")).toBeNull();
+  });
+
+  it("retries a publication status network failure with GET only", async () => {
+    let publicationGets = 0;
+    serveReads();
+    server.use(
+      http.get("*/api/campaigns/42/streams/101/publication", () => {
+        publicationGets += 1;
+        if (publicationGets === 1) {
+          return HttpResponse.error();
+        }
+        return HttpResponse.json(publicationStateFixture());
+      }),
+    );
+    const user = userEvent.setup();
+    renderApp(EDITOR_PATH);
+
+    expect(
+      await screen.findByText(
+        "The API could not be reached. Check the local backend and try again.",
+      ),
+    ).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Retry publication status read" }),
+    );
+
+    expect(await screen.findByText("Succeeded")).toBeInTheDocument();
+    expect(publicationGets).toBe(2);
   });
 });
