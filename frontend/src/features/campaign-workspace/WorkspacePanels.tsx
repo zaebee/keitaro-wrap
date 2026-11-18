@@ -1,3 +1,5 @@
+import { Link } from "react-router-dom";
+
 import type { FetchOutcomeResponse, StreamRefResponse } from "../../api/operations";
 import styles from "./CampaignWorkspacePage.module.css";
 
@@ -37,15 +39,24 @@ export function FetchSummary({
 }
 
 export function StreamList({
+  campaignId,
   streams,
-}: Readonly<{ streams: StreamRefResponse[] }>) {
+}: Readonly<{ campaignId: number; streams: StreamRefResponse[] }>) {
   return (
     <ul aria-label="Cached stream references" className={styles.streamList}>
       {streams.map((stream) => {
         const comments = stream.comments?.trim();
         return (
           <li className={styles.streamItem} key={stream.stream_ref}>
-            <h3>Stream {stream.stream_ref}</h3>
+            <div className={styles.streamHeader}>
+              <h3>Stream {stream.stream_ref}</h3>
+              <Link
+                to={`/campaigns/${campaignId}/streams/${stream.stream_ref}`}
+                aria-label={`Open editor for stream ${stream.stream_ref}`}
+              >
+                Open editor
+              </Link>
+            </div>
             <dl className={styles.streamFields}>
               <dt>Name</dt>
               <dd>{stream.name}</dd>

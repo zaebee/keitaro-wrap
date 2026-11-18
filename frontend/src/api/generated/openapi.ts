@@ -43,6 +43,110 @@ export interface FetchOutcomeResponse {
   conflicted_drafts: number;
 }
 
+export interface CommittedStateResponse {
+  stream_ref: number;
+  bindings: StreamBindingResponse[];
+  snapshot: (RemoteSnapshotResponse | null);
+}
+
+export interface StreamBindingResponse {
+  offer_id: number;
+  lifecycle: string;
+  is_pinned: boolean;
+  last_remote_share: (number | null);
+}
+
+export interface RemoteSnapshotResponse {
+  offers: RemoteOfferResponse[];
+  captured_at: string;
+}
+
+export interface RemoteOfferResponse {
+  offer_id: number;
+  share: number;
+  state?: (string | null);
+  position: number;
+}
+
+export interface DraftStateResponse {
+  stream_ref: number;
+  draft: (DraftViewResponse | null);
+}
+
+export interface DraftViewResponse {
+  stream_ref: number;
+  offers: StagedOfferResponse[];
+  baseline_offers: RemoteOfferResponse[];
+  staged_changes: Record<string, unknown>;
+  version: number;
+  is_dirty: boolean;
+  is_stale: boolean;
+  conflicts: ConflictDetailResponse[];
+  policy_cases: PolicyCase[];
+  unallocated: number;
+}
+
+export interface StagedOfferResponse {
+  offer_id: number;
+  lifecycle: string;
+  is_pinned: boolean;
+  share: number;
+  state: (string | null);
+  position: number;
+}
+
+export interface ConflictDetailResponse {
+  stream_ref: number;
+  offer_id: number;
+  field: string;
+  expected: (number | null);
+  observed: (number | null);
+  reason: string;
+}
+
+export interface DraftCommandResultResponse {
+  view: DraftViewResponse;
+  created: boolean;
+  noop: boolean;
+}
+
+export type PolicyCase = "no_active_offers" | "single_active_offer" | "unallocated_remainder";
+
+export interface OfferDraftRequest {
+  expected_version: number;
+  offer_id: number;
+}
+
+export interface AddDraftRequest {
+  expected_version: number;
+  offer_id: number;
+}
+
+export interface RemoveDraftRequest {
+  expected_version: number;
+  offer_id: number;
+}
+
+export interface RestoreDraftRequest {
+  expected_version: number;
+  offer_id: number;
+}
+
+export interface PinDraftRequest {
+  expected_version: number;
+  offer_id: number;
+}
+
+export interface SetShareDraftRequest {
+  expected_version: number;
+  offer_id: number;
+  share: number;
+}
+
+export interface CancelDraftRequest {
+  expected_version: number;
+}
+
 export interface HTTPValidationError {
   detail?: ValidationError[];
 }

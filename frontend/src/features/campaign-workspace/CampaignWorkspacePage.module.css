@@ -135,9 +135,22 @@
   padding: var(--space-4);
 }
 
+.streamHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
 .streamItem h3 {
   font-size: 16px;
-  margin: 0 0 var(--space-2);
+  margin: 0;
+}
+
+.streamHeader a {
+  color: var(--color-primary);
+  white-space: nowrap;
 }
 
 .streamFields {

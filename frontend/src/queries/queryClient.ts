@@ -6,6 +6,10 @@ export const queryKeys = {
     ["campaign-creation-operation", operationUuid] as const,
   campaignStreams: (campaignId: number) =>
     ["campaign-streams", campaignId] as const,
+  committed: (campaignId: number, streamRef: number) =>
+    ["committed", campaignId, streamRef] as const,
+  draft: (campaignId: number, streamRef: number) =>
+    ["draft", campaignId, streamRef] as const,
 };
 
 export function createQueryClient(): QueryClient {

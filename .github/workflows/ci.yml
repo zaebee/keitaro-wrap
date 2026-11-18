@@ -73,3 +73,6 @@ jobs:
 
       - name: Run frontend checks
         run: bun run check
+
+      - name: Run frontend E2E and axe checks
+        run: bun run test:e2e
