@@ -1,5 +1,6 @@
 import type { PublicationStateResponse } from "../../api/operations";
 import { PublicationOperationCard } from "./PublicationOperationCard";
+import { isValidPublicationState } from "./publicationValidation";
 import styles from "./Publication.module.css";
 
 type ReadFailure = { message: string; code: string | null };
@@ -34,6 +35,7 @@ export function PublicationReadError({
 
 export function PublicationStatusPanel({
   state,
+  expectedCampaignId,
   expectedStreamRef,
   isPending,
   error,
@@ -41,6 +43,7 @@ export function PublicationStatusPanel({
   retryDisabled,
 }: Readonly<{
   state: PublicationStateResponse | null;
+  expectedCampaignId: number;
   expectedStreamRef: number;
   isPending: boolean;
   error: ReadFailure | null;
@@ -66,9 +69,10 @@ export function PublicationStatusPanel({
     return <p className={styles.empty}>Publication status is unavailable.</p>;
   }
   if (
-    state.stream_ref !== expectedStreamRef ||
-    (state.operation !== null &&
-      state.operation.stream_ref !== expectedStreamRef)
+    !isValidPublicationState(state, {
+      campaignId: expectedCampaignId,
+      streamRef: expectedStreamRef,
+    })
   ) {
     return (
       <PublicationReadError

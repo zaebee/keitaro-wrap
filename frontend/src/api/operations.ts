@@ -10,6 +10,7 @@ import type {
   OfferDraftRequest,
   PublicPublicationResponse,
   PublicationStateResponse,
+  RecoveryResultResponse,
   RemoveDraftRequest,
   RestoreDraftRequest,
   SetShareDraftRequest,
@@ -23,6 +24,7 @@ export type {
   PublicationStateResponse,
   PublicationStatus,
   PublicPublicationResponse,
+  RecoveryResultResponse,
   StagedOfferResponse,
 } from "./generated/openapi";
 
@@ -216,6 +218,14 @@ export async function getRecoverablePublications(): Promise<
 > {
   const result = await apiRequest<PublicPublicationResponse[]>(
     `/publications/recoverable?limit=${RECOVERABLE_PUBLICATIONS_LIMIT}`,
+  );
+  return result.data;
+}
+
+export async function runRecoveryPass(): Promise<RecoveryResultResponse> {
+  const result = await apiRequest<RecoveryResultResponse>(
+    "/publications/recover",
+    { method: "POST" },
   );
   return result.data;
 }

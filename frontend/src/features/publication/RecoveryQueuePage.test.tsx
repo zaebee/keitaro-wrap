@@ -77,7 +77,7 @@ describe("RecoveryQueuePage", () => {
       } else {
         expect(await screen.findByText(/Complete for this read/)).toBeInTheDocument();
       }
-      expect(screen.getByText(/read-only screen/)).toBeInTheDocument();
+      expect(screen.getByText(/recovery runs only after explicit confirmation/)).toBeInTheDocument();
       expect(screen.getByText(/separate concept/)).toBeInTheDocument();
       expect(requestedLimit).toBe("100");
       if (count === 0) {

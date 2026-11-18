@@ -170,6 +170,15 @@ export interface PublicationStateResponse {
   operation: (PublicPublicationResponse | null);
 }
 
+export interface RecoveryResultResponse {
+  processed: number;
+  confirmed: number;
+  unresolved: number;
+  degraded: number;
+  remaining: number;
+  deadline_reached: boolean;
+}
+
 export interface HTTPValidationError {
   detail?: ValidationError[];
 }
