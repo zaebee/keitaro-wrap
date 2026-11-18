@@ -396,6 +396,7 @@ function Editor({
         <h2 id="publication-section-heading">Latest publication status</h2>
         <PublicationStatusPanel
           state={publicationQuery.data ?? null}
+          expectedCampaignId={campaignId}
           expectedStreamRef={streamRef}
           isPending={publicationQuery.isPending}
           error={

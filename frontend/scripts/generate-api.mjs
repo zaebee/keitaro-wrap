@@ -57,6 +57,7 @@ const WRAPPER_SCHEMAS = [
   "OfferEntryResponse",
   "PublicPublicationResponse",
   "PublicationStateResponse",
+  "RecoveryResultResponse",
   "HTTPValidationError",
   "ValidationError",
 ];

@@ -98,9 +98,86 @@
   padding: 0 var(--space-3);
 }
 
-.errorPanel button:disabled {
+.errorPanel button:disabled,
+.inlineActions button:disabled,
+.confirm button:disabled,
+.lockBanner button:disabled {
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+.inlineActions button,
+.confirm button,
+.lockBanner button {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+}
+
+.recoveryPanel,
+.lockBanner {
+  display: block;
+  background: var(--color-surface-muted);
+  border-left: 4px solid var(--color-warning);
+  border-radius: var(--radius-control);
+  margin: var(--space-4) 0;
+  padding: var(--space-3);
+}
+
+.lockBanner h2,
+.recoveryPanel h2 {
+  margin-top: 0;
+}
+
+.inlineActions,
+.confirm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-4) 0;
+}
+
+.confirm {
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-3);
+}
+
+.confirm legend {
+  font-weight: 600;
+}
+
+.confirm p {
+  margin: 0 0 var(--space-2);
+  width: 100%;
+}
+
+.fieldError {
+  color: var(--color-danger);
+  font-size: 12px;
+}
+
+.counters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2) var(--space-3);
+  margin: var(--space-3) 0;
+}
+
+.counters dt {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.counters dd {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  margin: 0;
 }
 
 .completeness {

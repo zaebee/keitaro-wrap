@@ -68,8 +68,9 @@ and is not a browser-facing contract.
 - `/campaigns/:campaignId/streams/:streamRef` — offer editor: committed baseline,
   staged draft, local draft commands and latest publication status. Opening this
   route performs GET reads only; Fetch remains an explicit workspace action.
-- `/recovery` — read-only, point-in-time view of the bounded recoverable-publication
-  queue. No recovery, Push or publication Cancel action is available.
+- `/recovery` — point-in-time bounded queue plus an explicit, confirmed recovery
+  pass with local lock and GET-only unlock. Push and publication Cancel are not
+  available.
 
 ## Operation UUID recovery
 
