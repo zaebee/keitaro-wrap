@@ -5,7 +5,7 @@ import pytest
 from app.application.draft import DraftStaleError, DraftVersionConflict
 from app.application.errors import StreamNotFoundError
 from app.application.publication import PublicationGateError
-from app.domain.draft import DraftInputError
+from app.domain.draft import DraftBaselineUnavailable, DraftInputError
 from app.domain.reconciliation import ConflictDetail
 from tests.api_support import DraftServiceFake, build_client, sample_draft_view
 
@@ -98,6 +98,11 @@ async def test_pin_and_unpin_are_explicit_booleans():
             ),
             409,
             "DRAFT_STALE_CONFLICT",
+        ),
+        (
+            DraftBaselineUnavailable("missing baseline"),
+            409,
+            "DRAFT_BASELINE_UNAVAILABLE",
         ),
         (DraftInputError("offer 7 is archived"), 422, "DOMAIN_POLICY_REJECTION"),
         (PublicationGateError("unresolved publication"), 409, "PUBLICATION_UNRESOLVED"),

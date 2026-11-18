@@ -4,7 +4,7 @@ import pytest
 
 from app.application.dto import PublicationOutcomeReason, PushResult, PushStreamOutcome
 from app.application.errors import StreamNotFoundError, UpstreamError
-from app.application.publication import CancelResult
+from app.application.publication import CancelResult, PublicationConflictError
 from app.domain.publication import PublicationStatus
 from tests.api_support import PublicationServiceFake, build_client, sample_publication
 
@@ -148,6 +148,16 @@ async def test_degraded_recovery_is_503_with_counts():
             "PUBLICATION_ABSENCE_EVIDENCE_REQUIRED",
         ),
         (
+            CancelResult(12, PublicationStatus.PENDING, "DRAFT_CHANGED"),
+            409,
+            "PUBLICATION_CONCURRENT_CHANGE",
+        ),
+        (
+            CancelResult(12, PublicationStatus.PENDING, "CONCURRENT_PUBLICATION"),
+            409,
+            "PUBLICATION_CONCURRENT_CHANGE",
+        ),
+        (
             CancelResult(12, PublicationStatus.SUCCEEDED, "NOT_CANCELLABLE"),
             409,
             "PUBLICATION_NOT_CANCELLABLE",
@@ -183,3 +193,15 @@ async def test_publication_read_errors_are_mapped():
     assert missing.json()["error"]["code"] == "STREAM_NOT_FOUND"
     assert upstream.status_code == 502
     assert upstream.json()["error"]["code"] == "KEITARO_UPSTREAM_FAILURE"
+
+
+@pytest.mark.asyncio
+async def test_publication_conflict_handler_is_mapped():
+    """A concurrent publication change keeps the stable 409 code."""
+    fake = PublicationServiceFake(error=PublicationConflictError("draft changed"))
+    async with build_client(publication=fake) as client:
+        response = await client.post("/campaigns/5/push", json={})
+    assert response.status_code == 409
+    body = response.json()["error"]
+    assert body["code"] == "PUBLICATION_CONCURRENT_CHANGE"
+    assert isinstance(body["details"], dict)

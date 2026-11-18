@@ -14,6 +14,7 @@ from app.application.campaign_creation import (
     CampaignConfigurationError,
     CampaignCreationService,
     CampaignInputError,
+    IdempotencyKeyConflict,
     IdempotencyKeyReused,
     OperationNotFoundError,
 )
@@ -186,6 +187,11 @@ async def test_resume_and_get_return_200():
     ("error", "status", "code"),
     [
         (IdempotencyKeyReused(OPERATION_UUID), 409, "IDEMPOTENCY_KEY_REUSED"),
+        (
+            IdempotencyKeyConflict("alias reserved"),
+            409,
+            "IDEMPOTENCY_KEY_CONFLICT",
+        ),
         (CampaignInputError("bad input"), 422, "CAMPAIGN_INPUT_REJECTED"),
         (CampaignConfigurationError("no group"), 409, "CAMPAIGN_CONFIGURATION_INVALID"),
         (UpstreamError(502, "upstream"), 502, "KEITARO_UPSTREAM_FAILURE"),
