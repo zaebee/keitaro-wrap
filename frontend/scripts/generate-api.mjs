@@ -30,10 +30,12 @@ if (!schema.openapi || schema.info?.title !== "Keitaro Wrap") {
   throw new Error("unexpected OpenAPI document; expected the FastAPI wrapper schema");
 }
 
-const S8A_SCHEMAS = [
+const WRAPPER_SCHEMAS = [
   "OperationStatus",
   "CreateCampaignRequest",
   "CampaignCreationResponse",
+  "StreamRefResponse",
+  "FetchOutcomeResponse",
   "HTTPValidationError",
   "ValidationError",
 ];
@@ -97,7 +99,7 @@ function emitSchema(name, node) {
   return [`export interface ${name} {`, ...lines, "}"].join("\n");
 }
 
-const declarations = S8A_SCHEMAS.map((name) => {
+const declarations = WRAPPER_SCHEMAS.map((name) => {
   const node = schema.components?.schemas?.[name];
   if (!node) {
     throw new Error(`runtime OpenAPI is missing component schema ${name}`);
@@ -107,7 +109,7 @@ const declarations = S8A_SCHEMAS.map((name) => {
 
 const source = [
   "/**",
-  " * Generated from the wrapper runtime OpenAPI (`app.openapi()`), scoped to S8-A contracts.",
+  " * Generated from the wrapper runtime OpenAPI (`app.openapi()`), scoped to S8 contracts.",
   " * Run `bun run generate:api` from `frontend/` to regenerate.",
   " * Do not edit manually; docs/openapi.json is the Keitaro Admin API snapshot.",
   " */",

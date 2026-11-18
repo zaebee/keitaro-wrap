@@ -134,6 +134,38 @@ describe("OperationPage", () => {
     expect(postCount).toBe(1);
   });
 
+  it("links a confirmed campaign ID to its workspace", async () => {
+    server.use(
+      http.get(`*/api/campaign-creations/${OPERATION_UUID}`, () =>
+        HttpResponse.json(operationFixture("created")),
+      ),
+    );
+
+    renderApp(`/campaign-creations/${OPERATION_UUID}`);
+
+    const link = await screen.findByRole("link", {
+      name: "Open Campaign Workspace",
+    });
+    expect(link).toHaveAttribute("href", "/campaigns/42");
+  });
+
+  it("does not fabricate a workspace link without a confirmed campaign ID", async () => {
+    server.use(
+      http.get(`*/api/campaign-creations/${OPERATION_UUID}`, () =>
+        HttpResponse.json(operationFixture("partial")),
+      ),
+    );
+
+    renderApp(`/campaign-creations/${OPERATION_UUID}`);
+
+    expect(
+      await screen.findByText("Operation status: partial"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "Open Campaign Workspace" }),
+    ).toBeNull();
+  });
+
   it("renders a 200 same-UUID replay distinctly from a new operation", async () => {
     server.use(
       http.get(`*/api/campaign-creations/${OPERATION_UUID}`, () =>

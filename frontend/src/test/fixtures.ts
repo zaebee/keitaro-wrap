@@ -25,6 +25,52 @@ export function operationFixture(
   };
 }
 
+export function streamFixture(
+  overrides: Partial<{
+    stream_ref: number;
+    campaign_id: number;
+    type: string;
+    name: string;
+    schema: string;
+    comments: string | null;
+  }> = {},
+) {
+  return {
+    stream_ref: 101,
+    campaign_id: 42,
+    type: "regular",
+    name: "Main stream",
+    schema: "landings",
+    comments: null,
+    ...overrides,
+  };
+}
+
+export function fetchOutcomeFixture(
+  overrides: Partial<{
+    campaign_id: number;
+    stream_count: number;
+    reconciled_stream_count: number;
+    created_bindings: number;
+    archived_bindings: number;
+    reactivated_bindings: number;
+    share_updates: number;
+    conflicted_drafts: number;
+  }> = {},
+) {
+  return {
+    campaign_id: 42,
+    stream_count: 1,
+    reconciled_stream_count: 1,
+    created_bindings: 2,
+    archived_bindings: 0,
+    reactivated_bindings: 1,
+    share_updates: 3,
+    conflicted_drafts: 1,
+    ...overrides,
+  };
+}
+
 export function errorResponse(code: string, status: number, details = {}) {
   return HttpResponse.json(
     { error: { code, message: code, details } },

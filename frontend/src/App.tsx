@@ -4,6 +4,8 @@ import { Link, Navigate, Route, Routes, useParams } from "react-router-dom";
 import { getHealth } from "./api/operations";
 import { CreateCampaignPage } from "./features/campaign-creation/CreateCampaignPage";
 import { OperationPage } from "./features/campaign-creation/OperationPage";
+import { CampaignWorkspacePage } from "./features/campaign-workspace/CampaignWorkspacePage";
+import { OpenCampaignPage } from "./features/campaign-workspace/OpenCampaignPage";
 import { queryKeys } from "./queries/queryClient";
 import styles from "./App.module.css";
 
@@ -36,6 +38,7 @@ export function App() {
           Keitaro Wrap
         </Link>
         <nav aria-label="Primary">
+          <Link to="/campaigns/open">Open campaign</Link>
           <Link to="/campaigns/new">Create campaign</Link>
         </nav>
         <HealthIndicator />
@@ -44,6 +47,11 @@ export function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/campaigns/new" replace />} />
           <Route path="/campaigns/new" element={<CreateCampaignPage />} />
+          <Route path="/campaigns/open" element={<OpenCampaignPage />} />
+          <Route
+            path="/campaigns/:campaignId"
+            element={<CampaignWorkspacePage />}
+          />
           <Route
             path="/campaign-creations/:operationUuid"
             element={<OperationRoute />}
