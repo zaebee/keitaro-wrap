@@ -1,7 +1,11 @@
 import { apiRequest, type CampaignCreationResponse } from "./client";
-import type { CreateCampaignRequest } from "./generated/openapi";
+import type {
+  CreateCampaignRequest,
+  FetchOutcomeResponse,
+  StreamRefResponse,
+} from "./generated/openapi";
 
-export type { CreateCampaignRequest };
+export type { CreateCampaignRequest, FetchOutcomeResponse, StreamRefResponse };
 
 export type CampaignIntent = Omit<CreateCampaignRequest, "operation_uuid">;
 
@@ -44,6 +48,25 @@ export async function resumeCampaignOperation(
 ): Promise<CampaignCreationResponse> {
   const result = await apiRequest<CampaignCreationResponse>(
     `/campaign-creations/${encodeURIComponent(operationUuid)}/resume`,
+    { method: "POST" },
+  );
+  return result.data;
+}
+
+export async function getCampaignStreams(
+  campaignId: number,
+): Promise<StreamRefResponse[]> {
+  const result = await apiRequest<StreamRefResponse[]>(
+    `/campaigns/${encodeURIComponent(String(campaignId))}/streams`,
+  );
+  return result.data;
+}
+
+export async function fetchCampaignStreams(
+  campaignId: number,
+): Promise<FetchOutcomeResponse> {
+  const result = await apiRequest<FetchOutcomeResponse>(
+    `/campaigns/${encodeURIComponent(String(campaignId))}/fetch`,
     { method: "POST" },
   );
   return result.data;

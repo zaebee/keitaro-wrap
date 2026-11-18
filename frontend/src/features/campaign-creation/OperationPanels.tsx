@@ -1,3 +1,5 @@
+import { Link } from "react-router-dom";
+
 import type { CampaignCreationResponse } from "../../api/client";
 import styles from "./OperationPage.module.css";
 
@@ -91,7 +93,19 @@ export function OperationDetails({
       <dt>Alias</dt>
       <dd>{operation.alias}</dd>
       <dt>Campaign ID</dt>
-      <dd>{operation.campaign_id ?? "not available"}</dd>
+      <dd>
+        {operation.campaign_id ?? "not available"}
+        {typeof operation.campaign_id === "number" &&
+          Number.isSafeInteger(operation.campaign_id) &&
+          operation.campaign_id > 0 && (
+            <>
+              {" "}
+              <Link to={`/campaigns/${operation.campaign_id}`}>
+                Open Campaign Workspace
+              </Link>
+            </>
+          )}
+      </dd>
       <dt>Country flow ID</dt>
       <dd>{operation.country_flow_id ?? "not available"}</dd>
       <dt>Offer flow ID</dt>
