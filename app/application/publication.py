@@ -253,7 +253,11 @@ class PublicationService:
         )
         remaining = len(operations)
         result = RecoveryResult(remaining=remaining)
+        if self._expired(deadline):
+            return self._deadline_result(result)
         for operation in operations:
+            if self._expired(deadline):
+                return self._deadline_result(result)
             if operation.status is PublicationStatus.PENDING:
                 continue
             attempt = await self._reconcile_operation(operation, deadline)
@@ -270,6 +274,11 @@ class PublicationService:
             if attempt.expired:
                 return self._deadline_result(result)
         return result
+
+    @staticmethod
+    def _expired(deadline: float) -> bool:
+        """Return whether the bounded recovery pass has used its budget."""
+        return time.monotonic() >= deadline
 
     @staticmethod
     def _deadline_result(result: RecoveryResult) -> RecoveryResult:
@@ -513,56 +522,82 @@ class PublicationService:
             operation.stream_ref, PublicationStatus.AMBIGUOUS, operation.id, error
         )
 
+    async def _read_observation(
+        self, operation, deadline: float
+    ) -> tuple[object, tuple[RemoteOffer, ...]]:
+        """Read one remote observation within the remaining budget."""
+        remaining = deadline - time.monotonic()
+        async with asyncio.timeout(remaining):
+            document = await self._client.get_stream_document(operation.stream_ref)
+        observed = self._document_offers(document, operation.stream_ref)
+        return document, observed
+
+    @staticmethod
+    def _observation_matches(operation, document, observed) -> bool:
+        """Compare a read-back with the immutable publication intent."""
+        entries = tuple(
+            OfferEntry(
+                offer_id=offer.offer_id,
+                share=offer.share,
+                state=offer.state,
+            )
+            for offer in observed
+        )
+        return (
+            document.get("id") == operation.stream_ref
+            and document.get("campaign_id") == operation.campaign_id
+            and entries_match(entries, operation.effective_entries)
+        )
+
+    async def _mark_unresolved_recovery(
+        self, operation, error: str, deadline: float, degraded: bool
+    ) -> _RecoveryAttempt:
+        """Record unresolved evidence only while the budget remains."""
+        if self._expired(deadline):
+            return _RecoveryAttempt(False, degraded, True, True)
+        if operation.status is PublicationStatus.IN_PROGRESS:
+            await asyncio.to_thread(
+                self._publications.mark_ambiguous, operation.id, error
+            )
+        return _RecoveryAttempt(False, degraded, self._expired(deadline), True)
+
+    async def _finalize_recovery(
+        self, operation, observed: tuple[RemoteOffer, ...], deadline: float
+    ) -> _RecoveryAttempt:
+        """Finalize a verified operation without cancelling a local transaction."""
+        if self._expired(deadline):
+            return _RecoveryAttempt(False, True, True, True)
+        verified = await asyncio.to_thread(
+            self._publications.finalize_success, operation.id, observed
+        )
+        if verified is not None:
+            return _RecoveryAttempt(True, False, self._expired(deadline), True)
+        return await self._mark_unresolved_recovery(
+            operation, "draft changed before confirmation", deadline, False
+        )
+
     async def _reconcile_operation(
         self, operation, deadline: float
     ) -> _RecoveryAttempt:
         """Reconcile one operation with reads bounded by the remaining budget."""
         degraded = False
         for _ in range(self._reconcile_attempts):
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
+            if self._expired(deadline):
                 return _RecoveryAttempt(False, degraded, True, False)
             try:
-                async with asyncio.timeout(remaining):
-                    document = await self._client.get_stream_document(
-                        operation.stream_ref
-                    )
-                observed = self._document_offers(document, operation.stream_ref)
-                entries = tuple(
-                    OfferEntry(
-                        offer_id=offer.offer_id,
-                        share=offer.share,
-                        state=offer.state,
-                    )
-                    for offer in observed
-                )
-                if (
-                    document.get("id") == operation.stream_ref
-                    and document.get("campaign_id") == operation.campaign_id
-                    and entries_match(entries, operation.effective_entries)
-                ):
-                    verified = await asyncio.to_thread(
-                        self._publications.finalize_success,
-                        operation.id,
-                        observed,
-                    )
-                    if verified is not None:
-                        return _RecoveryAttempt(True, False, False, True)
-                    await asyncio.to_thread(
-                        self._publications.mark_ambiguous,
-                        operation.id,
-                        "draft changed before confirmation",
-                    )
-                    return _RecoveryAttempt(False, False, False, True)
+                document, observed = await self._read_observation(operation, deadline)
             except TimeoutError:
                 return _RecoveryAttempt(False, True, True, True)
             except Exception as exc:
                 degraded = True
                 error = f"reconciliation read failed: {exc}"
             else:
+                if self._observation_matches(operation, document, observed):
+                    return await self._finalize_recovery(operation, observed, deadline)
                 error = "read-back did not match the published intent"
-            if operation.status is PublicationStatus.IN_PROGRESS:
-                await asyncio.to_thread(
-                    self._publications.mark_ambiguous, operation.id, error
-                )
+            result = await self._mark_unresolved_recovery(
+                operation, error, deadline, degraded
+            )
+            if result.expired:
+                return result
         return _RecoveryAttempt(False, degraded, False, True)

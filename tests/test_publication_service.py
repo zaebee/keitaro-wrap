@@ -202,6 +202,8 @@ class FakePublications:
         self.recoverable: tuple[PublicationOperationView, ...] = ()
         self.discardable: set[int] = set()
         self.cancel_conflict = False
+        self.list_delay = 0.0
+        self.list_completed = False
 
     def _store(self, plan: PublicationPlan, status: PublicationStatus):
         """Create one operation view from a plan."""
@@ -317,7 +319,10 @@ class FakePublications:
         return matches[-1] if matches else None
 
     def list_recoverable(self, limit: int):
-        """Return configured unresolved operations."""
+        """Return configured unresolved operations after a simulated DB wait."""
+        if self.list_delay:
+            time.sleep(self.list_delay)
+        self.list_completed = True
         return self.recoverable[:limit]
 
     def cancel(self, campaign_id: int, stream_ref: int, reason: str):
@@ -537,6 +542,21 @@ async def test_recovery_deadline_cancels_a_hanging_get():
     assert len(client.calls) == 1
     for operation in publications.operations.values():
         assert operation.status is PublicationStatus.IN_PROGRESS
+
+
+@pytest.mark.asyncio
+async def test_slow_recovery_db_call_finishes_before_startup_continues():
+    """DB work is awaited to completion; no remote phase starts after expiry."""
+    service, _, _, client, publications = make_service(recovery_deadline_seconds=0.05)
+    plan = PublicationPlan(5, 12, 1, {}, (), {"offers": []}, (), {}, "m")
+    operation = publications._store(plan, PublicationStatus.IN_PROGRESS)
+    publications.recoverable = (operation,)
+    publications.list_delay = 0.1
+    result = await service.recover()
+    assert publications.list_completed is True
+    assert result.deadline_reached is True
+    assert result.processed == 0
+    assert client.calls == []
 
 
 @pytest.mark.asyncio

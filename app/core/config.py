@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     APP_HOST: str = "0.0.0.0"
     APP_PORT: int = 8000
     DATABASE_URL: str = "sqlite:///./keitaro_app.db"
+    # Finite SQLite busy wait keeps bounded startup recovery from hanging on a lock.
+    KEITARO_DB_BUSY_TIMEOUT: float = 2.0
 
 
 settings = Settings()

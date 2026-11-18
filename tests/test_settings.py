@@ -7,3 +7,4 @@ def test_settings_defaults():
     assert s.DATABASE_URL.startswith("sqlite")
     assert s.KEITARO_REDIRECT_URL == "https://www.google.com"
     assert s.KEITARO_ALLOW_PUBLICATION_WRITES is False
+    assert s.KEITARO_DB_BUSY_TIMEOUT == 2.0
