@@ -141,7 +141,9 @@ function Workspace({ campaignId }: Readonly<{ campaignId: number }>) {
               read this campaign from Keitaro and update the local cache.
             </p>
           )}
-        {streams.length > 0 && <StreamList streams={streams} />}
+        {streams.length > 0 && (
+          <StreamList campaignId={campaignId} streams={streams} />
+        )}
       </section>
 
       <p className={styles.hint}>

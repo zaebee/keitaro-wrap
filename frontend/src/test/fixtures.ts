@@ -71,6 +71,132 @@ export function fetchOutcomeFixture(
   };
 }
 
+export const REMOTE_OFFERS = [
+  { offer_id: 7, share: 60, state: "active", position: 0 },
+  { offer_id: 8, share: 40, state: "active", position: 1 },
+];
+
+export function committedFixture(
+  overrides: Partial<{
+    stream_ref: number;
+    bindings: {
+      offer_id: number;
+      lifecycle: string;
+      is_pinned: boolean;
+      last_remote_share: number | null;
+    }[];
+    snapshot: {
+      offers: typeof REMOTE_OFFERS;
+      captured_at: string;
+    } | null;
+  }> = {},
+) {
+  return {
+    stream_ref: 101,
+    bindings: [
+      {
+        offer_id: 7,
+        lifecycle: "ACTIVE",
+        is_pinned: true,
+        last_remote_share: 60,
+      },
+      {
+        offer_id: 8,
+        lifecycle: "ACTIVE",
+        is_pinned: false,
+        last_remote_share: 40,
+      },
+    ],
+    snapshot: { offers: REMOTE_OFFERS, captured_at: "2026-11-18T04:00:00" },
+    ...overrides,
+  };
+}
+
+export function draftViewFixture(
+  overrides: Partial<{
+    stream_ref: number;
+    offers: {
+      offer_id: number;
+      lifecycle: string;
+      is_pinned: boolean;
+      share: number;
+      state: string | null;
+      position: number;
+    }[];
+    baseline_offers: typeof REMOTE_OFFERS;
+    staged_changes: Record<string, unknown>;
+    version: number;
+    is_dirty: boolean;
+    is_stale: boolean;
+    conflicts: ReturnType<typeof conflictFixture>[];
+    policy_cases: string[];
+    unallocated: number;
+  }> = {},
+) {
+  return {
+    stream_ref: 101,
+    offers: [
+      {
+        offer_id: 7,
+        lifecycle: "ACTIVE",
+        is_pinned: true,
+        share: 60,
+        state: "active",
+        position: 0,
+      },
+      {
+        offer_id: 8,
+        lifecycle: "ACTIVE",
+        is_pinned: false,
+        share: 40,
+        state: "active",
+        position: 1,
+      },
+    ],
+    baseline_offers: REMOTE_OFFERS,
+    staged_changes: {},
+    version: 1,
+    is_dirty: false,
+    is_stale: false,
+    conflicts: [],
+    policy_cases: [],
+    unallocated: 0,
+    ...overrides,
+  };
+}
+
+export function conflictFixture(
+  overrides: Partial<{
+    stream_ref: number;
+    offer_id: number;
+    field: string;
+    expected: number | null;
+    observed: number | null;
+    reason: string;
+  }> = {},
+) {
+  return {
+    stream_ref: 101,
+    offer_id: 7,
+    field: "share",
+    expected: 60,
+    observed: 55,
+    reason: "remote share changed",
+    ...overrides,
+  };
+}
+
+export function draftStateFixture(draft: ReturnType<typeof draftViewFixture> | null = draftViewFixture()) {
+  return { stream_ref: 101, draft };
+}
+
+export function commandResultFixture(
+  view: ReturnType<typeof draftViewFixture>,
+  overrides: Partial<{ created: boolean; noop: boolean }> = {},
+) {
+  return { view, created: false, noop: false, ...overrides };
+}
+
 export function errorResponse(code: string, status: number, details = {}) {
   return HttpResponse.json(
     { error: { code, message: code, details } },

@@ -4,6 +4,8 @@ import { HttpResponse, http } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  committedFixture,
+  draftStateFixture,
   errorResponse,
   fetchOutcomeFixture,
   streamFixture,
@@ -64,6 +66,31 @@ describe("CampaignWorkspacePage", () => {
     expect(screen.getByText("Comments")).toBeInTheDocument();
     expect(screen.queryByText("Fetch summary")).toBeNull();
     expect(postCount).toBe(0);
+  });
+
+  it("opens a cached stream's editor from the workspace", async () => {
+    serveStreams([streamFixture({ stream_ref: 101 })]);
+    server.use(
+      http.get("*/api/campaigns/42/streams/101/committed", () =>
+        HttpResponse.json(committedFixture()),
+      ),
+      http.get("*/api/campaigns/42/streams/101/draft", () =>
+        HttpResponse.json(draftStateFixture()),
+      ),
+    );
+    const user = userEvent.setup();
+    renderApp("/campaigns/42");
+
+    const link = await screen.findByRole("link", {
+      name: "Open editor for stream 101",
+    });
+    expect(link).toHaveAttribute("href", "/campaigns/42/streams/101");
+    await user.click(link);
+
+    expect(window.location.pathname).toBe("/campaigns/42/streams/101");
+    expect(
+      await screen.findByRole("heading", { name: /Offer Editor/ }),
+    ).toBeInTheDocument();
   });
 
   it("shows the empty cached state before Fetch without claiming remote emptiness", async () => {

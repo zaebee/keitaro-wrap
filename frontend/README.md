@@ -1,4 +1,4 @@
-# Keitaro Wrap frontend (S8-A)
+# Keitaro Wrap frontend
 
 Local/trusted-environment SPA for the Slice 7 FastAPI wrapper. It does not implement
 backend business rules, does not call Keitaro directly, and does not include auth or
@@ -46,15 +46,28 @@ bun run lint
 bun run test
 bun run build
 bun run check          # all of the above
+bun run test:e2e       # Playwright + axe smoke against the built app
 ```
 
-CI uses the pinned Bun version via `oven-sh/setup-bun` and installs with `bun ci`.
+`test:e2e` uses locally installed Google Chrome (`channel: "chrome"`) and starts
+`vite preview` on `127.0.0.1:4173`. It mocks the wrapper API with Playwright routes;
+no backend or Keitaro request is made. CI uses the pinned Bun version via
+`oven-sh/setup-bun` and installs with `bun ci`.
 
 ## API contract source
 
 `src/api/generated/openapi.ts` is generated from the **wrapper runtime OpenAPI**
-(`app.openapi()` via `bun run generate:api`). `docs/openapi.json` in the repository root
-is the Keitaro Admin API snapshot and is not a browser-facing contract.
+(`app.openapi()` via `bun run generate:api`) and currently covers the S8-A–S8-C
+schemas. `docs/openapi.json` in the repository root is the Keitaro Admin API snapshot
+and is not a browser-facing contract.
+
+## Routes
+
+- `/campaigns/open` — manual campaign ID entry.
+- `/campaigns/:campaignId` — cached streams and explicit Fetch.
+- `/campaigns/:campaignId/streams/:streamRef` — offer editor: committed baseline,
+  staged draft and local draft commands. Opening this route performs GET reads only;
+  Fetch remains an explicit workspace action.
 
 ## Operation UUID recovery
 

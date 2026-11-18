@@ -1,0 +1,283 @@
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-subtle);
+  padding: var(--space-8);
+}
+
+.narrow {
+  padding: var(--space-4);
+}
+
+.identity {
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  margin-top: 0;
+}
+
+.hint {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.section {
+  border-top: 1px solid var(--color-border);
+  margin-top: var(--space-8);
+  padding-top: var(--space-4);
+}
+
+.section > h2,
+.panel h2 {
+  font-size: 16px;
+}
+
+.panel {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-4);
+}
+
+.committed {
+  background: var(--color-surface);
+  border-left: 4px solid var(--color-info);
+}
+
+.draft {
+  border-left: 4px solid var(--color-warning);
+}
+
+.tag {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 400;
+  padding: 2px var(--space-2);
+  white-space: nowrap;
+}
+
+.empty {
+  background: var(--color-surface);
+  border-radius: var(--radius-control);
+  padding: var(--space-3);
+}
+
+.offerList,
+.reviewList {
+  list-style: none;
+  margin: var(--space-2) 0;
+  padding: 0;
+}
+
+.offerList li,
+.reviewList li {
+  border-bottom: 1px solid var(--color-border);
+  padding: var(--space-2) 0;
+}
+
+.draftMeta {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-2) var(--space-3);
+  margin: var(--space-3) 0;
+}
+
+.draftMeta dt {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.draftMeta dd {
+  font-weight: 600;
+  margin: 0;
+}
+
+.addForm,
+.shareForm {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-4) 0;
+}
+
+.addForm label,
+.shareForm label {
+  font-weight: 600;
+}
+
+.addForm input,
+.shareForm input {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  height: var(--control-height);
+  padding: 0 var(--space-3);
+  width: 120px;
+}
+
+.addForm input[aria-invalid="true"],
+.shareForm input[aria-invalid="true"] {
+  border-color: var(--color-danger);
+}
+
+button {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.secondary {
+  background: var(--color-surface);
+}
+
+.fieldError {
+  color: var(--color-danger);
+  font-size: 12px;
+  margin: 0;
+  width: 100%;
+}
+
+.offerGroups {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.offerCards {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  list-style: none;
+  margin: var(--space-2) 0;
+  padding: 0;
+}
+
+.offerCard {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-3);
+}
+
+.offerCard h4 {
+  margin: 0 0 var(--space-2);
+}
+
+.offerFields {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr);
+  gap: var(--space-1) var(--space-2);
+  margin: 0 0 var(--space-3);
+}
+
+.offerFields dt {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.offerFields dd {
+  font-variant-numeric: tabular-nums;
+  margin: 0;
+}
+
+.inlineActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.cancelArea {
+  border-top: 1px solid var(--color-border);
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+}
+
+.confirm {
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  min-width: 0;
+  padding: var(--space-3);
+}
+
+.confirm legend {
+  font-weight: 600;
+}
+
+.confirm p {
+  margin: 0 0 var(--space-2);
+  width: 100%;
+}
+
+.conflictPanel,
+.errorPanel {
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-control);
+  margin: var(--space-4) 0;
+  padding: var(--space-4);
+}
+
+.conflictPanel h3,
+.errorPanel h2,
+.errorPanel h3 {
+  margin-top: 0;
+}
+
+.pending {
+  border-left: 3px solid var(--color-info);
+  display: block;
+  padding-left: var(--space-3);
+}
+
+.recoveryPanel {
+  background: var(--color-surface-muted);
+}
+
+.fetchRequired {
+  background: var(--color-surface-muted);
+  border-left: 4px solid var(--color-warning);
+  border-radius: var(--radius-control);
+  margin: var(--space-4) 0;
+  padding: var(--space-3);
+}
+
+.fetchRequired h3 {
+  margin-top: 0;
+}
+
+.fetchRequired a {
+  color: var(--color-primary);
+}
+
+@media (max-width: 767px) {
+  .card {
+    padding: var(--space-4);
+  }
+
+  .draftMeta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .offerFields {
+    grid-template-columns: 1fr;
+  }
+
+  .offerFields dd {
+    margin-bottom: var(--space-2);
+  }
+}

@@ -1,11 +1,39 @@
 import { apiRequest, type CampaignCreationResponse } from "./client";
 import type {
+  AddDraftRequest,
+  CancelDraftRequest,
+  CommittedStateResponse,
   CreateCampaignRequest,
+  DraftCommandResultResponse,
+  DraftStateResponse,
   FetchOutcomeResponse,
+  OfferDraftRequest,
+  RemoveDraftRequest,
+  RestoreDraftRequest,
+  SetShareDraftRequest,
   StreamRefResponse,
 } from "./generated/openapi";
 
-export type { CreateCampaignRequest, FetchOutcomeResponse, StreamRefResponse };
+export type {
+  ConflictDetailResponse,
+  DraftViewResponse,
+  StagedOfferResponse,
+} from "./generated/openapi";
+
+export type {
+  AddDraftRequest,
+  CancelDraftRequest,
+  CommittedStateResponse,
+  CreateCampaignRequest,
+  DraftCommandResultResponse,
+  DraftStateResponse,
+  FetchOutcomeResponse,
+  OfferDraftRequest,
+  RemoveDraftRequest,
+  RestoreDraftRequest,
+  SetShareDraftRequest,
+  StreamRefResponse,
+};
 
 export type CampaignIntent = Omit<CreateCampaignRequest, "operation_uuid">;
 
@@ -70,4 +98,97 @@ export async function fetchCampaignStreams(
     { method: "POST" },
   );
   return result.data;
+}
+
+export async function getCommittedState(
+  campaignId: number,
+  streamRef: number,
+): Promise<CommittedStateResponse> {
+  const result = await apiRequest<CommittedStateResponse>(
+    `${streamPath(campaignId, streamRef)}/committed`,
+  );
+  return result.data;
+}
+
+export async function getDraftState(
+  campaignId: number,
+  streamRef: number,
+): Promise<DraftStateResponse> {
+  const result = await apiRequest<DraftStateResponse>(
+    `${streamPath(campaignId, streamRef)}/draft`,
+  );
+  return result.data;
+}
+
+function streamPath(campaignId: number, streamRef: number): string {
+  return `/campaigns/${encodeURIComponent(String(campaignId))}/streams/${encodeURIComponent(String(streamRef))}`;
+}
+
+async function postDraftCommand(
+  campaignId: number,
+  streamRef: number,
+  action: string,
+  body: AddDraftRequest | RemoveDraftRequest | RestoreDraftRequest | OfferDraftRequest | SetShareDraftRequest | CancelDraftRequest,
+): Promise<DraftCommandResultResponse> {
+  const result = await apiRequest<DraftCommandResultResponse>(
+    `${streamPath(campaignId, streamRef)}/draft/${action}`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+  return result.data;
+}
+
+export function addDraftOffer(
+  campaignId: number,
+  streamRef: number,
+  body: AddDraftRequest,
+): Promise<DraftCommandResultResponse> {
+  return postDraftCommand(campaignId, streamRef, "add", body);
+}
+
+export function removeDraftOffer(
+  campaignId: number,
+  streamRef: number,
+  body: RemoveDraftRequest,
+): Promise<DraftCommandResultResponse> {
+  return postDraftCommand(campaignId, streamRef, "remove", body);
+}
+
+export function restoreDraftOffer(
+  campaignId: number,
+  streamRef: number,
+  body: RestoreDraftRequest,
+): Promise<DraftCommandResultResponse> {
+  return postDraftCommand(campaignId, streamRef, "restore", body);
+}
+
+export function pinDraftOffer(
+  campaignId: number,
+  streamRef: number,
+  body: OfferDraftRequest,
+): Promise<DraftCommandResultResponse> {
+  return postDraftCommand(campaignId, streamRef, "pin", body);
+}
+
+export function unpinDraftOffer(
+  campaignId: number,
+  streamRef: number,
+  body: OfferDraftRequest,
+): Promise<DraftCommandResultResponse> {
+  return postDraftCommand(campaignId, streamRef, "unpin", body);
+}
+
+export function setDraftShare(
+  campaignId: number,
+  streamRef: number,
+  body: SetShareDraftRequest,
+): Promise<DraftCommandResultResponse> {
+  return postDraftCommand(campaignId, streamRef, "share", body);
+}
+
+export function cancelLocalDraft(
+  campaignId: number,
+  streamRef: number,
+  body: CancelDraftRequest,
+): Promise<DraftCommandResultResponse> {
+  return postDraftCommand(campaignId, streamRef, "cancel", body);
 }

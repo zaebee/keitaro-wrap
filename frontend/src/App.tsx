@@ -6,6 +6,7 @@ import { CreateCampaignPage } from "./features/campaign-creation/CreateCampaignP
 import { OperationPage } from "./features/campaign-creation/OperationPage";
 import { CampaignWorkspacePage } from "./features/campaign-workspace/CampaignWorkspacePage";
 import { OpenCampaignPage } from "./features/campaign-workspace/OpenCampaignPage";
+import { OfferEditorPage } from "./features/offer-editor/OfferEditorPage";
 import { queryKeys } from "./queries/queryClient";
 import styles from "./App.module.css";
 
@@ -51,6 +52,10 @@ export function App() {
           <Route
             path="/campaigns/:campaignId"
             element={<CampaignWorkspacePage />}
+          />
+          <Route
+            path="/campaigns/:campaignId/streams/:streamRef"
+            element={<OfferEditorPage />}
           />
           <Route
             path="/campaign-creations/:operationUuid"
