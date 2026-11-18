@@ -19,6 +19,11 @@ Core workflow supported by demo video (2026-11-17). Edge cases listed under "Unr
 - Editing commands are blocked while a draft is stale/conflicted; local Cancel is allowed and preserves sticky conflict data unchanged (D22).
 - The staged view is reproducible from immutable offer/binding baselines captured at first edit, not from mutable current bindings.
 
+### Owner decisions resolved for publication (issue #33)
+- D23: Push requires the active share total to be exactly 100. Zero active offers, unallocated remainders and all-pinned totals below 100 are rejected before any operation or PUT; a single active offer at 100 and all-pinned totals at 100 are publishable and still surfaced as policy cases.
+- D24: an empty offers array, including removal of the last active offer, is rejected until live Keitaro behavior is verified.
+- D25: publication Cancel is reconcile-first. Pending operations may be abandoned, in_progress/ambiguous require recovery, succeeded remote publications are never rolled back locally, and failed operations are cancellable only with evidence that the side effect did not occur.
+
 These decisions do not settle flow type/priority or other unresolved items below.
 
 ## Confirmed constraints
@@ -71,9 +76,9 @@ These decisions do not settle flow type/priority or other unresolved items below
 2. Multiple offer-bearing streams: resolved for Fetch by issue #29 (independent, no target selection); later-slice editing/publication policy remains as scoped in implementation-plan.md.
 3. Google destination configurability: campaign creation always uses fixed Google URL from assignment? (wrapper does not parse/edit redirect URLs)
 4. Manual share input constraints: resolved for staging by issue #31 (integer 0..100, auto-pin); Push validation remains a later-slice concern.
-6. Edge cases: staging behaviour resolved by issue #31 (allow and surface); Push eligibility remains open for Slice 6.
+6. Edge cases: staging behaviour resolved by issue #31 (allow and surface); Push eligibility resolved by issue #33 (D23/D24).
 7. Duplicate offers: Fetch rejection is resolved by issue #29; UI selection policy remains open.
-8. Push/Cancel failure semantics: partial success across multiple modified streams and Push fail/timeout are specified. Remaining genuinely unresolved: exact Cancel availability after partial Push, if not specified elsewhere.
+8. Push/Cancel failure semantics: partial success across multiple modified streams, ambiguous outcomes and reconcile-first Cancel are specified (D25). Remaining API uncertainty is whether offers-only PUT preserves non-offer fields; live writes stay fail-closed until verified.
 9. Persistence boundary: RESOLVED — durable (see persistence.md). Remaining: storage mechanism details (SQLite) only.
 
 ## Explicitly not supported (do not assume)

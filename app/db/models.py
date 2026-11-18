@@ -13,6 +13,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -139,6 +140,63 @@ class StreamOfferBindingModel(Base):
     last_remote_share: Mapped[int | None] = mapped_column(Integer, nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     reactivated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=func.now(), onupdate=func.now()
+    )
+
+
+class StreamPublicationModel(Base):
+    """Durable per-stream publication operation (Slice 6)."""
+
+    __tablename__ = "stream_publications"
+    __table_args__ = (
+        UniqueConstraint(
+            "operation_uuid", name="uq_stream_publications_operation_uuid"
+        ),
+        Index("ix_stream_publications_campaign", "campaign_id"),
+        Index("ix_stream_publications_stream", "stream_ref"),
+        Index(
+            "uq_stream_publications_unresolved",
+            "stream_ref_id",
+            unique=True,
+            sqlite_where=text("status IN ('pending', 'in_progress', 'ambiguous')"),
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'in_progress', 'succeeded', 'failed', "
+            "'ambiguous', 'abandoned')",
+            name="ck_publication_status",
+        ),
+        CheckConstraint("attempt_count >= 0", name="ck_publication_attempt_count"),
+        CheckConstraint("draft_version >= 0", name="ck_publication_draft_version"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    operation_uuid: Mapped[str] = mapped_column(String(64), nullable=False)
+    campaign_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    stream_ref: Mapped[int] = mapped_column(Integer, nullable=False)
+    stream_ref_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey(STREAM_REF_FK), nullable=False
+    )
+    campaign_creation_operation_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("campaign_creation_operations.id"),
+        nullable=True,
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    draft_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    request_payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    remote_baseline_before_json: Mapped[str] = mapped_column(Text, nullable=False)
+    remote_baseline_after_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    expected_intent_json: Mapped[str] = mapped_column(Text, nullable=False)
+    effective_offers_json: Mapped[str] = mapped_column(Text, nullable=False)
+    staged_offers_json: Mapped[str] = mapped_column(Text, nullable=False)
+    error: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    evidence_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    worker_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=func.now(), onupdate=func.now()

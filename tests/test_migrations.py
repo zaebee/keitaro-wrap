@@ -11,6 +11,8 @@ S4_TABLES = {
     "stream_drafts",
 }
 
+S6_TABLES = {"stream_publications"}
+
 
 def test_alembic_upgrade_head(tmp_path):
     db_path = tmp_path / "test.db"
@@ -31,6 +33,7 @@ def test_alembic_upgrade_head(tmp_path):
     assert "app_settings" in tables
     assert "campaign_creation_operations" in tables
     assert S4_TABLES.issubset(tables)
+    assert S6_TABLES.issubset(tables)
 
     binding_uniques = {
         item["name"]
@@ -51,6 +54,13 @@ def test_alembic_upgrade_head(tmp_path):
     assert "draft_version_counter" in {
         item["name"] for item in inspector.get_columns("stream_refs")
     }
+    publication_indexes = {
+        item["name"] for item in inspector.get_indexes("stream_publications")
+    }
+    assert "uq_stream_publications_unresolved" in publication_indexes
+    assert "draft_version" in {
+        item["name"] for item in inspector.get_columns("stream_publications")
+    }
 
     # downgrade and upgrade again
     subprocess.run(
@@ -60,6 +70,7 @@ def test_alembic_upgrade_head(tmp_path):
         cwd=cwd,
     )
     assert not S4_TABLES.intersection(inspect(engine).get_table_names())
+    assert not S6_TABLES.intersection(inspect(engine).get_table_names())
     subprocess.run(
         [sys.executable, "-m", "alembic", "upgrade", "head"],
         check=True,
@@ -74,3 +85,4 @@ def test_alembic_upgrade_head(tmp_path):
     assert "draft_version_counter" in {
         item["name"] for item in final_inspector.get_columns("stream_refs")
     }
+    assert S6_TABLES.issubset(final_inspector.get_table_names())

@@ -1,11 +1,13 @@
 """Application ports."""
 
+from collections.abc import Mapping
 from typing import Protocol
 
 from app.application.dto import (
     CampaignCreateDTO,
     CampaignDTO,
     ConfiguredResources,
+    DirtyDraftView,
     DomainDTO,
     DraftCommandBase,
     DraftCommandResult,
@@ -14,6 +16,8 @@ from app.application.dto import (
     FetchSnapshot,
     GroupDTO,
     OfferDTO,
+    PublicationOperationView,
+    PublicationPlan,
     RemoteSnapshotView,
     StreamActionDTO,
     StreamBindingView,
@@ -33,6 +37,7 @@ from app.domain.campaign_creation import (
     OperationStatus,
 )
 from app.domain.draft import DraftCommand
+from app.domain.reconciliation import RemoteOffer
 
 
 class KeitaroClientPort(Protocol):
@@ -82,6 +87,10 @@ class KeitaroClientPort(Protocol):
 
     async def get_stream(self, stream_id: int) -> StreamDTO:
         """Get stream."""
+        ...
+
+    async def get_stream_document(self, stream_id: int) -> Mapping[str, object]:
+        """Read the raw stream document for validation and evidence only."""
         ...
 
     async def update_stream(
@@ -195,6 +204,10 @@ class StreamReconciliationRepository(Protocol):
 class StreamDraftRepository(Protocol):
     """Synchronous store for local staged edits; no external I/O."""
 
+    def list_dirty(self, campaign_id: int) -> tuple[DirtyDraftView, ...]:
+        """List dirty drafts of one campaign for publication planning."""
+        ...
+
     def apply(
         self,
         command: DraftCommandBase,
@@ -205,4 +218,66 @@ class StreamDraftRepository(Protocol):
 
     def get_view(self, stream_ref: int) -> DraftView | None:
         """Load the derived staged view for one stream, if it has a draft."""
+        ...
+
+
+class StreamPublicationRepository(Protocol):
+    """Synchronous durable publication state; callers offload every call."""
+
+    def create_pending(
+        self, plans: tuple[PublicationPlan, ...]
+    ) -> tuple[PublicationOperationView, ...]:
+        """Atomically capture drafts and create one operation per plan."""
+        ...
+
+    def claim(
+        self, operation_id: int, worker_token: str
+    ) -> PublicationOperationView | None:
+        """Atomically claim one pending operation for a mutating PUT."""
+        ...
+
+    def mark_ambiguous(
+        self, operation_id: int, error: str
+    ) -> PublicationOperationView | None:
+        """Move an in-progress operation to ambiguous without authorizing retry."""
+        ...
+
+    def mark_failed(
+        self, operation_id: int, error: str, evidence: Mapping[str, object]
+    ) -> PublicationOperationView | None:
+        """Move an operation to failed only with explicit absence evidence."""
+        ...
+
+    def finalize_success(
+        self,
+        operation_id: int,
+        remote_baseline_after: tuple[RemoteOffer, ...],
+    ) -> PublicationOperationView | None:
+        """Commit bindings/cache/draft and mark a verified operation succeeded."""
+        ...
+
+    def list_recoverable(self, limit: int) -> tuple[PublicationOperationView, ...]:
+        """List bounded unresolved operations for startup reconciliation."""
+        ...
+
+    def get_latest(
+        self, campaign_id: int, stream_ref: int
+    ) -> PublicationOperationView | None:
+        """Load the newest publication record for one stream."""
+        ...
+
+    def has_unresolved(self, campaign_id: int, stream_refs: tuple[int, ...]) -> bool:
+        """Report whether a durable gate blocks any of the given streams."""
+        ...
+
+    def get_unresolved(
+        self, campaign_id: int, stream_ref: int
+    ) -> PublicationOperationView | None:
+        """Load one unresolved operation for safe pending resume."""
+        ...
+
+    def cancel(
+        self, campaign_id: int, stream_ref: int, reason: str
+    ) -> tuple[PublicationOperationView, bool] | None:
+        """Atomically abandon a cancellable operation and discard its draft."""
         ...

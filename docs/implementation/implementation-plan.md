@@ -66,7 +66,7 @@ Notes: Campaign creation does not depend on allocation. Fetch/reconciliation dep
 - Tests: staging without mutation, cancel, restart durability, optimistic concurrency.
 - Completion: drafts durable and isolated.
 
-### Slice 6 — Push/Cancel/recovery
+### Slice 6 — Push/Cancel/recovery (implemented, issue #33)
 - Capability: batch Push per stream, partial success, ambiguous reconciliation, per-stream Cancel, startup recovery.
 - Modules: application publication service.
 - Prerequisites: Slices 4-5.
@@ -77,8 +77,8 @@ Notes: Campaign creation does not depend on allocation. Fetch/reconciliation dep
 | Question | Status | Implementation impact |
 |---|---|---|
 | pinned_sum > 100% | confirmed invalid | Safely deferred (validation already specified) |
-| active total == 100%? | open | Provisional seam (S6) |
-| empty offers array | open | Safely deferred (S3/S6) |
+| active total == 100%? | Resolved by owner (#33): D23 A, strict 100% for Push | S6 rejects every non-100 total before any operation/PUT |
+| empty offers array | Resolved by owner (#33): D24 A, reject until live verification | S6 rejects empty staged offers, including removal of the last active offer |
 | manual share implies pinning? | Resolved by owner (#31): D19 A, share edit auto-pins; explicit Unpin returns to redistribution | S5 stages the pin with the share edit |
 | pin preservation on reappear | Resolved by owner (#29): D9 A, preserve `is_pinned` on reactivation | S4 preserves committed pin |
 | duplicate bindings | Resolved by owner (#29): D8 A, UNIQUE(stream_ref, offer_id) and explicit whole-Fetch failure on duplicate remote offer ids | S4 fails before any local write; no occurrence-based identity |
@@ -88,7 +88,7 @@ Notes: Campaign creation does not depend on allocation. Fetch/reconciliation dep
 | editing a stale/conflicted draft | Resolved by owner (#31): D22 B, edits blocked, local Cancel allowed, conflict data preserved | S5 rejects edits on stale drafts but permits local discard |
 | duplicate archived offers | Resolved by owner (#29): same as duplicate bindings, Fetch fails explicitly | S4 rejects any duplicate offer id in one remote stream |
 | remote share changes during draft | Resolved by owner (#29): cache/baseline update plus sticky conflict marker, no staged overwrite | S4 writes only `is_stale` and `conflict_details` |
-| Cancel after partial Push | open | Provisional seam (S6) |
+| Cancel after partial Push | Resolved by owner (#33): D25 A, reconcile-first; failed requires absence evidence | S6 publication Cancel is distinct from local draft Cancel |
 | multiple offer-bearing streams | Resolved by owner (#29): independent per-stream reconciliation; non-empty offers array defines offer-bearing | S4 has no designated target or selection policy |
 | flow type/priority | Resolved by owner (#26): offer flow uses `default` | S3 implements two flows without a priority field |
 | Google destination fixed/configurable | Resolved by owner (#26): configurable setting, Google default | S3 uses `KEITARO_REDIRECT_URL`, no UI |

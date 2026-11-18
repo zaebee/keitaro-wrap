@@ -9,11 +9,13 @@ from app.api.routes import router
 from app.application.campaign_creation import CampaignCreationService
 from app.application.draft import DraftService
 from app.application.fetch import FetchService
+from app.application.publication import PublicationService
 from app.core.config import settings
 from app.db.repositories import (
     SqlAlchemyCampaignCreationOperations,
     SqlAlchemySettingsRepository,
     SqlAlchemyStreamDraftRepository,
+    SqlAlchemyStreamPublicationRepository,
     SqlAlchemyStreamReconciliationRepository,
 )
 from app.db.session import engine
@@ -41,6 +43,14 @@ async def lifespan(app: FastAPI):
     app.state.draft_service = DraftService(
         repository=SqlAlchemyStreamDraftRepository(),
     )
+    app.state.publication_service = PublicationService(
+        client=app.state.keitaro_client,
+        drafts=SqlAlchemyStreamDraftRepository(),
+        publications=SqlAlchemyStreamPublicationRepository(),
+        snapshots=SqlAlchemyStreamReconciliationRepository(),
+        allow_live_writes=settings.KEITARO_ALLOW_PUBLICATION_WRITES,
+    )
+    await app.state.publication_service.recover()
     try:
         yield
     finally:
