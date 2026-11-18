@@ -4,7 +4,9 @@ import asyncio
 import time
 from typing import cast
 
+import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import QueuePool
 
@@ -67,6 +69,38 @@ class TrackingPublications(SqlAlchemyStreamPublicationRepository):
             return super().list_recoverable(limit)
         finally:
             self.finished = True
+
+
+def test_sqlite_lock_wait_uses_configured_busy_timeout(tmp_path):
+    """A real locked write waits for sqlite busy_timeout, not pool_timeout."""
+    busy_timeout = 0.05
+    engine = create_database_engine(
+        f"sqlite:///{tmp_path / 'busy.db'}",
+        busy_timeout=busy_timeout,
+        pool_timeout=5.0,
+        poolclass=QueuePool,
+        pool_size=2,
+        max_overflow=0,
+    )
+    try:
+        with engine.begin() as setup:
+            setup.execute(text("CREATE TABLE probe (id INTEGER PRIMARY KEY)"))
+        with engine.connect() as probe:
+            assert probe.exec_driver_sql("PRAGMA busy_timeout").scalar() == 50
+        with engine.connect() as holder:
+            holder.execute(text("BEGIN IMMEDIATE"))
+            started = time.monotonic()
+            with (
+                pytest.raises(OperationalError, match="locked"),
+                engine.begin() as writer,
+            ):
+                writer.execute(text("INSERT INTO probe (id) VALUES (1)"))
+            elapsed = time.monotonic() - started
+    finally:
+        engine.dispose()
+
+    assert elapsed >= busy_timeout * 0.8
+    assert elapsed < 1.0
 
 
 def test_recovery_pool_timeout_prevents_a_held_lock_from_hanging(tmp_path):
