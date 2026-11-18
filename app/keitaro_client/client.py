@@ -23,19 +23,18 @@ from app.application.dto import (
     StreamUpdateDTO,
     TrafficSourceDTO,
 )
+from app.application.errors import UpstreamError
 from app.application.ports import KeitaroClientPort
 
 _CAMPAIGNS_PATH = "/campaigns"
 
 
-class KeitaroError(Exception):
+class KeitaroError(UpstreamError):
     """KeitaroError."""
 
     def __init__(self, status: int, message: str):
         """__init__."""
-        self.status = status
-        self.message = message
-        super().__init__(f"Keitaro {status}: {message}")
+        super().__init__(status, message)
 
 
 class KeitaroClient(KeitaroClientPort):

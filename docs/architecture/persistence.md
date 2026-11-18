@@ -125,6 +125,11 @@ Failed vs ambiguous:
 - Distinguish: confirmed application, confirmed absence of effect, unresolved outcome.
 - Zero matches under incomplete pagination or uncertain read-after-write consistency does not establish absence.
 
+## Slice 7 read and idempotency boundary
+- HTTP routes never read SQLAlchemy models. Application services project `StreamRefView`, `StreamBindingView`, `RemoteSnapshotView`, `DraftView` and an allowlisted `PublicPublicationView` into transport schemas.
+- Campaign creation idempotency reuses the existing unique `operation_uuid` and deterministic alias; no schema change was needed. `get_or_create` rolls back a failed insert and re-reads through a fresh transaction before comparing the stored intent fingerprint.
+- Publication recovery evidence (full stream preimage, exact request payload, baselines, staged offers and error evidence) remains internal; it is never serialized by API response models.
+
 ## Concurrency
 - StreamDraft.version optimistic concurrency (wrapper-side only, not Keitaro version); Fetch does not change it. No draft is version 0; the first edit creates version 1, each effective edit/Cancel increments by one, and a semantic no-op does not. Lazy creation uses `expected_version=0` as a sentinel and assigns `stream_refs.draft_version_counter + 1`; the counter never decreases, so deleting and recreating a draft cannot let a stale client reuse an old version (ABA protection). Cleanup returns version 0 to the caller.
 - Commands carry `expected_version`; a conditional update with a mismatched version is rejected, so concurrent edits cannot overwrite each other.

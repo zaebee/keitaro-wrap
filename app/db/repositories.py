@@ -10,6 +10,9 @@ from sqlalchemy import delete, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.application.campaign_creation import (
+    IdempotencyKeyConflict,
+)
 from app.application.draft import DraftStaleError, DraftVersionConflict
 from app.application.dto import (
     ConfiguredResources,
@@ -97,25 +100,32 @@ class SqlAlchemyCampaignCreationOperations:
         """Use an injectable session factory so tests can use a temporary DB."""
         self._session_factory = session_factory
 
+    @staticmethod
+    def _operation_model(
+        operation: CampaignCreationOperation,
+    ) -> CampaignCreationOperationModel:
+        """Build a persistence model from a fully prepared operation."""
+        return CampaignCreationOperationModel(
+            operation_uuid=operation.operation_uuid,
+            alias=operation.alias,
+            name=operation.name,
+            country_code=operation.country_code,
+            offer_id=operation.offer_id,
+            domain_id=operation.domain_id,
+            group_id=operation.group_id,
+            traffic_source_id=operation.traffic_source_id,
+            redirect_url=operation.redirect_url,
+            status=operation.status.value,
+            error_message=operation.error_message,
+            campaign_step=operation.campaign_step.value,
+            country_flow_step=operation.country_flow_step.value,
+            offer_flow_step=operation.offer_flow_step.value,
+        )
+
     def add(self, operation: CampaignCreationOperation) -> CampaignCreationOperation:
         """Insert a new operation and populate its generated fields."""
         with self._session_factory() as session:
-            model = CampaignCreationOperationModel(
-                operation_uuid=operation.operation_uuid,
-                alias=operation.alias,
-                name=operation.name,
-                country_code=operation.country_code,
-                offer_id=operation.offer_id,
-                domain_id=operation.domain_id,
-                group_id=operation.group_id,
-                traffic_source_id=operation.traffic_source_id,
-                redirect_url=operation.redirect_url,
-                status=operation.status.value,
-                error_message=operation.error_message,
-                campaign_step=operation.campaign_step.value,
-                country_flow_step=operation.country_flow_step.value,
-                offer_flow_step=operation.offer_flow_step.value,
-            )
+            model = self._operation_model(operation)
             session.add(model)
             session.commit()
             session.refresh(model)
@@ -123,6 +133,34 @@ class SqlAlchemyCampaignCreationOperations:
             operation.created_at = model.created_at
             operation.updated_at = model.updated_at
         return operation
+
+    def get_or_create(
+        self, operation: CampaignCreationOperation
+    ) -> tuple[CampaignCreationOperation, bool]:
+        """Insert an operation atomically or replay a concurrent winner."""
+        existing = self.get_by_uuid(operation.operation_uuid)
+        if existing is not None:
+            return existing, False
+        with self._session_factory() as session:
+            model = self._operation_model(operation)
+            session.add(model)
+            try:
+                session.commit()
+            except IntegrityError as exc:
+                session.rollback()
+                winner = self.get_by_uuid(operation.operation_uuid)
+                if winner is not None:
+                    return winner, False
+                if self.get_by_alias(operation.alias) is not None:
+                    raise IdempotencyKeyConflict(
+                        f"operation alias {operation.alias} is already reserved"
+                    ) from exc
+                raise
+            session.refresh(model)
+            operation.id = model.id
+            operation.created_at = model.created_at
+            operation.updated_at = model.updated_at
+        return operation, True
 
     def get_by_uuid(self, operation_uuid: str) -> CampaignCreationOperation | None:
         """Load an operation by its stable UUID."""
@@ -727,6 +765,27 @@ class SqlAlchemyStreamReconciliationRepository:
         cached.offers_json = serialized
         cached.captured_at = captured_at
 
+    def list_by_campaign(self, campaign_id: int) -> tuple[StreamRefView, ...]:
+        """List cached stream references of one campaign in id order."""
+        with self._session_factory() as session:
+            rows = (
+                session.query(StreamRefModel)
+                .filter_by(campaign_id=campaign_id)
+                .order_by(StreamRefModel.keitaro_stream_id)
+                .all()
+            )
+            return tuple(
+                StreamRefView(
+                    stream_ref=row.keitaro_stream_id,
+                    campaign_id=row.campaign_id,
+                    type=row.type,
+                    name=row.name,
+                    schema=row.schema,
+                    comments=row.comments,
+                )
+                for row in rows
+            )
+
     def get_stream_ref(self, stream_ref: int) -> StreamRefView | None:
         """Load a cached remote stream reference by its Keitaro id."""
         with self._session_factory() as session:
@@ -952,7 +1011,18 @@ class SqlAlchemyStreamDraftRepository:
             except IntegrityError as exc:
                 session.rollback()
                 if _is_draft_create_unique_race(exc):
-                    raise DraftVersionConflict("concurrent draft creation") from exc
+                    raise DraftVersionConflict(
+                        "concurrent draft creation",
+                        stream_ref=command.stream_ref,
+                        expected_version=command.expected_version,
+                    ) from exc
+                raise
+            except DraftVersionConflict as exc:
+                session.rollback()
+                if exc.stream_ref is None:
+                    exc.stream_ref = command.stream_ref
+                if exc.expected_version is None:
+                    exc.expected_version = command.expected_version
                 raise
             except Exception:
                 session.rollback()
@@ -985,7 +1055,12 @@ class SqlAlchemyStreamDraftRepository:
         if cached is None or not _load_offers(cached.offers_json):
             raise DraftInputError("stream has no remote offer snapshot to baseline")
         if expected_version != 0:
-            raise DraftVersionConflict("a new draft requires expected_version 0")
+            raise DraftVersionConflict(
+                "a new draft requires expected_version 0",
+                stream_ref=ref.keitaro_stream_id,
+                expected_version=expected_version,
+                current_version=0,
+            )
         rows = (
             session.query(StreamOfferBindingModel).filter_by(stream_ref_id=ref.id).all()
         )
@@ -1013,7 +1088,11 @@ class SqlAlchemyStreamDraftRepository:
     ) -> _DraftBaselines:
         """Load the immutable baselines of an existing draft."""
         if expected_version != draft.version:
-            raise DraftVersionConflict(DRAFT_VERSION_CONFLICT)
+            raise DraftVersionConflict(
+                DRAFT_VERSION_CONFLICT,
+                expected_version=expected_version,
+                current_version=draft.version,
+            )
         if draft.baseline_snapshot_json is None or draft.baseline_bindings_json is None:
             raise DraftBaselineUnavailable("draft baselines are missing")
         return _DraftBaselines(
@@ -1211,6 +1290,16 @@ class SqlAlchemyStreamDraftRepository:
             created=created,
             noop=False,
         )
+
+    def get_stream_campaign(self, stream_ref: int) -> int | None:
+        """Return the campaign id of a cached stream reference, if known."""
+        with self._session_factory() as session:
+            row = (
+                session.query(StreamRefModel)
+                .filter_by(keitaro_stream_id=stream_ref)
+                .one_or_none()
+            )
+            return row.campaign_id if row is not None else None
 
     def list_dirty(self, campaign_id: int) -> tuple[DirtyDraftView, ...]:
         """List dirty drafts of one campaign for publication planning."""

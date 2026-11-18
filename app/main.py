@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI, Request
 
+from app.api.errors import register_error_handlers
 from app.api.routes import router
 from app.application.campaign_creation import CampaignCreationService
 from app.application.draft import DraftService
@@ -62,6 +63,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Keitaro Wrap", lifespan=lifespan)
 app.include_router(router)
+register_error_handlers(app)
 
 
 def get_keitaro_client(request: Request):

@@ -10,6 +10,7 @@ from app.application.dto import (
     CampaignCreationResult,
     ConfiguredResources,
     CreateCampaignCommand,
+    CreateCampaignOutcome,
     StreamCreateDTO,
     StreamFilterInput,
     StreamOfferInput,
@@ -41,6 +42,35 @@ class CampaignConfigurationError(ValueError):
 
 class OperationNotFoundError(KeyError):
     """No durable operation exists for the requested UUID."""
+
+
+class IdempotencyKeyReused(ValueError):
+    """An idempotency UUID was already used with different client intent."""
+
+    def __init__(self, operation_uuid: str):
+        """Keep the conflicting identity structured."""
+        self.operation_uuid = operation_uuid
+        super().__init__(f"idempotency key {operation_uuid} was reused")
+
+
+class IdempotencyKeyConflict(RuntimeError):
+    """The operation UUID or derived alias is already reserved by another key."""
+
+
+def campaign_intent_fingerprint(command: CreateCampaignCommand) -> tuple[str, str, int]:
+    """Return the normalized user intent used for idempotency comparison."""
+    return (
+        command.name.strip(),
+        command.country_code.strip().upper(),
+        command.offer_id,
+    )
+
+
+def stored_intent_fingerprint(
+    operation: CampaignCreationOperation,
+) -> tuple[str, str, int]:
+    """Return the same fingerprint from a persisted operation."""
+    return (operation.name, operation.country_code, operation.offer_id)
 
 
 def _client_error_status(exc: Exception) -> int | None:
@@ -76,37 +106,58 @@ class CampaignCreationService:
         self._max_pages = max_pages
 
     async def create(self, command: CreateCampaignCommand) -> CampaignCreationResult:
-        """Validate a request, persist a new operation and execute the workflow."""
-        name = command.name.strip()
-        if not name:
-            raise CampaignInputError("campaign name must not be empty")
-        country_code = command.country_code.strip().upper()
-        if not re.fullmatch(r"[A-Z]{2}", country_code):
-            raise CampaignInputError("country_code must be an ISO-2 code")
-        if command.offer_id <= 0:
-            raise CampaignInputError("offer_id must be positive")
+        """Create an operation with a generated UUID (backward-compatible entry)."""
+        return (await self.create_idempotent(command, str(uuid.uuid4()))).result
 
-        config = await self._config()
-        domain_id, group_id, traffic_source_id = self._required_ids(config)
-        await self._verify_offer(command.offer_id)
-        await self._verify_resources(config)
+    async def create_idempotent(
+        self, command: CreateCampaignCommand, operation_uuid: str
+    ) -> CreateCampaignOutcome:
+        """Create or replay one durable operation using a client-owned UUID."""
+        if type(operation_uuid) is not str or not operation_uuid:
+            raise CampaignInputError("operation_uuid must be a non-empty string")
+        fingerprint = campaign_intent_fingerprint(command)
+        existing = await asyncio.to_thread(self._operations.get_by_uuid, operation_uuid)
+        if existing is not None:
+            if stored_intent_fingerprint(existing) != fingerprint:
+                raise IdempotencyKeyReused(operation_uuid)
+            return CreateCampaignOutcome(self._to_result(existing), False)
 
-        operation_uuid = str(uuid.uuid4())
-        operation = await asyncio.to_thread(
-            self._operations.add,
-            CampaignCreationOperation(
-                operation_uuid=operation_uuid,
-                alias=make_alias(operation_uuid),
-                name=name,
-                country_code=country_code,
-                offer_id=command.offer_id,
-                domain_id=domain_id,
-                group_id=group_id,
-                traffic_source_id=traffic_source_id,
-                redirect_url=config.redirect_url,
-            ),
+        (
+            name,
+            country_code,
+            config,
+            domain_id,
+            group_id,
+            traffic_source_id,
+        ) = await self._validate_and_preflight(command)
+        operation = CampaignCreationOperation(
+            operation_uuid=operation_uuid,
+            alias=make_alias(operation_uuid),
+            name=name,
+            country_code=country_code,
+            offer_id=command.offer_id,
+            domain_id=domain_id,
+            group_id=group_id,
+            traffic_source_id=traffic_source_id,
+            redirect_url=config.redirect_url,
         )
-        return await self._execute(operation)
+        stored, created = await asyncio.to_thread(
+            self._operations.get_or_create, operation
+        )
+        if not created:
+            if stored_intent_fingerprint(stored) != fingerprint:
+                raise IdempotencyKeyReused(operation_uuid)
+            return CreateCampaignOutcome(self._to_result(stored), False)
+        return CreateCampaignOutcome(await self._execute(stored), True)
+
+    async def get(self, operation_uuid: str) -> CampaignCreationResult:
+        """Return a durable operation without resuming or mutating it."""
+        operation = await asyncio.to_thread(
+            self._operations.get_by_uuid, operation_uuid
+        )
+        if operation is None:
+            raise OperationNotFoundError(f"unknown operation {operation_uuid}")
+        return self._to_result(operation)
 
     async def resume(self, operation_uuid: str) -> CampaignCreationResult:
         """Resume a durable operation using its persisted intent, not current config."""
@@ -118,6 +169,24 @@ class CampaignCreationService:
         if is_terminal(operation.status):
             return self._to_result(operation)
         return await self._execute(operation)
+
+    async def _validate_and_preflight(
+        self, command: CreateCampaignCommand
+    ) -> tuple[str, str, ConfiguredResources, int, int, int]:
+        """Validate client intent and read-only config before any durable write."""
+        name = command.name.strip()
+        if not name:
+            raise CampaignInputError("campaign name must not be empty")
+        country_code = command.country_code.strip().upper()
+        if not re.fullmatch(r"[A-Z]{2}", country_code):
+            raise CampaignInputError("country_code must be an ISO-2 code")
+        if command.offer_id <= 0:
+            raise CampaignInputError("offer_id must be positive")
+        config = await self._config()
+        domain_id, group_id, traffic_source_id = self._required_ids(config)
+        await self._verify_offer(command.offer_id)
+        await self._verify_resources(config)
+        return name, country_code, config, domain_id, group_id, traffic_source_id
 
     async def _config(self) -> ConfiguredResources:
         """Load operator configuration without blocking the event loop."""

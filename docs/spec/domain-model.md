@@ -52,7 +52,7 @@
 - Zero/one active offers, all-pinned states and unallocated remainders are allowed while staging and surfaced as `policy_cases`/`unallocated` (D21). Publication eligibility is a Slice 6 decision.
 - Remote share changes discovered by Fetch update the remote cache/baseline only, not staged shares; conflicts are marked against the draft's own baseline.
 - Missing/reappearing offers handled via reconciliation (archive/reactivate); every offer-bearing stream is independent (accepted D18, issue #29).
-- All-pinned and single-pinned cases are surfaced while staging per offer-allocation.md; Push policy is unresolved and deferred to Slice 6.
+- All-pinned and single-pinned cases are surfaced while staging per offer-allocation.md; publication eligibility is resolved by D23/D24 and applied by Slice 6 publication.
 
 ## Resolved and unresolved publication decisions
 - Resolved by owner in issue #33: D23 (Push requires active total exactly 100), D24 (empty offers rejected until live verification) and D25 (reconcile-first Cancel, with absence evidence required for `failed`).

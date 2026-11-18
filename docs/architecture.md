@@ -4,12 +4,12 @@ Cross-reference: persistence design `docs/architecture/persistence.md`, domain m
 
 ## Status
 
-The dependency direction, data ownership and boundaries below are the accepted target design (`docs/decisions.md`, `docs/implementation/module-boundaries.md`). Implemented as of Slice 6: `app/main.py` (composition root and lifespan), `app/api/` (health route), `app/application/` (DTOs, `KeitaroClientPort`, campaign creation, Fetch, local draft editing and publication workflows), `app/domain/` (pure allocation, operation state machines, offer reconciliation, staged draft planning and publication eligibility/payload), `app/keitaro_client/` (async adapter), `app/core/` (settings), `app/db/` and `alembic/` (SQLite/Alembic, including `stream_publications`, with repository adapters). Later workflows are target design; progress is tracked in `docs/implementation/implementation-plan.md`. Verified API observations are facts about Keitaro, not claims about implemented features.
+The dependency direction, data ownership and boundaries below are the accepted design (`docs/decisions.md`, `docs/implementation/module-boundaries.md`). Implemented as of Slice 7: `app/main.py` (composition root and lifespan), `app/api/` (routes, schemas, dependency providers and error translation), `app/application/` (DTOs, `KeitaroClientPort`, campaign creation, Fetch, local draft editing, publication and read/idempotency helpers), `app/domain/` (pure allocation, operation state machines, offer reconciliation, staged draft planning and publication eligibility/payload), `app/keitaro_client/` (async adapter), `app/core/` (settings), `app/db/` and `alembic/` (SQLite/Alembic, including `stream_publications`, with repository adapters). Later workflows are target design; progress is tracked in `docs/implementation/implementation-plan.md`. Verified API observations are facts about Keitaro, not claims about implemented features.
 
 ## Style
 Modular monolith. FastAPI app with:
-- `app/api/` — HTTP transport (routes, schemas, errors).
-- `app/application/` — workflows, DTOs and application-owned ports; campaign creation, Fetch and local draft editing are implemented.
+- `app/api/` — HTTP transport (routes, schemas, dependency providers, errors).
+- `app/application/` — workflows, DTOs and application-owned ports; campaign creation, Fetch, local draft editing and publication are implemented.
 - `app/keitaro_client/` — Keitaro client adapter.
 - `app/db/` — SQLAlchemy persistence (minimal local state).
 - `app/core/` — settings from `.env`; no business logic.
@@ -39,23 +39,23 @@ No full campaign mirror unless a concrete use case (e.g. offline listing) justif
 
 ## Boundaries
 - `app/main.py` — composition root: FastAPI app, lifespan-managed `httpx.AsyncClient`, adapter wiring.
-- `app/api/` — transport: routes, schemas, HTTP errors.
+- `app/api/` — transport: routes, schemas, dependency providers and HTTP error translation; no direct repository or Keitaro access.
 - `app/application/` — orchestration, DTOs and ports owned by the application; adapters are not imported here.
 - `app/keitaro_client/` — adapter implementing `KeitaroClientPort`; HTTP transport, auth from env.
 - `app/core/` — settings from `.env`.
 - `app/db/`, `alembic/` — SQLAlchemy models/session and migrations.
 
-The pure allocation, operation state machine, reconciliation and draft-planning modules (`app/domain/`), the campaign operation, stream reconciliation and draft repositories (`app/db/`) are implemented; publication modules are target modules for later slices; see `docs/implementation/module-boundaries.md`.
+The pure allocation, operation state machine, reconciliation, draft-planning and publication modules (`app/domain/`), and the campaign operation, stream reconciliation, draft and publication repositories (`app/db/`) are implemented; see `docs/implementation/module-boundaries.md`.
 
 ## Fetch/reconciliation (implemented Slice 4)
 - `FetchService` reads all streams of a campaign once via the existing Keitaro port, validates the complete response (including campaign ownership of every returned stream and required offer fields such as `share`), then reconciles the whole snapshot in one synchronous DB transaction through `asyncio.to_thread` (D14). HTTP calls never run inside a DB transaction.
 - Every stream with a non-empty `offers` array is reconciled independently (D18); streams without offers remain cached stream references. A stream that previously had local reconciliation state and now reports no offers is reconciled as a remote deletion.
 - Remote additions create ACTIVE bindings, deletions archive and clear the share cache, reappearance reactivates while preserving the committed pin (D9). Duplicate `offer_id` entries in one stream fail the whole Fetch before any local write (D8).
 - The remote snapshot cache, committed binding state and staged draft state are separate. Fetch writes only `is_stale` and structured `conflict_details` on an existing draft; it never changes `baseline_snapshot`, `staged_changes`, `version` or `is_dirty`, and conflicts remain sticky until explicit later-slice resolution (D17).
-- No API route, Keitaro mutation, allocation orchestration or publication behavior was added.
+- That slice added no API route, Keitaro mutation, allocation orchestration or publication behavior; the Slice 7 routes only expose these application workflows.
 
 ## Local draft editing (implemented Slice 5)
-- `DraftService` provides Add, Remove, Restore, Pin/Unpin, Set Share and local Cancel. It has no Keitaro client dependency; every repository call is offloaded with `asyncio.to_thread` (D14). No HTTP route or remote mutation was added.
+- `DraftService` provides Add, Remove, Restore, Pin/Unpin, Set Share and local Cancel. It has no Keitaro client dependency; every repository call is offloaded with `asyncio.to_thread` (D14). That slice added no HTTP route or remote mutation; Slice 7 exposes the commands without changing them.
 - The first effective edit lazily creates one draft from the current `RemoteSnapshot` and an immutable copy of committed lifecycle/pin state. `baseline_snapshot` and `baseline_bindings` are never rewritten; the staged view is derived from those baselines plus staged intent, never from mutable current bindings.
 - `app/domain/draft.py` reuses `allocate()` from Slice 2. Pinned shares are fixed inputs, a manual share edit auto-pins (D19) with integer 0..100 validation (D20), and explicit Unpin returns the offer to redistribution. Zero/one active offers, all-pinned states and unallocated remainders are allowed and surfaced as `policy_cases`/`unallocated` (D21); Push eligibility remains a Slice 6 decision.
 - Commands are conditional on `StreamDraft.version`; semantic no-ops normalise to empty intent without a version bump. A clean draft whose intent normalises to `{}` is deleted in the same transaction, and the next edit rebaselines from the current `RemoteSnapshot`. `stream_refs.draft_version_counter` keeps versions monotonic across cleanup/recreation so a stale client cannot reuse an old version. Stale drafts block editing and preserve sticky conflict data; local Cancel clears only staged intent and never resolves a conflict (D22).
@@ -70,11 +70,18 @@ The pure allocation, operation state machine, reconciliation and draft-planning 
 - Startup recovery is bounded and read-only. The hard deadline bounds the remote reconciliation phase and prevents new DB work after expiry; an already-started local transaction is awaited to completion and SQLite lock waits and connection-pool checkout waits are finite and aligned (`KEITARO_DB_BUSY_TIMEOUT`, also used as `pool_timeout`), so startup cannot hang indefinitely and no background DB transaction survives recovery. Unresolved durable rows gate new Push across all workers; read-only application functionality remains available.
 - Publication Cancel is atomic: operation abandonment and draft discard commit together after version/intent revalidation.
 
+## HTTP API (implemented Slice 7)
+- Routes are thin async handlers that construct application DTOs, await one service call and serialize allowlisted response models from `app/api/schemas.py`. Repositories and the Keitaro client are never called from a route.
+- Campaign creation is idempotent by a client-supplied `operation_uuid` reusing the existing durable column. Existing-key lookup and fingerprint comparison happen before config resolution/Keitaro preflight; only the atomic insert winner executes the workflow. A replay returns the existing operation without resuming it; explicit resume is a separate `200` endpoint.
+- Publication reads expose a minimal allowlisted projection (`operation_uuid`, campaign/stream ids, status, draft version, effective entries, attempt count). Full stream preimages, request payloads, baselines, evidence and raw errors stay inside application/persistence.
+- Push keeps independent per-stream outcomes. A typed `LIVE_WRITES_DISABLED` outcome maps to `503 PUBLICATION_WRITES_DISABLED` with the complete `PushResult`; transport never parses human-readable reasons. Ambiguous outcomes and D25 Cancel refusals remain visible with structured status/reason.
+- All sync repository work remains behind the services' `asyncio.to_thread` boundaries (D14); the lifespan-managed async client is unchanged (D13).
+
 ## Cross-cutting
 - Persistence boundary (D14): sync SQLAlchemy operations must not execute directly inside an async request path on the event loop; use FastAPI threadpool or an explicit boundary.
 - HTTP transport: httpx.AsyncClient (D13). Async methods; lifespan-managed; no sync calls in async path.
 - Config via pydantic-settings (.env).
-- Errors (target): `KeitaroError` from the adapter translated to HTTP 502 with a message in the transport layer.
+- Errors: the adapter raises the application-owned `UpstreamError` contract; transport maps it to HTTP 502 with redacted structured diagnostics. Other application/domain errors use the stable codes registered in `app/api/errors.py`.
 - Retries: only for safe/idempotent operations; never blindly retry non-idempotent POST. Reconcile by re-reading state first.
 - Logging: no secrets.
 - Testability: Keitaro client behind the application-owned `KeitaroClientPort`; current tests use `httpx.MockTransport`.

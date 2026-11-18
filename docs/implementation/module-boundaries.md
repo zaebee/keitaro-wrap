@@ -28,8 +28,9 @@ Composition root wires dependencies. Domain remains pure and independent of I/O 
 - Implements repository ports.
 
 ### api (transport)
-- Owns: routes, schemas, HTTP errors.
-- Depends on application.
+- Owns: routes, request/response schemas, dependency providers and HTTP error translation.
+- Depends on application services and application-owned errors; never calls repositories or the Keitaro client directly.
+- Publishes only allowlisted DTO projections; internal recovery evidence stays in application/persistence.
 
 ### frontend (optional)
 - Owns: UI; calls API.

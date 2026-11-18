@@ -231,6 +231,15 @@ class FakeOperations:
         self.by_alias[operation.alias] = operation
         return operation
 
+    def get_or_create(
+        self, operation: CampaignCreationOperation
+    ) -> tuple[CampaignCreationOperation, bool]:
+        """Store a new operation or return an existing one."""
+        existing = self.get_by_uuid(operation.operation_uuid)
+        if existing is not None:
+            return existing, False
+        return self.add(operation), True
+
     def get_by_uuid(self, operation_uuid: str) -> CampaignCreationOperation | None:
         """Load by UUID."""
         return self.by_uuid.get(operation_uuid)
