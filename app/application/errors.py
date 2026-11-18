@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+CAMPAIGN_ID_REQUIRED = "campaign_id must be a positive int"
+STREAM_REF_REQUIRED = "stream_ref must be a positive int"
+
 
 class UpstreamError(RuntimeError):
     """An external dependency failed; carries structured, redacted diagnostics."""

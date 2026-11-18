@@ -70,7 +70,7 @@ def health():
     return {"status": "ok"}
 
 
-@router.post("/campaign-creations", response_model=CampaignCreationResponse)
+@router.post("/campaign-creations")
 async def create_campaign(
     request: CreateCampaignRequest,
     response: Response,
@@ -93,9 +93,7 @@ async def create_campaign(
     return CampaignCreationResponse.from_result(outcome.result)
 
 
-@router.get(
-    "/campaign-creations/{operation_uuid}", response_model=CampaignCreationResponse
-)
+@router.get("/campaign-creations/{operation_uuid}")
 async def get_campaign_operation(
     operation_uuid: UUID4,
     service: Annotated[CampaignCreationService, Depends(get_campaign_creation_service)],
@@ -107,7 +105,6 @@ async def get_campaign_operation(
 
 @router.post(
     "/campaign-creations/{operation_uuid}/resume",
-    response_model=CampaignCreationResponse,
 )
 async def resume_campaign_operation(
     operation_uuid: UUID4,
@@ -118,7 +115,7 @@ async def resume_campaign_operation(
     return CampaignCreationResponse.from_result(result)
 
 
-@router.post("/campaigns/{campaign_id}/fetch", response_model=FetchOutcomeResponse)
+@router.post("/campaigns/{campaign_id}/fetch")
 async def fetch_streams(
     campaign_id: Annotated[int, Path(gt=0)],
     service: Annotated[FetchService, Depends(get_fetch_service)],
@@ -128,7 +125,7 @@ async def fetch_streams(
     return FetchOutcomeResponse.from_result(result)
 
 
-@router.get("/campaigns/{campaign_id}/streams", response_model=list[StreamRefResponse])
+@router.get("/campaigns/{campaign_id}/streams")
 async def list_streams(
     campaign_id: Annotated[int, Path(gt=0)],
     service: Annotated[FetchService, Depends(get_fetch_service)],
@@ -140,7 +137,6 @@ async def list_streams(
 
 @router.get(
     "/campaigns/{campaign_id}/streams/{stream_ref}/committed",
-    response_model=CommittedStateResponse,
 )
 async def get_committed_state(
     campaign_id: Annotated[int, Path(gt=0)],
@@ -154,7 +150,6 @@ async def get_committed_state(
 
 @router.get(
     "/campaigns/{campaign_id}/streams/{stream_ref}/draft",
-    response_model=DraftStateResponse,
 )
 async def get_draft_state(
     campaign_id: Annotated[int, Path(gt=0)],
@@ -168,7 +163,6 @@ async def get_draft_state(
 
 @router.get(
     "/campaigns/{campaign_id}/streams/{stream_ref}/publication",
-    response_model=PublicationStateResponse,
 )
 async def get_publication_state(
     campaign_id: Annotated[int, Path(gt=0)],
@@ -182,7 +176,6 @@ async def get_publication_state(
 
 @router.post(
     "/campaigns/{campaign_id}/streams/{stream_ref}/draft/add",
-    response_model=DraftCommandResultResponse,
 )
 async def add_draft_offer(
     request: AddDraftRequest,
@@ -201,7 +194,6 @@ async def add_draft_offer(
 
 @router.post(
     "/campaigns/{campaign_id}/streams/{stream_ref}/draft/remove",
-    response_model=DraftCommandResultResponse,
 )
 async def remove_draft_offer(
     request: RemoveDraftRequest,
@@ -220,7 +212,6 @@ async def remove_draft_offer(
 
 @router.post(
     "/campaigns/{campaign_id}/streams/{stream_ref}/draft/restore",
-    response_model=DraftCommandResultResponse,
 )
 async def restore_draft_offer(
     request: RestoreDraftRequest,
@@ -239,7 +230,6 @@ async def restore_draft_offer(
 
 @router.post(
     "/campaigns/{campaign_id}/streams/{stream_ref}/draft/pin",
-    response_model=DraftCommandResultResponse,
 )
 async def pin_draft_offer(
     request: PinDraftRequest,
@@ -262,7 +252,6 @@ async def pin_draft_offer(
 
 @router.post(
     "/campaigns/{campaign_id}/streams/{stream_ref}/draft/unpin",
-    response_model=DraftCommandResultResponse,
 )
 async def unpin_draft_offer(
     request: OfferDraftRequest,
@@ -285,7 +274,6 @@ async def unpin_draft_offer(
 
 @router.post(
     "/campaigns/{campaign_id}/streams/{stream_ref}/draft/share",
-    response_model=DraftCommandResultResponse,
 )
 async def set_draft_share(
     request: SetShareDraftRequest,
@@ -308,7 +296,6 @@ async def set_draft_share(
 
 @router.post(
     "/campaigns/{campaign_id}/streams/{stream_ref}/draft/cancel",
-    response_model=DraftCommandResultResponse,
 )
 async def cancel_draft(
     request: CancelDraftRequest,
@@ -323,7 +310,7 @@ async def cancel_draft(
     return DraftCommandResultResponse.from_result(result)
 
 
-@router.post("/campaigns/{campaign_id}/push", response_model=PushResultResponse)
+@router.post("/campaigns/{campaign_id}/push")
 async def push_streams(
     request: PushRequest,
     campaign_id: Annotated[int, Path(gt=0)],
@@ -352,7 +339,6 @@ async def push_streams(
 
 @router.post(
     "/campaigns/{campaign_id}/streams/{stream_ref}/publication/cancel",
-    response_model=CancelResultResponse,
 )
 async def cancel_publication(
     campaign_id: Annotated[int, Path(gt=0)],
@@ -378,7 +364,6 @@ async def cancel_publication(
 
 @router.get(
     "/publications/recoverable",
-    response_model=list[PublicPublicationResponse],
 )
 async def list_recoverable_publications(
     service: Annotated[PublicationService, Depends(get_publication_service)],
@@ -389,7 +374,7 @@ async def list_recoverable_publications(
     return [PublicPublicationResponse.from_view(view) for view in views]
 
 
-@router.post("/publications/recover", response_model=RecoveryResultResponse)
+@router.post("/publications/recover")
 async def recover_publications(
     service: Annotated[PublicationService, Depends(get_publication_service)],
 ) -> RecoveryResultResponse:

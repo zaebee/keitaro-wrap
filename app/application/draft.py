@@ -14,7 +14,11 @@ from app.application.dto import (
     SetShareCommand,
     to_domain_command,
 )
-from app.application.errors import StreamNotFoundError
+from app.application.errors import (
+    CAMPAIGN_ID_REQUIRED,
+    STREAM_REF_REQUIRED,
+    StreamNotFoundError,
+)
 from app.application.ports import StreamDraftRepository
 from app.domain.reconciliation import ConflictDetail
 
@@ -83,7 +87,7 @@ class DraftService:
     async def get_view(self, stream_ref: int) -> DraftView | None:
         """Load the current derived staged view off the event loop."""
         if type(stream_ref) is not int or stream_ref <= 0:
-            raise ValueError("stream_ref must be a positive int")
+            raise ValueError(STREAM_REF_REQUIRED)
         return await asyncio.to_thread(self._repository.get_view, stream_ref)
 
     async def get_view_for_campaign(
@@ -91,9 +95,9 @@ class DraftService:
     ) -> DraftView | None:
         """Load a draft view only when the stream belongs to the campaign."""
         if type(campaign_id) is not int or campaign_id <= 0:
-            raise ValueError("campaign_id must be a positive int")
+            raise ValueError(CAMPAIGN_ID_REQUIRED)
         if type(stream_ref) is not int or stream_ref <= 0:
-            raise ValueError("stream_ref must be a positive int")
+            raise ValueError(STREAM_REF_REQUIRED)
         owner = await asyncio.to_thread(
             self._repository.get_stream_campaign, stream_ref
         )
@@ -104,9 +108,9 @@ class DraftService:
     async def _apply(self, command: DraftCommandBase) -> DraftCommandResult:
         """Validate identity, convert the intent and offload the DB transaction."""
         if type(command.campaign_id) is not int or command.campaign_id <= 0:
-            raise ValueError("campaign_id must be a positive int")
+            raise ValueError(CAMPAIGN_ID_REQUIRED)
         if type(command.stream_ref) is not int or command.stream_ref <= 0:
-            raise ValueError("stream_ref must be a positive int")
+            raise ValueError(STREAM_REF_REQUIRED)
         if type(command.expected_version) is not int or command.expected_version < 0:
             raise ValueError("expected_version must be a non-negative int")
         intent = to_domain_command(command)

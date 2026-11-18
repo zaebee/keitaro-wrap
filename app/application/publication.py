@@ -21,7 +21,11 @@ from app.application.dto import (
     RecoveryResult,
     StreamUpdateDTO,
 )
-from app.application.errors import StreamNotFoundError
+from app.application.errors import (
+    CAMPAIGN_ID_REQUIRED,
+    STREAM_REF_REQUIRED,
+    StreamNotFoundError,
+)
 from app.application.ports import (
     KeitaroClientPort,
     StreamDraftRepository,
@@ -416,9 +420,9 @@ class PublicationService:
     def _validate_identity(campaign_id: int, stream_ref: int) -> None:
         """Validate campaign and stream identity shared by read and cancel paths."""
         if type(campaign_id) is not int or campaign_id <= 0:
-            raise PublicationInputError("campaign_id must be a positive int")
+            raise PublicationInputError(CAMPAIGN_ID_REQUIRED)
         if type(stream_ref) is not int or stream_ref <= 0:
-            raise PublicationInputError("stream_ref must be a positive int")
+            raise PublicationInputError(STREAM_REF_REQUIRED)
 
     async def cancel(self, command: CancelPublicationCommand) -> CancelResult:
         """Cancel publication state without ever rolling back a remote success."""
@@ -460,9 +464,9 @@ class PublicationService:
     def _validate_command(command: PushStreamsCommand) -> None:
         """Validate campaign identity and explicit stream selection."""
         if type(command.campaign_id) is not int or command.campaign_id <= 0:
-            raise PublicationInputError("campaign_id must be a positive int")
+            raise PublicationInputError(CAMPAIGN_ID_REQUIRED)
         if any(type(ref) is not int or ref <= 0 for ref in command.stream_refs):
-            raise PublicationInputError("stream_ref must be a positive int")
+            raise PublicationInputError(STREAM_REF_REQUIRED)
         if len(set(command.stream_refs)) != len(command.stream_refs):
             raise PublicationInputError("stream_refs must be unique")
 

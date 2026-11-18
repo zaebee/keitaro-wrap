@@ -12,7 +12,11 @@ from app.application.dto import (
     StreamDTO,
     StreamRefView,
 )
-from app.application.errors import StreamNotFoundError
+from app.application.errors import (
+    CAMPAIGN_ID_REQUIRED,
+    STREAM_REF_REQUIRED,
+    StreamNotFoundError,
+)
 from app.application.ports import KeitaroClientPort, StreamReconciliationRepository
 from app.domain.reconciliation import (
     RemoteOffer,
@@ -40,7 +44,7 @@ class FetchService:
     async def fetch(self, command: FetchStreamsCommand) -> FetchOutcome:
         """Read all campaign streams before opening any local write transaction."""
         if type(command.campaign_id) is not int or command.campaign_id <= 0:
-            raise FetchInputError("campaign_id must be a positive int")
+            raise FetchInputError(CAMPAIGN_ID_REQUIRED)
         streams = await self._client.list_campaign_streams(command.campaign_id)
         captured_at = datetime.now(UTC).replace(tzinfo=None)
         fetched = tuple(
@@ -56,7 +60,7 @@ class FetchService:
     async def list_streams(self, campaign_id: int) -> tuple[StreamRefView, ...]:
         """List cached stream references of one campaign off the event loop."""
         if type(campaign_id) is not int or campaign_id <= 0:
-            raise FetchInputError("campaign_id must be a positive int")
+            raise FetchInputError(CAMPAIGN_ID_REQUIRED)
         return await asyncio.to_thread(self._repository.list_by_campaign, campaign_id)
 
     async def get_committed(
@@ -64,9 +68,9 @@ class FetchService:
     ) -> CommittedStateView:
         """Load committed bindings and remote cache for one campaign stream."""
         if type(campaign_id) is not int or campaign_id <= 0:
-            raise FetchInputError("campaign_id must be a positive int")
+            raise FetchInputError(CAMPAIGN_ID_REQUIRED)
         if type(stream_ref) is not int or stream_ref <= 0:
-            raise FetchInputError("stream_ref must be a positive int")
+            raise FetchInputError(STREAM_REF_REQUIRED)
         reference = await asyncio.to_thread(self._repository.get_stream_ref, stream_ref)
         if reference is None or reference.campaign_id != campaign_id:
             raise StreamNotFoundError(campaign_id, stream_ref)

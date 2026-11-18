@@ -75,7 +75,7 @@ def _conflict(item: ConflictDetail) -> dict[str, Any]:
     }
 
 
-async def _api_error_handler(_: Request, exc: Exception) -> JSONResponse:
+def _api_error_handler(_: Request, exc: Exception) -> JSONResponse:
     """Translate a transport ApiError to the stable envelope."""
     error = (
         exc if isinstance(exc, ApiError) else ApiError(500, "INTERNAL_ERROR", str(exc))
@@ -83,7 +83,7 @@ async def _api_error_handler(_: Request, exc: Exception) -> JSONResponse:
     return error_response(error.status, error.code, error.message, error.details)
 
 
-async def _validation_handler(_: Request, exc: Exception) -> JSONResponse:
+def _validation_handler(_: Request, exc: Exception) -> JSONResponse:
     """Translate FastAPI shape validation into INVALID_REQUEST."""
     errors = []
     if isinstance(exc, RequestValidationError):
@@ -100,21 +100,21 @@ async def _validation_handler(_: Request, exc: Exception) -> JSONResponse:
     )
 
 
-async def _campaign_input_handler(_: Request, exc: Exception) -> JSONResponse:
+def _campaign_input_handler(_: Request, exc: Exception) -> JSONResponse:
     """Translate invalid campaign input to a typed 422."""
     return error_response(
         422, "CAMPAIGN_INPUT_REJECTED", str(exc), {"reason": str(exc)}
     )
 
 
-async def _campaign_configuration_handler(_: Request, exc: Exception) -> JSONResponse:
+def _campaign_configuration_handler(_: Request, exc: Exception) -> JSONResponse:
     """Translate unusable operator configuration to a typed 409."""
     return error_response(
         409, "CAMPAIGN_CONFIGURATION_INVALID", str(exc), {"reason": str(exc)}
     )
 
 
-async def _idempotency_reused_handler(_: Request, exc: Exception) -> JSONResponse:
+def _idempotency_reused_handler(_: Request, exc: Exception) -> JSONResponse:
     """Translate a reused idempotency key to a typed 409."""
     key = exc.operation_uuid if isinstance(exc, IdempotencyKeyReused) else ""
     return error_response(
@@ -125,17 +125,17 @@ async def _idempotency_reused_handler(_: Request, exc: Exception) -> JSONRespons
     )
 
 
-async def _idempotency_conflict_handler(_: Request, exc: Exception) -> JSONResponse:
+def _idempotency_conflict_handler(_: Request, exc: Exception) -> JSONResponse:
     """Translate a concurrent identity reservation conflict to a typed 409."""
     return error_response(409, "IDEMPOTENCY_KEY_CONFLICT", str(exc), {})
 
 
-async def _operation_not_found_handler(_: Request, exc: Exception) -> JSONResponse:
+def _operation_not_found_handler(_: Request, exc: Exception) -> JSONResponse:
     """Translate an unknown campaign operation to a typed 404."""
     return error_response(404, "OPERATION_NOT_FOUND", str(exc), {})
 
 
-async def _stream_not_found_handler(_: Request, exc: Exception) -> JSONResponse:
+def _stream_not_found_handler(_: Request, exc: Exception) -> JSONResponse:
     """Translate an unknown or cross-campaign stream to a typed 404."""
     if isinstance(exc, StreamNotFoundError):
         details: dict[str, Any] = {
@@ -147,7 +147,7 @@ async def _stream_not_found_handler(_: Request, exc: Exception) -> JSONResponse:
     return error_response(404, "STREAM_NOT_FOUND", str(exc), details)
 
 
-async def _version_conflict_handler(_: Request, exc: Exception) -> JSONResponse:
+def _version_conflict_handler(_: Request, exc: Exception) -> JSONResponse:
     """Translate a stale draft version to a typed 409 with structured details."""
     details: dict[str, Any] = {}
     if isinstance(exc, DraftVersionConflict):
@@ -158,7 +158,7 @@ async def _version_conflict_handler(_: Request, exc: Exception) -> JSONResponse:
     return error_response(409, "DRAFT_VERSION_CONFLICT", str(exc), details)
 
 
-async def _stale_draft_handler(_: Request, exc: Exception) -> JSONResponse:
+def _stale_draft_handler(_: Request, exc: Exception) -> JSONResponse:
     """Translate a sticky Fetch conflict into a typed 409 with all conflict details."""
     details: dict[str, Any] = {}
     if isinstance(exc, DraftStaleError):
@@ -169,29 +169,29 @@ async def _stale_draft_handler(_: Request, exc: Exception) -> JSONResponse:
     return error_response(409, "DRAFT_STALE_CONFLICT", str(exc), details)
 
 
-async def _baseline_unavailable_handler(_: Request, exc: Exception) -> JSONResponse:
+def _baseline_unavailable_handler(_: Request, exc: Exception) -> JSONResponse:
     """Translate a missing immutable draft baseline to a typed 409."""
     return error_response(409, "DRAFT_BASELINE_UNAVAILABLE", str(exc), {})
 
 
-async def _publication_gate_handler(_: Request, exc: Exception) -> JSONResponse:
+def _publication_gate_handler(_: Request, exc: Exception) -> JSONResponse:
     """Translate a durable publication gate to a typed 409."""
     return error_response(409, "PUBLICATION_UNRESOLVED", str(exc), {})
 
 
-async def _publication_conflict_handler(_: Request, exc: Exception) -> JSONResponse:
+def _publication_conflict_handler(_: Request, exc: Exception) -> JSONResponse:
     """Translate a concurrent publication change to a typed 409."""
     return error_response(409, "PUBLICATION_CONCURRENT_CHANGE", str(exc), {})
 
 
-async def _domain_rejection_handler(_: Request, exc: Exception) -> JSONResponse:
+def _domain_rejection_handler(_: Request, exc: Exception) -> JSONResponse:
     """Translate domain and workflow input rejections to a typed 422."""
     return error_response(
         422, "DOMAIN_POLICY_REJECTION", str(exc), {"reason": str(exc)}
     )
 
 
-async def _upstream_handler(_: Request, exc: Exception) -> JSONResponse:
+def _upstream_handler(_: Request, exc: Exception) -> JSONResponse:
     """Translate an application-owned upstream failure to a typed 502."""
     details: dict[str, Any] = {}
     if isinstance(exc, UpstreamError):
@@ -199,7 +199,7 @@ async def _upstream_handler(_: Request, exc: Exception) -> JSONResponse:
     return error_response(502, "KEITARO_UPSTREAM_FAILURE", str(exc), details)
 
 
-async def _internal_handler(_: Request, exc: Exception) -> JSONResponse:
+def _internal_handler(_: Request, exc: Exception) -> JSONResponse:
     """Return a safe 500 without leaking internal exception details."""
     return error_response(500, "INTERNAL_ERROR", "internal server error", {})
 
