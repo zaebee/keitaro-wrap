@@ -248,9 +248,12 @@ class PublicationService:
     async def recover(self) -> RecoveryResult:
         """Reconcile unresolved operations with bounded read-only calls."""
         deadline = time.monotonic() + self._recovery_deadline_seconds
-        operations = await asyncio.to_thread(
-            self._publications.list_recoverable, self._max_recovery_operations
-        )
+        try:
+            operations = await asyncio.to_thread(
+                self._publications.list_recoverable, self._max_recovery_operations
+            )
+        except Exception:
+            return self._degraded_result()
         remaining = len(operations)
         result = RecoveryResult(remaining=remaining)
         if self._expired(deadline):
@@ -274,6 +277,11 @@ class PublicationService:
             if attempt.expired:
                 return self._deadline_result(result)
         return result
+
+    @staticmethod
+    def _degraded_result() -> RecoveryResult:
+        """Report a recovery pass stopped by an unavailable local database."""
+        return RecoveryResult(degraded=1, deadline_reached=True)
 
     @staticmethod
     def _expired(deadline: float) -> bool:
@@ -556,9 +564,12 @@ class PublicationService:
         if self._expired(deadline):
             return _RecoveryAttempt(False, degraded, True, True)
         if operation.status is PublicationStatus.IN_PROGRESS:
-            await asyncio.to_thread(
-                self._publications.mark_ambiguous, operation.id, error
-            )
+            try:
+                await asyncio.to_thread(
+                    self._publications.mark_ambiguous, operation.id, error
+                )
+            except Exception:
+                return _RecoveryAttempt(False, True, True, True)
         return _RecoveryAttempt(False, degraded, self._expired(deadline), True)
 
     async def _finalize_recovery(
@@ -567,9 +578,12 @@ class PublicationService:
         """Finalize a verified operation without cancelling a local transaction."""
         if self._expired(deadline):
             return _RecoveryAttempt(False, True, True, True)
-        verified = await asyncio.to_thread(
-            self._publications.finalize_success, operation.id, observed
-        )
+        try:
+            verified = await asyncio.to_thread(
+                self._publications.finalize_success, operation.id, observed
+            )
+        except Exception:
+            return _RecoveryAttempt(False, True, True, True)
         if verified is not None:
             return _RecoveryAttempt(True, False, self._expired(deadline), True)
         return await self._mark_unresolved_recovery(
