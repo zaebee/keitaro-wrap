@@ -8,17 +8,18 @@ or with an owner decision, flag the conflict rather than silently choosing one.
 
 Keitaro Wrap is a modular monolith: a FastAPI app with minimal local state that wraps the
 Keitaro Admin API for campaign creation and offer editing. Python 3.12, uv, SQLite +
-Alembic, Ruff, Pyrefly, pytest. Slices 0 (foundation), 1 (Keitaro client), 2
-(allocation domain), 3 (campaign creation), 4 (Fetch/reconciliation) and 5
-(local draft editing) are implemented; later slices are planned, not present —
-check the docs and `git log` before assuming a capability exists.
+Alembic, Ruff, Pyrefly, pytest. Slices 0–7 are implemented: foundation,
+Keitaro client, allocation domain, campaign creation, Fetch/reconciliation, local
+draft editing, publication/recovery and the HTTP API transport. Later slices are
+planned, not present — check the docs and `git log` before assuming a capability.
 
 Code map:
 
 - `app/main.py` — FastAPI app, lifespan, composition root (wires the HTTP client).
-- `app/api/` — HTTP transport (routes/schemas).
-- `app/application/` — workflows (campaign creation, Fetch, local draft editing),
-  DTOs and ports.
+- `app/api/` — HTTP transport (routes, Pydantic schemas, dependency providers,
+  stable error translation).
+- `app/application/` — workflows (campaign creation, Fetch, local draft editing,
+  publication/recovery), DTOs, ports and application-owned errors.
 - `app/domain/` — pure domain logic (allocation, operation state machine, offer
   reconciliation, staged draft planning); no I/O.
 - `app/core/` — settings from `.env`.
@@ -26,7 +27,7 @@ Code map:
   including stream refs, remote offer snapshots, committed bindings and durable
   staged drafts with immutable offer/binding baselines.
 - `app/keitaro_client/` — HTTP adapter implementing the Keitaro port.
-- `tests/` — unit and mocked-HTTP contract tests.
+- `tests/` — unit, mocked-HTTP contract and route-level tests.
 
 ## 2. Canonical documents (read before changing related code)
 
@@ -78,6 +79,7 @@ Preserve these unless the assigned task explicitly changes them:
   flow, configurable redirect URL, sticky Fetch conflicts, per-stream independence,
   auto-pin on manual share, integer share input, surfaced allocation policy cases and
   stale-draft edit blocking with local Cancel).
+  D23–D25 were approved in issue #33 and D26 (Slice 7 HTTP contract) in issue #35.
   D8/D9 and the Fetch decisions were approved in issue #29; D19–D22 in issue #31.
 - Proposed or open: D4–D7 and the remaining decision gates in
   `docs/implementation/implementation-plan.md`. The editor's video-supported core is

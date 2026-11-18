@@ -12,6 +12,7 @@ flowchart TD
   S2 --> S4
   S4 --> S5[Slice 5: Draft editing]
   S5 --> S6[Slice 6: Push/Cancel/recovery]
+  S6 --> S7[Slice 7: HTTP API transport]
 ```
 Notes: Campaign creation does not depend on allocation. Fetch/reconciliation depends on Keitaro client and allocation domain (bindings), not on campaign creation.
 
@@ -73,6 +74,13 @@ Notes: Campaign creation does not depend on allocation. Fetch/reconciliation dep
 - Tests: partial Push, ambiguous retry rules, startup recovery, Cancel after partial.
 - Completion: recovery without blind retries.
 
+### Slice 7 — HTTP API transport (implemented, issue #35)
+- Capability: FastAPI routes and typed transport schemas for Slices 3–6, with a stable structured error contract.
+- Modules: `app/api/` routes, schemas, dependency providers and error translation; application-owned read/idempotency helpers; no new business workflow.
+- Prerequisites: Slices 3–6.
+- Tests: route success/validation/error mapping, idempotent creation races, draft version forwarding, per-stream Push/partial success, D25 Cancel, D14 boundary, disabled-write fail-closed behavior.
+- Completion: API documented; `make check` passes; no live Keitaro mutation.
+
 ## Decision gates (open unless resolved)
 | Question | Status | Implementation impact |
 |---|---|---|
@@ -89,6 +97,7 @@ Notes: Campaign creation does not depend on allocation. Fetch/reconciliation dep
 | duplicate archived offers | Resolved by owner (#29): same as duplicate bindings, Fetch fails explicitly | S4 rejects any duplicate offer id in one remote stream |
 | remote share changes during draft | Resolved by owner (#29): cache/baseline update plus sticky conflict marker, no staged overwrite | S4 writes only `is_stale` and `conflict_details` |
 | Cancel after partial Push | Resolved by owner (#33): D25 A, reconcile-first; failed requires absence evidence | S6 publication Cancel is distinct from local draft Cancel |
+| Disabled live writes on Push API | Resolved by owner (#35): typed `LIVE_WRITES_DISABLED` → `503` | S7 keeps fail-closed response with the full `PushResult` |
 | multiple offer-bearing streams | Resolved by owner (#29): independent per-stream reconciliation; non-empty offers array defines offer-bearing | S4 has no designated target or selection policy |
 | flow type/priority | Resolved by owner (#26): offer flow uses `default` | S3 implements two flows without a priority field |
 | Google destination fixed/configurable | Resolved by owner (#26): configurable setting, Google default | S3 uses `KEITARO_REDIRECT_URL`, no UI |

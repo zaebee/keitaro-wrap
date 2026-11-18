@@ -20,6 +20,7 @@ from app.application.dto import (
     PushStreamsCommand,
     RemoteSnapshotView,
     StreamDTO,
+    StreamRefView,
     StreamUpdateDTO,
 )
 from app.application.ports import (
@@ -145,6 +146,14 @@ class FakeSnapshots:
     def get_remote_snapshot(self, stream_ref: int) -> RemoteSnapshotView | None:
         """Return a cached snapshot."""
         return self.values.get(stream_ref)
+
+    def get_stream_ref(self, stream_ref: int) -> StreamRefView | None:
+        """Return a cached stream reference for the test campaign."""
+        if stream_ref not in self.values:
+            return None
+        return StreamRefView(
+            stream_ref, 5, "default", f"stream-{stream_ref}", "landings", None
+        )
 
 
 class FakeClient:
@@ -562,7 +571,8 @@ async def test_slow_recovery_db_call_finishes_before_startup_continues():
 @pytest.mark.asyncio
 async def test_cancel_is_reconcile_first():
     """D25 blocks Cancel for unresolved state and requires evidence for failed."""
-    service, drafts, _, _, publications = make_service()
+    service, drafts, snapshots, _, publications = make_service()
+    snapshots.add(12)
     drafts.add(12)
     plan = PublicationPlan(5, 12, 1, {}, (), {"offers": []}, (), {}, "m")
     ambiguous = publications._store(plan, PublicationStatus.AMBIGUOUS)
@@ -587,7 +597,8 @@ async def test_cancel_is_reconcile_first():
 @pytest.mark.asyncio
 async def test_cancel_conflict_keeps_operation_and_draft_unchanged():
     """A changed draft rejects Cancel without abandoning the operation."""
-    service, drafts, _, _, publications = make_service()
+    service, drafts, snapshots, _, publications = make_service()
+    snapshots.add(12)
     drafts.add(12)
     plan = PublicationPlan(5, 12, 1, {}, (), {"offers": []}, (), {}, "m")
     pending = publications._store(plan, PublicationStatus.PENDING)

@@ -1,6 +1,6 @@
 # Keitaro Wrap
 
-FastAPI + SQLAlchemy application (Slice 0 foundation).
+FastAPI + SQLAlchemy application with the Slice 0–7 workflows and HTTP API.
 
 ## Setup
 
@@ -62,3 +62,11 @@ uv run pytest -q
 ## Health
 
 GET /health -> {"status": "ok"}
+
+## HTTP API
+
+The Slice 7 routes expose campaign creation/read/resume, Fetch, cached stream and
+committed/draft/publication reads, local draft commands, Push, publication Cancel
+and recovery. Route contracts and error codes are tracked in issue #35 and
+`docs/architecture.md`; request/response schemas live in `app/api/schemas.py`.
+Live publication writes remain disabled by default.

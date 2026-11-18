@@ -127,6 +127,12 @@ class CampaignCreationOperationRepository(Protocol):
         """Persist a new operation."""
         ...
 
+    def get_or_create(
+        self, operation: CampaignCreationOperation
+    ) -> tuple[CampaignCreationOperation, bool]:
+        """Atomically insert an operation or return the existing one."""
+        ...
+
     def get_by_uuid(self, operation_uuid: str) -> CampaignCreationOperation | None:
         """Load an operation by its stable UUID."""
         ...
@@ -184,6 +190,10 @@ class StreamReconciliationRepository(Protocol):
         """Apply one complete remote observation in a single transaction."""
         ...
 
+    def list_by_campaign(self, campaign_id: int) -> tuple[StreamRefView, ...]:
+        """List cached stream references of one campaign."""
+        ...
+
     def get_stream_ref(self, stream_ref: int) -> StreamRefView | None:
         """Load a cached remote stream reference by its Keitaro id."""
         ...
@@ -203,6 +213,10 @@ class StreamReconciliationRepository(Protocol):
 
 class StreamDraftRepository(Protocol):
     """Synchronous store for local staged edits; no external I/O."""
+
+    def get_stream_campaign(self, stream_ref: int) -> int | None:
+        """Return the campaign id of a cached stream reference, if known."""
+        ...
 
     def list_dirty(self, campaign_id: int) -> tuple[DirtyDraftView, ...]:
         """List dirty drafts of one campaign for publication planning."""

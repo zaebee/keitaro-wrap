@@ -30,6 +30,13 @@
 - Migration: `stream_publications`, its partial unique index and new columns verified on upgrade/downgrade/upgrade.
 - Review regressions: a hanging reconciliation GET is cancelled by the remaining recovery deadline and leaves later operations untouched; a slow local `list_recoverable()` is awaited to completion, sets `deadline_reached`, starts no remote phase and leaves no background DB work; a real temporary SQLite database with a held write lock and exhausted one-connection pool verifies the configured `pool_timeout` is applied and recovery returns degraded without remote reads; a separate two-connection SQLite test holds `BEGIN IMMEDIATE` and verifies a write through the second connection fails within the configured `busy_timeout` rather than `pool_timeout`; a simulated commit crash during publication Cancel rolls back both abandonment and draft discard; a changed draft version/intent rejects Cancel without writing either.
 
+## Executed for Slice 7 (issue #35)
+- Route-level success tests for campaign creation/read/resume, Fetch, cached stream/committed/draft/publication reads, all local draft commands, Push, publication Cancel and recovery.
+- Request schema validation and stable error-envelope mapping for validation, not-found, stale version, sticky conflict, domain rejection, upstream failure and ambiguous/disabled publication outcomes.
+- Idempotent creation: winning `201 + Location`, replay `200`, different intent `409`, both unique-race win orders, one workflow execution, rollback/fresh re-read of a real unique-constraint loser.
+- Publication safety: per-stream partial success, typed `LIVE_WRITES_DISABLED` → `503` with the full `PushResult`, allowlisted public publication fields, D25 Cancel matrix, degraded recovery.
+- D14 route-level assertion that synchronous repository work runs off the event-loop thread; no live Keitaro mutation in any API test.
+
 ## Committed vs staged tests
 - Staged changes do not overwrite committed binding state until Push commits.
 - Cancel restores committed state and discards staged changes.

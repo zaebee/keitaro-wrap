@@ -12,13 +12,16 @@ from app.application.dto import (
     DirtyDraftView,
     OfferEntry,
     PublicationOperationView,
+    PublicationOutcomeReason,
     PublicationPlan,
+    PublicPublicationView,
     PushResult,
     PushStreamOutcome,
     PushStreamsCommand,
     RecoveryResult,
     StreamUpdateDTO,
 )
+from app.application.errors import StreamNotFoundError
 from app.application.ports import (
     KeitaroClientPort,
     StreamDraftRepository,
@@ -49,6 +52,35 @@ class PublicationInputError(ValueError):
 _LIVE_WRITES_DISABLED = (
     "LIVE_WRITES_DISABLED: offers-only PUT preservation is not verified"
 )
+
+
+def _outcome_reason_code(reason: str | None) -> PublicationOutcomeReason | None:
+    """Map a stable application reason string to its machine-readable code."""
+    if reason is None:
+        return None
+    if reason.startswith("LIVE_WRITES_DISABLED:"):
+        return PublicationOutcomeReason.LIVE_WRITES_DISABLED
+    if reason.startswith("PREIMAGE_READ_FAILED:"):
+        return PublicationOutcomeReason.PREIMAGE_READ_FAILED
+    try:
+        return PublicationOutcomeReason(reason)
+    except ValueError:
+        return None
+
+
+def _public_view(
+    operation: PublicationOperationView,
+) -> PublicPublicationView:
+    """Project a durable operation to the allowlisted public representation."""
+    return PublicPublicationView(
+        operation_uuid=operation.operation_uuid,
+        campaign_id=operation.campaign_id,
+        stream_ref=operation.stream_ref,
+        status=operation.status,
+        draft_version=operation.draft_version,
+        effective_entries=operation.effective_entries,
+        attempt_count=operation.attempt_count,
+    )
 
 
 @dataclass(frozen=True)
@@ -106,8 +138,7 @@ class PublicationService:
             return PushResult(command.campaign_id, tuple(outcomes))
         if not self._allow_live_writes:
             outcomes.extend(
-                PushStreamOutcome(ref, reason=_LIVE_WRITES_DISABLED)
-                for ref in active_refs
+                self._outcome(ref, reason=_LIVE_WRITES_DISABLED) for ref in active_refs
             )
             return PushResult(command.campaign_id, tuple(outcomes))
 
@@ -120,6 +151,50 @@ class PublicationService:
         for operation in operations:
             outcomes.append(await self._push_one(operation, worker_token))
         return PushResult(command.campaign_id, tuple(outcomes))
+
+    @staticmethod
+    def _outcome(
+        stream_ref: int,
+        reason: str | None = None,
+        status: PublicationStatus | None = None,
+        operation_id: int | None = None,
+    ) -> PushStreamOutcome:
+        """Build a per-stream outcome with a typed machine-readable reason."""
+        return PushStreamOutcome(
+            stream_ref=stream_ref,
+            status=status,
+            operation_id=operation_id,
+            reason=reason,
+            reason_code=_outcome_reason_code(reason),
+        )
+
+    async def _require_stream(self, campaign_id: int, stream_ref: int) -> None:
+        """Verify that a cached stream belongs to the requested campaign."""
+        reference = await asyncio.to_thread(self._snapshots.get_stream_ref, stream_ref)
+        if reference is None or reference.campaign_id != campaign_id:
+            raise StreamNotFoundError(campaign_id, stream_ref)
+
+    async def get_latest(
+        self, campaign_id: int, stream_ref: int
+    ) -> PublicPublicationView | None:
+        """Return the latest public publication view for one campaign stream."""
+        self._validate_identity(campaign_id, stream_ref)
+        await self._require_stream(campaign_id, stream_ref)
+        operation = await asyncio.to_thread(
+            self._publications.get_latest, campaign_id, stream_ref
+        )
+        return _public_view(operation) if operation is not None else None
+
+    async def list_recoverable(
+        self, limit: int = 100
+    ) -> tuple[PublicPublicationView, ...]:
+        """Return a bounded public view of unresolved publication operations."""
+        if type(limit) is not int or limit <= 0:
+            raise PublicationInputError("limit must be a positive int")
+        operations = await asyncio.to_thread(
+            self._publications.list_recoverable, min(limit, 100)
+        )
+        return tuple(_public_view(operation) for operation in operations)
 
     async def _classify_targets(
         self, campaign_id: int, targets: list[DirtyDraftView]
@@ -142,9 +217,7 @@ class PublicationService:
                 resumable.append(operation)
             else:
                 blocked.append(
-                    PushStreamOutcome(
-                        target.stream_ref, reason="UNRESOLVED_PUBLICATION"
-                    )
+                    self._outcome(target.stream_ref, reason="UNRESOLVED_PUBLICATION")
                 )
         return planning, resumable, blocked
 
@@ -191,7 +264,7 @@ class PublicationService:
         for target in planning:
             plan, reason = await self._build_plan(campaign_id, target)
             if plan is None:
-                outcomes.append(PushStreamOutcome(target.stream_ref, reason=reason))
+                outcomes.append(self._outcome(target.stream_ref, reason=reason))
             else:
                 plans.append(plan)
         if not plans:
@@ -203,7 +276,7 @@ class PublicationService:
         except (PublicationConflictError, PublicationGateError):
             planned = {plan.stream_ref for plan in plans}
             outcomes.extend(
-                PushStreamOutcome(target.stream_ref, reason="CONCURRENT_PUBLICATION")
+                self._outcome(target.stream_ref, reason="CONCURRENT_PUBLICATION")
                 for target in planning
                 if target.stream_ref in planned
             )
@@ -221,7 +294,7 @@ class PublicationService:
             if reason is None:
                 ready.append(operation)
             else:
-                outcomes.append(PushStreamOutcome(operation.stream_ref, reason=reason))
+                outcomes.append(self._outcome(operation.stream_ref, reason=reason))
         return ready
 
     async def _validate_resume(self, operation: PublicationOperationView) -> str | None:
@@ -300,12 +373,18 @@ class PublicationService:
             deadline_reached=True,
         )
 
+    @staticmethod
+    def _validate_identity(campaign_id: int, stream_ref: int) -> None:
+        """Validate campaign and stream identity shared by read and cancel paths."""
+        if type(campaign_id) is not int or campaign_id <= 0:
+            raise PublicationInputError("campaign_id must be a positive int")
+        if type(stream_ref) is not int or stream_ref <= 0:
+            raise PublicationInputError("stream_ref must be a positive int")
+
     async def cancel(self, command: CancelPublicationCommand) -> CancelResult:
         """Cancel publication state without ever rolling back a remote success."""
-        if type(command.campaign_id) is not int or command.campaign_id <= 0:
-            raise PublicationInputError("campaign_id must be a positive int")
-        if type(command.stream_ref) is not int or command.stream_ref <= 0:
-            raise PublicationInputError("stream_ref must be a positive int")
+        self._validate_identity(command.campaign_id, command.stream_ref)
+        await self._require_stream(command.campaign_id, command.stream_ref)
         operation = await asyncio.to_thread(
             self._publications.get_latest, command.campaign_id, command.stream_ref
         )
@@ -360,16 +439,16 @@ class PublicationService:
             for ref in command.stream_refs:
                 item = by_ref.get(ref)
                 if item is None:
-                    outcomes.append(PushStreamOutcome(ref, reason="NO_DIRTY_DRAFT"))
+                    outcomes.append(self._outcome(ref, reason="NO_DIRTY_DRAFT"))
                 elif item.is_stale:
-                    outcomes.append(PushStreamOutcome(ref, reason="STALE_CONFLICT"))
+                    outcomes.append(self._outcome(ref, reason="STALE_CONFLICT"))
                 else:
                     targets.append(item)
             return targets, outcomes
         for item in dirty:
             if item.is_stale:
                 outcomes.append(
-                    PushStreamOutcome(item.stream_ref, reason="STALE_CONFLICT_SKIPPED")
+                    self._outcome(item.stream_ref, reason="STALE_CONFLICT_SKIPPED")
                 )
             else:
                 targets.append(item)
@@ -470,9 +549,7 @@ class PublicationService:
             self._publications.claim, operation.id, worker_token
         )
         if claimed is None:
-            return PushStreamOutcome(
-                operation.stream_ref, reason="CONCURRENT_PUBLICATION"
-            )
+            return self._outcome(operation.stream_ref, reason="CONCURRENT_PUBLICATION")
         try:
             await self._client.update_stream(
                 operation.stream_ref,
@@ -483,8 +560,11 @@ class PublicationService:
             await asyncio.to_thread(
                 self._publications.mark_ambiguous, operation.id, error
             )
-            return PushStreamOutcome(
-                operation.stream_ref, PublicationStatus.AMBIGUOUS, operation.id, error
+            return self._outcome(
+                operation.stream_ref,
+                reason=error,
+                status=PublicationStatus.AMBIGUOUS,
+                operation_id=operation.id,
             )
         return await self._confirm(operation)
 
@@ -514,10 +594,10 @@ class PublicationService:
                         observed,
                     )
                     if verified is not None:
-                        return PushStreamOutcome(
+                        return self._outcome(
                             operation.stream_ref,
-                            PublicationStatus.SUCCEEDED,
-                            operation.id,
+                            status=PublicationStatus.SUCCEEDED,
+                            operation_id=operation.id,
                         )
                     error = "draft changed before confirmation"
                     break
@@ -526,8 +606,11 @@ class PublicationService:
             if attempt + 1 < self._reconcile_attempts:
                 await asyncio.sleep(self._reconcile_delay)
         await asyncio.to_thread(self._publications.mark_ambiguous, operation.id, error)
-        return PushStreamOutcome(
-            operation.stream_ref, PublicationStatus.AMBIGUOUS, operation.id, error
+        return self._outcome(
+            operation.stream_ref,
+            reason=error,
+            status=PublicationStatus.AMBIGUOUS,
+            operation_id=operation.id,
         )
 
     async def _read_observation(

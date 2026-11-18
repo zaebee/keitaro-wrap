@@ -14,6 +14,7 @@ from app.application.dto import (
     SetShareCommand,
     to_domain_command,
 )
+from app.application.errors import StreamNotFoundError
 from app.application.ports import StreamDraftRepository
 from app.domain.reconciliation import ConflictDetail
 
@@ -32,6 +33,20 @@ class DraftStaleError(ValueError):
 
 class DraftVersionConflict(ValueError):
     """The draft changed since the caller read its version."""
+
+    def __init__(
+        self,
+        message: str = "draft version changed",
+        *,
+        stream_ref: int | None = None,
+        expected_version: int | None = None,
+        current_version: int | None = None,
+    ):
+        """Keep optimistic-concurrency details structured for the transport."""
+        self.stream_ref = stream_ref
+        self.expected_version = expected_version
+        self.current_version = current_version
+        super().__init__(message)
 
 
 class DraftService:
@@ -69,6 +84,21 @@ class DraftService:
         """Load the current derived staged view off the event loop."""
         if type(stream_ref) is not int or stream_ref <= 0:
             raise ValueError("stream_ref must be a positive int")
+        return await asyncio.to_thread(self._repository.get_view, stream_ref)
+
+    async def get_view_for_campaign(
+        self, campaign_id: int, stream_ref: int
+    ) -> DraftView | None:
+        """Load a draft view only when the stream belongs to the campaign."""
+        if type(campaign_id) is not int or campaign_id <= 0:
+            raise ValueError("campaign_id must be a positive int")
+        if type(stream_ref) is not int or stream_ref <= 0:
+            raise ValueError("stream_ref must be a positive int")
+        owner = await asyncio.to_thread(
+            self._repository.get_stream_campaign, stream_ref
+        )
+        if owner != campaign_id:
+            raise StreamNotFoundError(campaign_id, stream_ref)
         return await asyncio.to_thread(self._repository.get_view, stream_ref)
 
     async def _apply(self, command: DraftCommandBase) -> DraftCommandResult:

@@ -3,6 +3,7 @@
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import StrEnum
 
 from app.domain.allocation import PolicyCase
 from app.domain.campaign_creation import OperationStatus
@@ -223,6 +224,14 @@ class CampaignCreationResult:
 
 
 @dataclass(frozen=True)
+class CreateCampaignOutcome:
+    """Creation result plus whether this call created the durable operation."""
+
+    result: CampaignCreationResult
+    created: bool
+
+
+@dataclass(frozen=True)
 class FetchStreamsCommand:
     """Request to fetch and reconcile all streams of one campaign."""
 
@@ -293,6 +302,15 @@ class RemoteSnapshotView:
 
     offers: tuple[RemoteOffer, ...]
     captured_at: datetime
+
+
+@dataclass(frozen=True)
+class CommittedStateView:
+    """Public read model for committed bindings and the remote snapshot cache."""
+
+    stream_ref: int
+    bindings: tuple[StreamBindingView, ...]
+    snapshot: RemoteSnapshotView | None
 
 
 @dataclass(frozen=True)
@@ -438,6 +456,25 @@ class PublicationOperationView:
     evidence: Mapping[str, object] | None
 
 
+class PublicationOutcomeReason(StrEnum):
+    """Machine-readable reasons exposed for per-stream publication outcomes."""
+
+    EMPTY_OFFERS = "empty_offers"
+    PINNED_SUM_EXCEEDED = "pinned_sum_exceeded"
+    UNALLOCATED_REMAINDER = "unallocated_remainder"
+    INVALID_TOTAL = "invalid_total"
+    LIVE_WRITES_DISABLED = "live_writes_disabled"
+    STALE_REMOTE_STATE = "stale_remote_state"
+    NO_DIRTY_DRAFT = "no_dirty_draft"
+    STALE_CONFLICT = "stale_conflict"
+    STALE_CONFLICT_SKIPPED = "stale_conflict_skipped"
+    UNRESOLVED_PUBLICATION = "unresolved_publication"
+    DRAFT_CHANGED = "draft_changed"
+    CONCURRENT_PUBLICATION = "concurrent_publication"
+    PREIMAGE_READ_FAILED = "preimage_read_failed"
+    REMOTE_IDENTITY_MISMATCH = "remote_identity_mismatch"
+
+
 @dataclass(frozen=True)
 class PushStreamOutcome:
     """Independent outcome of one stream in a Push batch."""
@@ -446,6 +483,7 @@ class PushStreamOutcome:
     status: PublicationStatus | None = None
     operation_id: int | None = None
     reason: str | None = None
+    reason_code: PublicationOutcomeReason | None = None
 
 
 @dataclass(frozen=True)
@@ -454,6 +492,19 @@ class PushResult:
 
     campaign_id: int
     outcomes: tuple[PushStreamOutcome, ...]
+
+
+@dataclass(frozen=True)
+class PublicPublicationView:
+    """Allowlisted publication projection safe for HTTP responses."""
+
+    operation_uuid: str
+    campaign_id: int
+    stream_ref: int
+    status: PublicationStatus
+    draft_version: int
+    effective_entries: tuple[OfferEntry, ...]
+    attempt_count: int
 
 
 @dataclass(frozen=True)
