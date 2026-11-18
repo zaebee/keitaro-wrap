@@ -10,6 +10,9 @@ export const queryKeys = {
     ["committed", campaignId, streamRef] as const,
   draft: (campaignId: number, streamRef: number) =>
     ["draft", campaignId, streamRef] as const,
+  publication: (campaignId: number, streamRef: number) =>
+    ["publication", campaignId, streamRef] as const,
+  recoverablePublications: ["recoverable-publications"] as const,
 };
 
 export function createQueryClient(): QueryClient {

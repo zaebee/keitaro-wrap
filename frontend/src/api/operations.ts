@@ -8,6 +8,8 @@ import type {
   DraftStateResponse,
   FetchOutcomeResponse,
   OfferDraftRequest,
+  PublicPublicationResponse,
+  PublicationStateResponse,
   RemoveDraftRequest,
   RestoreDraftRequest,
   SetShareDraftRequest,
@@ -17,6 +19,10 @@ import type {
 export type {
   ConflictDetailResponse,
   DraftViewResponse,
+  OfferEntryResponse,
+  PublicationStateResponse,
+  PublicationStatus,
+  PublicPublicationResponse,
   StagedOfferResponse,
 } from "./generated/openapi";
 
@@ -191,4 +197,25 @@ export function cancelLocalDraft(
   body: CancelDraftRequest,
 ): Promise<DraftCommandResultResponse> {
   return postDraftCommand(campaignId, streamRef, "cancel", body);
+}
+
+export const RECOVERABLE_PUBLICATIONS_LIMIT = 100;
+
+export async function getPublicationState(
+  campaignId: number,
+  streamRef: number,
+): Promise<PublicationStateResponse> {
+  const result = await apiRequest<PublicationStateResponse>(
+    `${streamPath(campaignId, streamRef)}/publication`,
+  );
+  return result.data;
+}
+
+export async function getRecoverablePublications(): Promise<
+  PublicPublicationResponse[]
+> {
+  const result = await apiRequest<PublicPublicationResponse[]>(
+    `/publications/recoverable?limit=${RECOVERABLE_PUBLICATIONS_LIMIT}`,
+  );
+  return result.data;
 }

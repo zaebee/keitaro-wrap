@@ -197,6 +197,39 @@ export function commandResultFixture(
   return { view, created: false, noop: false, ...overrides };
 }
 
+export function publicationOperationFixture(
+  overrides: Partial<{
+    operation_uuid: string;
+    campaign_id: number;
+    stream_ref: number;
+    status: string;
+    draft_version: number;
+    effective_entries: { offer_id: number; share: number; state: string | null }[];
+    attempt_count: number;
+  }> = {},
+) {
+  return {
+    operation_uuid: "operation-1",
+    campaign_id: 42,
+    stream_ref: 101,
+    status: "succeeded",
+    draft_version: 1,
+    effective_entries: [
+      { offer_id: 7, share: 60, state: "active" },
+      { offer_id: 8, share: 40, state: "active" },
+    ],
+    attempt_count: 1,
+    ...overrides,
+  };
+}
+
+export function publicationStateFixture(
+  operation: ReturnType<typeof publicationOperationFixture> | null =
+    publicationOperationFixture(),
+) {
+  return { stream_ref: 101, operation };
+}
+
 export function errorResponse(code: string, status: number, details = {}) {
   return HttpResponse.json(
     { error: { code, message: code, details } },

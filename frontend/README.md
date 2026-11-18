@@ -66,8 +66,10 @@ and is not a browser-facing contract.
 - `/campaigns/open` — manual campaign ID entry.
 - `/campaigns/:campaignId` — cached streams and explicit Fetch.
 - `/campaigns/:campaignId/streams/:streamRef` — offer editor: committed baseline,
-  staged draft and local draft commands. Opening this route performs GET reads only;
-  Fetch remains an explicit workspace action.
+  staged draft, local draft commands and latest publication status. Opening this
+  route performs GET reads only; Fetch remains an explicit workspace action.
+- `/recovery` — read-only, point-in-time view of the bounded recoverable-publication
+  queue. No recovery, Push or publication Cancel action is available.
 
 ## Operation UUID recovery
 

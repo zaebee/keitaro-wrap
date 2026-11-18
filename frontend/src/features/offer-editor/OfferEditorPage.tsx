@@ -8,6 +8,7 @@ import {
   cancelLocalDraft,
   getCommittedState,
   getDraftState,
+  getPublicationState,
   pinDraftOffer,
   removeDraftOffer,
   restoreDraftOffer,
@@ -17,6 +18,7 @@ import {
 } from "../../api/operations";
 import { queryKeys } from "../../queries/queryClient";
 import { useNarrowViewport } from "../../shared/hooks/useNarrowViewport";
+import { PublicationStatusPanel } from "../publication/PublicationStatusPanel";
 import { parsePositiveId } from "../campaign-workspace/campaignId";
 import {
   CommittedPanel,
@@ -121,6 +123,12 @@ function Editor({
     queryFn: () => getDraftState(campaignId, streamRef),
     retry: false,
   });
+  const publicationQuery = useQuery({
+    queryKey: queryKeys.publication(campaignId, streamRef),
+    queryFn: () => getPublicationState(campaignId, streamRef),
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
 
   const mutation = useMutation({
     mutationFn: (action: DraftActionRequest) => {
@@ -182,6 +190,7 @@ function Editor({
 
   const draft = draftQuery.data?.draft ?? null;
   const mutationFailure = describeFailure(mutation.error);
+  const publicationFailure = describeFailure(publicationQuery.error);
   const staleConflicts = conflictDetails(mutation.error);
   const busy = mutation.isPending;
   const blocked = draft?.is_stale === true || (draft?.conflicts.length ?? 0) > 0;
@@ -258,7 +267,12 @@ function Editor({
   return (
     <section
       aria-labelledby="editor-heading"
-      aria-busy={busy || committedQuery.isFetching || draftQuery.isFetching}
+      aria-busy={
+        busy ||
+        committedQuery.isFetching ||
+        draftQuery.isFetching ||
+        publicationQuery.isFetching
+      }
       className={`${styles.card} ${narrow ? styles.narrow : ""}`}
       data-recovery-lock={recoveryRequired ? "active" : "inactive"}
     >
@@ -373,6 +387,23 @@ function Editor({
             onKeepDraft={() => setConfirmingCancel(false)}
           />
         )}
+      </section>
+
+      <section
+        aria-labelledby="publication-section-heading"
+        className={styles.section}
+      >
+        <h2 id="publication-section-heading">Latest publication status</h2>
+        <PublicationStatusPanel
+          state={publicationQuery.data ?? null}
+          expectedStreamRef={streamRef}
+          isPending={publicationQuery.isPending}
+          error={
+            publicationQuery.isError ? publicationFailure : null
+          }
+          onRetry={() => publicationQuery.refetch()}
+          retryDisabled={publicationQuery.isFetching}
+        />
       </section>
 
       <ReviewPanel draft={draft} />
