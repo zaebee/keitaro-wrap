@@ -2,12 +2,13 @@
 
 import asyncio
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, cast
 from uuid import uuid4
 
 import pytest
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.application.campaign_creation import (
     CampaignConfigurationError,
@@ -276,36 +277,118 @@ async def test_concurrent_same_uuid_executes_one_workflow(monkeypatch, winner_of
     assert sum(isinstance(item, IdempotencyKeyReused) for item in results) == 1
 
 
-def test_repository_loser_reuses_winner_after_rollback(tmp_path):
-    """A real unique-constraint loser returns the winner through a fresh read."""
+@pytest.mark.parametrize("winner_offer_id", [100, 200])
+def test_repository_unique_race_reuses_winner_after_rollback(tmp_path, winner_offer_id):
+    """A real UNIQUE loser rolls back and re-reads the winner through a new session."""
     engine = create_engine(f"sqlite:///{tmp_path / 'ops.db'}")
     Base.metadata.create_all(engine)
-    repository = SqlAlchemyCampaignCreationOperations(sessionmaker(bind=engine))
-    winner = CampaignCreationOperation(
-        operation_uuid=str(uuid4()),
-        alias=make_alias(str(uuid4())),
-        name="Winner",
-        country_code="US",
-        offer_id=100,
-        domain_id=1,
-        group_id=2,
-        traffic_source_id=3,
-        redirect_url="https://example.test",
+
+    class TrackingSession(Session):
+        """Record rollback and creation order for the repository race."""
+
+        def __init__(self, *args: Any, **kwargs: Any):
+            """Track this session in creation order."""
+            super().__init__(*args, **kwargs)
+            self.rollback_count = 0
+            created_sessions.append(self)
+
+        def rollback(self):
+            """Record a real rollback before delegating."""
+            self.rollback_count += 1
+            rolled_back_sessions.append(self)
+            return super().rollback()
+
+    created_sessions: list[TrackingSession] = []
+    rolled_back_sessions: list[TrackingSession] = []
+    repository = SqlAlchemyCampaignCreationOperations(
+        sessionmaker(bind=engine, class_=TrackingSession)
     )
-    created = repository.get_or_create(winner)
-    assert created[1] is True
-    loser = CampaignCreationOperation(
-        operation_uuid=winner.operation_uuid,
-        alias=winner.alias,
-        name="Loser",
-        country_code="US",
-        offer_id=200,
-        domain_id=1,
-        group_id=2,
-        traffic_source_id=3,
-        redirect_url="https://example.test",
-    )
-    existing, was_created = repository.get_or_create(loser)
-    assert was_created is False
-    assert existing.offer_id == 100
+    original_lookup = repository.get_by_uuid
+    original_model = repository._operation_model
+    barrier = threading.Barrier(2)
+    winner_committed = threading.Event()
+    lock = threading.Lock()
+    initial_reads = 0
+    re_read_state: list[dict[str, int]] = []
+
+    def racing_lookup(operation_uuid: str):
+        """Force both initial lookups to miss, then delegate the loser's re-read."""
+        nonlocal initial_reads
+        with lock:
+            initial_reads += 1
+            call_number = initial_reads
+        if call_number <= 2:
+            barrier.wait(timeout=5)
+            return None
+        re_read_state.append(
+            {
+                "rollbacks": sum(
+                    session.rollback_count for session in created_sessions
+                ),
+                "session_count": len(created_sessions),
+            }
+        )
+        return original_lookup(operation_uuid)
+
+    def racing_model(operation: CampaignCreationOperation):
+        """Delay the loser until the winner has committed its INSERT."""
+        if operation.offer_id != winner_offer_id:
+            assert winner_committed.wait(timeout=5)
+        return original_model(operation)
+
+    cast(Any, repository).get_by_uuid = racing_lookup
+    cast(Any, repository)._operation_model = racing_model
+
+    operation_uuid = str(uuid4())
+    alias = make_alias(operation_uuid)
+
+    def operation_for(offer_id: int, name: str, error: str):
+        """Build one contender with the same idempotency identity."""
+        return CampaignCreationOperation(
+            operation_uuid=operation_uuid,
+            alias=alias,
+            name=name,
+            country_code="US",
+            offer_id=offer_id,
+            domain_id=1,
+            group_id=2,
+            traffic_source_id=3,
+            redirect_url="https://example.test",
+            error_message=error,
+        )
+
+    winner = operation_for(winner_offer_id, "Winner", "winner-error")
+    loser_offer_id = 200 if winner_offer_id == 100 else 100
+    loser = operation_for(loser_offer_id, "Loser", "loser-error")
+
+    def run(contender: CampaignCreationOperation, is_winner: bool):
+        """Run one real repository call and signal the winner's commit."""
+        outcome = repository.get_or_create(contender)
+        if is_winner:
+            winner_committed.set()
+        return outcome
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        winner_future = pool.submit(run, winner, True)
+        loser_future = pool.submit(run, loser, False)
+        winner_outcome = winner_future.result(timeout=10)
+        loser_outcome = loser_future.result(timeout=10)
+
+    assert winner_outcome[1] is True
+    assert loser_outcome[1] is False
+    assert loser_outcome[0].offer_id == winner_offer_id
+    assert loser_outcome[0].name == "Winner"
+    assert loser_outcome[0].error_message == "winner-error"
+    assert re_read_state, "loser must re-read after a real UNIQUE violation"
+    assert re_read_state[0]["rollbacks"] >= 1
+    read_session = created_sessions[re_read_state[0]["session_count"] - 1]
+    assert read_session not in rolled_back_sessions
+
+    stored = original_lookup(operation_uuid)
+    assert stored is not None
+    assert stored.offer_id == winner_offer_id
+    assert stored.name == "Winner"
+    assert stored.status is OperationStatus.STARTED
+    assert stored.error_message == "winner-error"
+    engine.dispose()
     engine.dispose()

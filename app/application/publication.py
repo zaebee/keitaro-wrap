@@ -29,6 +29,7 @@ from app.application.ports import (
     StreamReconciliationRepository,
 )
 from app.domain.publication import (
+    EligibilityReason,
     PublicationStatus,
     build_offer_entries,
     entries_match,
@@ -54,18 +55,22 @@ _LIVE_WRITES_DISABLED = (
 )
 
 
-def _outcome_reason_code(reason: str | None) -> PublicationOutcomeReason | None:
-    """Map a stable application reason string to its machine-readable code."""
-    if reason is None:
-        return None
-    if reason.startswith("LIVE_WRITES_DISABLED:"):
-        return PublicationOutcomeReason.LIVE_WRITES_DISABLED
-    if reason.startswith("PREIMAGE_READ_FAILED:"):
-        return PublicationOutcomeReason.PREIMAGE_READ_FAILED
-    try:
-        return PublicationOutcomeReason(reason)
-    except ValueError:
-        return None
+@dataclass(frozen=True)
+class _SkipReason:
+    """A diagnostic string paired with its explicit machine-readable code."""
+
+    reason: str
+    code: PublicationOutcomeReason | None = None
+
+
+_ELIGIBILITY_CODES: dict[EligibilityReason, PublicationOutcomeReason] = {
+    EligibilityReason.EMPTY_OFFERS: PublicationOutcomeReason.EMPTY_OFFERS,
+    EligibilityReason.PINNED_SUM_EXCEEDED: PublicationOutcomeReason.PINNED_SUM_EXCEEDED,
+    EligibilityReason.UNALLOCATED_REMAINDER: (
+        PublicationOutcomeReason.UNALLOCATED_REMAINDER
+    ),
+    EligibilityReason.INVALID_TOTAL: PublicationOutcomeReason.INVALID_TOTAL,
+}
 
 
 def _public_view(
@@ -138,7 +143,12 @@ class PublicationService:
             return PushResult(command.campaign_id, tuple(outcomes))
         if not self._allow_live_writes:
             outcomes.extend(
-                self._outcome(ref, reason=_LIVE_WRITES_DISABLED) for ref in active_refs
+                self._outcome(
+                    ref,
+                    reason=_LIVE_WRITES_DISABLED,
+                    reason_code=PublicationOutcomeReason.LIVE_WRITES_DISABLED,
+                )
+                for ref in active_refs
             )
             return PushResult(command.campaign_id, tuple(outcomes))
 
@@ -156,16 +166,18 @@ class PublicationService:
     def _outcome(
         stream_ref: int,
         reason: str | None = None,
+        *,
+        reason_code: PublicationOutcomeReason | None = None,
         status: PublicationStatus | None = None,
         operation_id: int | None = None,
     ) -> PushStreamOutcome:
-        """Build a per-stream outcome with a typed machine-readable reason."""
+        """Build a per-stream outcome with an explicitly supplied reason code."""
         return PushStreamOutcome(
             stream_ref=stream_ref,
             status=status,
             operation_id=operation_id,
             reason=reason,
-            reason_code=_outcome_reason_code(reason),
+            reason_code=reason_code,
         )
 
     async def _require_stream(self, campaign_id: int, stream_ref: int) -> None:
@@ -217,7 +229,11 @@ class PublicationService:
                 resumable.append(operation)
             else:
                 blocked.append(
-                    self._outcome(target.stream_ref, reason="UNRESOLVED_PUBLICATION")
+                    self._outcome(
+                        target.stream_ref,
+                        reason="UNRESOLVED_PUBLICATION",
+                        reason_code=PublicationOutcomeReason.UNRESOLVED_PUBLICATION,
+                    )
                 )
         return planning, resumable, blocked
 
@@ -262,9 +278,15 @@ class PublicationService:
         """Build and atomically persist new publication operations."""
         plans: list[PublicationPlan] = []
         for target in planning:
-            plan, reason = await self._build_plan(campaign_id, target)
+            plan, skip = await self._build_plan(campaign_id, target)
             if plan is None:
-                outcomes.append(self._outcome(target.stream_ref, reason=reason))
+                outcomes.append(
+                    self._outcome(
+                        target.stream_ref,
+                        reason=skip.reason if skip else None,
+                        reason_code=skip.code if skip else None,
+                    )
+                )
             else:
                 plans.append(plan)
         if not plans:
@@ -276,7 +298,11 @@ class PublicationService:
         except (PublicationConflictError, PublicationGateError):
             planned = {plan.stream_ref for plan in plans}
             outcomes.extend(
-                self._outcome(target.stream_ref, reason="CONCURRENT_PUBLICATION")
+                self._outcome(
+                    target.stream_ref,
+                    reason="CONCURRENT_PUBLICATION",
+                    reason_code=PublicationOutcomeReason.CONCURRENT_PUBLICATION,
+                )
                 for target in planning
                 if target.stream_ref in planned
             )
@@ -290,32 +316,45 @@ class PublicationService:
         """Revalidate captured pre-images before reusing pending operations."""
         ready: list[PublicationOperationView] = []
         for operation in resumable:
-            reason = await self._validate_resume(operation)
-            if reason is None:
+            skip = await self._validate_resume(operation)
+            if skip is None:
                 ready.append(operation)
             else:
-                outcomes.append(self._outcome(operation.stream_ref, reason=reason))
+                outcomes.append(
+                    self._outcome(
+                        operation.stream_ref,
+                        reason=skip.reason,
+                        reason_code=skip.code,
+                    )
+                )
         return ready
 
-    async def _validate_resume(self, operation: PublicationOperationView) -> str | None:
+    async def _validate_resume(
+        self, operation: PublicationOperationView
+    ) -> _SkipReason | None:
         """Revalidate a captured pending operation before reusing it."""
         try:
             document = await self._client.get_stream_document(operation.stream_ref)
         except Exception as exc:
-            return f"PREIMAGE_READ_FAILED: {exc}"
+            return _SkipReason(
+                f"PREIMAGE_READ_FAILED: {exc}",
+                PublicationOutcomeReason.PREIMAGE_READ_FAILED,
+            )
         try:
             observed = self._document_offers(document, operation.stream_ref)
             baseline = self._document_offers(
                 operation.remote_baseline_before, operation.stream_ref
             )
         except PublicationInputError as exc:
-            return str(exc)
+            return _SkipReason(str(exc))
         if (
             document.get("id") != operation.stream_ref
             or document.get("campaign_id") != operation.campaign_id
             or observed != baseline
         ):
-            return "STALE_REMOTE_STATE"
+            return _SkipReason(
+                "STALE_REMOTE_STATE", PublicationOutcomeReason.STALE_REMOTE_STATE
+            )
         return None
 
     async def recover(self) -> RecoveryResult:
@@ -439,16 +478,32 @@ class PublicationService:
             for ref in command.stream_refs:
                 item = by_ref.get(ref)
                 if item is None:
-                    outcomes.append(self._outcome(ref, reason="NO_DIRTY_DRAFT"))
+                    outcomes.append(
+                        self._outcome(
+                            ref,
+                            reason="NO_DIRTY_DRAFT",
+                            reason_code=PublicationOutcomeReason.NO_DIRTY_DRAFT,
+                        )
+                    )
                 elif item.is_stale:
-                    outcomes.append(self._outcome(ref, reason="STALE_CONFLICT"))
+                    outcomes.append(
+                        self._outcome(
+                            ref,
+                            reason="STALE_CONFLICT",
+                            reason_code=PublicationOutcomeReason.STALE_CONFLICT,
+                        )
+                    )
                 else:
                     targets.append(item)
             return targets, outcomes
         for item in dirty:
             if item.is_stale:
                 outcomes.append(
-                    self._outcome(item.stream_ref, reason="STALE_CONFLICT_SKIPPED")
+                    self._outcome(
+                        item.stream_ref,
+                        reason="STALE_CONFLICT_SKIPPED",
+                        reason_code=PublicationOutcomeReason.STALE_CONFLICT_SKIPPED,
+                    )
                 )
             else:
                 targets.append(item)
@@ -456,7 +511,7 @@ class PublicationService:
 
     async def _build_plan(
         self, campaign_id: int, target: DirtyDraftView
-    ) -> tuple[PublicationPlan | None, str | None]:
+    ) -> tuple[PublicationPlan | None, _SkipReason | None]:
         """Validate eligibility and capture the exact immutable request body."""
         view = await asyncio.to_thread(self._drafts.get_view, target.stream_ref)
         if (
@@ -464,36 +519,47 @@ class PublicationService:
             or view.version != target.version
             or dict(view.staged_changes) != dict(target.intent)
         ):
-            return None, "DRAFT_CHANGED"
+            return None, _SkipReason(
+                "DRAFT_CHANGED", PublicationOutcomeReason.DRAFT_CHANGED
+            )
         verdict = evaluate_eligibility(
             view.offers,
             policy_cases=view.policy_cases,
             unallocated=view.unallocated,
         )
         if not verdict.eligible:
-            return None, str(verdict.reason)
+            reason = verdict.reason or EligibilityReason.INVALID_TOTAL
+            return None, _SkipReason(str(reason), _ELIGIBILITY_CODES[reason])
         try:
             entries = build_offer_entries(view.offers)
         except ValueError as exc:
-            return None, str(exc)
+            return None, _SkipReason(str(exc))
         try:
             document = await self._client.get_stream_document(target.stream_ref)
         except Exception as exc:
-            return None, f"PREIMAGE_READ_FAILED: {exc}"
+            return None, _SkipReason(
+                f"PREIMAGE_READ_FAILED: {exc}",
+                PublicationOutcomeReason.PREIMAGE_READ_FAILED,
+            )
         try:
             remote = self._document_offers(document, target.stream_ref)
         except PublicationInputError as exc:
-            return None, str(exc)
+            return None, _SkipReason(str(exc))
         if (
             document.get("campaign_id") != campaign_id
             or document.get("id") != target.stream_ref
         ):
-            return None, "REMOTE_IDENTITY_MISMATCH"
+            return None, _SkipReason(
+                "REMOTE_IDENTITY_MISMATCH",
+                PublicationOutcomeReason.REMOTE_IDENTITY_MISMATCH,
+            )
         cached = await asyncio.to_thread(
             self._snapshots.get_remote_snapshot, target.stream_ref
         )
         if cached is None or cached.offers != remote:
-            return None, "STALE_REMOTE_STATE"
+            return None, _SkipReason(
+                "STALE_REMOTE_STATE", PublicationOutcomeReason.STALE_REMOTE_STATE
+            )
         payload: dict[str, object] = {"offers": [entry.to_json() for entry in entries]}
         return (
             PublicationPlan(
@@ -549,7 +615,11 @@ class PublicationService:
             self._publications.claim, operation.id, worker_token
         )
         if claimed is None:
-            return self._outcome(operation.stream_ref, reason="CONCURRENT_PUBLICATION")
+            return self._outcome(
+                operation.stream_ref,
+                reason="CONCURRENT_PUBLICATION",
+                reason_code=PublicationOutcomeReason.CONCURRENT_PUBLICATION,
+            )
         try:
             await self._client.update_stream(
                 operation.stream_ref,

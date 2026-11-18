@@ -16,6 +16,7 @@ from app.application.dto import (
     DraftCommandResult,
     DraftView,
     PublicationOperationView,
+    PublicationOutcomeReason,
     PublicationPlan,
     PushStreamsCommand,
     RemoteSnapshotView,
@@ -372,6 +373,9 @@ async def test_live_writes_are_disabled_by_default():
     result = await service.push(PushStreamsCommand(5))
     assert result.outcomes[0].reason is not None
     assert "LIVE_WRITES_DISABLED" in result.outcomes[0].reason
+    assert result.outcomes[0].reason_code is (
+        PublicationOutcomeReason.LIVE_WRITES_DISABLED
+    )
     assert client.calls == []
     assert publications.operations == {}
 
@@ -482,6 +486,9 @@ async def test_durable_gate_blocks_a_second_push():
     client.calls.clear()
     second = await service.push(PushStreamsCommand(5))
     assert second.outcomes[0].reason == "UNRESOLVED_PUBLICATION"
+    assert second.outcomes[0].reason_code is (
+        PublicationOutcomeReason.UNRESOLVED_PUBLICATION
+    )
     assert client.calls == []
 
 
@@ -495,6 +502,9 @@ async def test_create_conflict_maps_to_concurrent_publication():
     publications.create_error = PublicationGateError("gate lost")
     result = await service.push(PushStreamsCommand(5))
     assert result.outcomes[0].reason == "CONCURRENT_PUBLICATION"
+    assert result.outcomes[0].reason_code is (
+        PublicationOutcomeReason.CONCURRENT_PUBLICATION
+    )
     assert not any(call.startswith("PUT") for call in client.calls)
 
 
@@ -615,6 +625,9 @@ async def test_stale_draft_is_not_selected_for_push():
     drafts.add(12, stale=True)
     result = await service.push(PushStreamsCommand(5))
     assert result.outcomes[0].reason == "STALE_CONFLICT_SKIPPED"
+    assert result.outcomes[0].reason_code is (
+        PublicationOutcomeReason.STALE_CONFLICT_SKIPPED
+    )
     assert client.calls == []
 
 
@@ -625,4 +638,108 @@ async def test_ineligible_staged_view_is_rejected_before_any_remote_read():
     drafts.add(12, share8=55, share5=40)
     result = await service.push(PushStreamsCommand(5))
     assert result.outcomes[0].reason is not None
+    assert result.outcomes[0].reason_code is (
+        PublicationOutcomeReason.UNALLOCATED_REMAINDER
+    )
     assert client.calls == []
+
+
+def _pending_plan(baseline_share8: int = 60) -> PublicationPlan:
+    """Build a pending operation matching the default fake draft intent."""
+    return PublicationPlan(
+        5,
+        12,
+        1,
+        {"share_edits": {"8": 60}},
+        staged(12),
+        {"offers": []},
+        (OfferEntry(5, 40, "active"), OfferEntry(8, 60, "active")),
+        document(12, baseline_share8),
+        "pending-marker",
+    )
+
+
+@pytest.mark.asyncio
+async def test_pending_preimage_failure_has_typed_reason_code():
+    """A failed pre-image read keeps a typed PREIMAGE_READ_FAILED outcome."""
+    service, drafts, _, client, publications = make_service()
+    drafts.add(12)
+    publications._store(_pending_plan(), PublicationStatus.PENDING)
+    client.get_error = RuntimeError("boom")
+    result = await service.push(PushStreamsCommand(5))
+    assert result.outcomes[0].reason is not None
+    assert "PREIMAGE_READ_FAILED" in result.outcomes[0].reason
+    assert result.outcomes[0].reason_code is (
+        PublicationOutcomeReason.PREIMAGE_READ_FAILED
+    )
+
+
+@pytest.mark.asyncio
+async def test_pending_stale_preimage_has_typed_reason_code():
+    """A changed pending pre-image reports STALE_REMOTE_STATE."""
+    service, drafts, _, client, publications = make_service()
+    drafts.add(12)
+    publications._store(_pending_plan(baseline_share8=70), PublicationStatus.PENDING)
+    client.add_stream(12, share8=60)
+    result = await service.push(PushStreamsCommand(5))
+    assert result.outcomes[0].reason == "STALE_REMOTE_STATE"
+    assert result.outcomes[0].reason_code is (
+        PublicationOutcomeReason.STALE_REMOTE_STATE
+    )
+
+
+@pytest.mark.asyncio
+async def test_build_plan_stale_snapshot_has_typed_reason_code():
+    """A cached snapshot behind the live pre-image reports STALE_REMOTE_STATE."""
+    service, drafts, snapshots, client, _ = make_service()
+    drafts.add(12)
+    snapshots.add(12, share8=70)
+    client.add_stream(12, share8=60)
+    result = await service.push(PushStreamsCommand(5))
+    assert result.outcomes[0].reason == "STALE_REMOTE_STATE"
+    assert result.outcomes[0].reason_code is (
+        PublicationOutcomeReason.STALE_REMOTE_STATE
+    )
+
+
+@pytest.mark.asyncio
+async def test_remote_identity_mismatch_has_typed_reason_code():
+    """A pre-image from another campaign reports REMOTE_IDENTITY_MISMATCH."""
+    service, drafts, snapshots, client, _ = make_service()
+    drafts.add(12)
+    snapshots.add(12)
+    client.add_stream(12)
+    client.readbacks[12] = [{**document(12), "campaign_id": 6}]
+    result = await service.push(PushStreamsCommand(5))
+    assert result.outcomes[0].reason == "REMOTE_IDENTITY_MISMATCH"
+    assert result.outcomes[0].reason_code is (
+        PublicationOutcomeReason.REMOTE_IDENTITY_MISMATCH
+    )
+
+
+@pytest.mark.asyncio
+async def test_explicit_selection_reasons_have_typed_codes():
+    """Selected missing and stale drafts carry explicit machine-readable codes."""
+    service, _, _, _, _ = make_service()
+    result = await service.push(PushStreamsCommand(5, (12,)))
+    assert result.outcomes[0].reason == "NO_DIRTY_DRAFT"
+    assert result.outcomes[0].reason_code is (PublicationOutcomeReason.NO_DIRTY_DRAFT)
+
+    service, drafts, _, _, _ = make_service()
+    drafts.add(12, stale=True)
+    result = await service.push(PushStreamsCommand(5, (12,)))
+    assert result.outcomes[0].reason == "STALE_CONFLICT"
+    assert result.outcomes[0].reason_code is (PublicationOutcomeReason.STALE_CONFLICT)
+
+
+@pytest.mark.asyncio
+async def test_changed_draft_during_planning_has_typed_reason_code():
+    """A version change between selection and planning reports DRAFT_CHANGED."""
+    service, drafts, snapshots, client, _ = make_service()
+    drafts.add(12)
+    snapshots.add(12)
+    client.add_stream(12)
+    drafts.views[12] = replace(drafts.views[12], version=2)
+    result = await service.push(PushStreamsCommand(5))
+    assert result.outcomes[0].reason == "DRAFT_CHANGED"
+    assert result.outcomes[0].reason_code is (PublicationOutcomeReason.DRAFT_CHANGED)
