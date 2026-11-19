@@ -170,6 +170,13 @@ export interface PublicationStateResponse {
   operation: (PublicPublicationResponse | null);
 }
 
+export interface CancelResultResponse {
+  stream_ref: number;
+  status?: (PublicationStatus | null);
+  reason?: (string | null);
+  draft_discarded: boolean;
+}
+
 export interface RecoveryResultResponse {
   processed: number;
   confirmed: number;

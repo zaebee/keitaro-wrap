@@ -2,6 +2,7 @@ import { apiRequest, type CampaignCreationResponse } from "./client";
 import type {
   AddDraftRequest,
   CancelDraftRequest,
+  CancelResultResponse,
   CommittedStateResponse,
   CreateCampaignRequest,
   DraftCommandResultResponse,
@@ -18,6 +19,7 @@ import type {
 } from "./generated/openapi";
 
 export type {
+  CancelResultResponse,
   ConflictDetailResponse,
   DraftViewResponse,
   OfferEntryResponse,
@@ -218,6 +220,17 @@ export async function getRecoverablePublications(): Promise<
 > {
   const result = await apiRequest<PublicPublicationResponse[]>(
     `/publications/recoverable?limit=${RECOVERABLE_PUBLICATIONS_LIMIT}`,
+  );
+  return result.data;
+}
+
+export async function cancelPublication(
+  campaignId: number,
+  streamRef: number,
+): Promise<CancelResultResponse> {
+  const result = await apiRequest<CancelResultResponse>(
+    `${streamPath(campaignId, streamRef)}/publication/cancel`,
+    { method: "POST" },
   );
   return result.data;
 }

@@ -330,3 +330,71 @@ def test_failed_requires_absence_evidence_and_is_cancellable_with_it(session_fac
     assert cancelled is not None
     assert cancelled[0].status is PublicationStatus.ABANDONED
     assert repository.has_unresolved(5, (12,)) is False
+
+
+def test_second_cancel_after_committed_cancel_does_not_write_again(session_factory):
+    """An explicit retry after a committed Cancel cannot discard a draft twice."""
+    seed_stream(session_factory)
+    repository = SqlAlchemyStreamPublicationRepository(session_factory)
+    operation = repository.create_pending((make_plan(),))[0]
+
+    first = repository.cancel(5, 12, "operator cancel")
+    assert first is not None
+    assert first[0].status is PublicationStatus.ABANDONED
+    assert repository.cancel(5, 12, "operator cancel") is None
+
+    latest = repository.get(operation.id)
+    assert latest is not None
+    assert latest.status is PublicationStatus.ABANDONED
+    with session_factory() as session:
+        assert (
+            session.scalar(select(func.count()).select_from(StreamPublicationModel))
+            == 1
+        )
+        assert session.scalar(select(StreamDraftModel)) is None
+
+
+def test_competing_commit_between_precheck_and_cancel_is_rejected(session_factory):
+    """A fresh Cancel transaction rejects a draft changed after its precheck."""
+    seed_stream(session_factory)
+    repository = SqlAlchemyStreamPublicationRepository(session_factory)
+    operation = repository.create_pending((make_plan(),))[0]
+
+    class CompetingRepository:
+        """Reproduce the service precheck followed by a separate write session."""
+
+        def __init__(self):
+            """Start before the competing draft commit."""
+            self.bumped = False
+
+        def get_latest(self, campaign_id, stream_ref):
+            """Return the stale precheck view after committing a draft edit."""
+            latest = repository.get_latest(campaign_id, stream_ref)
+            if not self.bumped:
+                self.bumped = True
+                with session_factory() as other:
+                    draft = other.scalar(select(StreamDraftModel))
+                    assert draft is not None
+                    draft.version = 2
+                    other.commit()
+            return latest
+
+        def cancel(self, campaign_id, stream_ref, reason):
+            """Delegate to the real conditional Cancel transaction."""
+            return repository.cancel(campaign_id, stream_ref, reason)
+
+    competing = CompetingRepository()
+    stale = competing.get_latest(5, 12)
+    assert stale is not None
+    assert stale.status is PublicationStatus.PENDING
+    with pytest.raises(PublicationConflictError):
+        competing.cancel(5, 12, "operator cancel")
+
+    latest = repository.get(operation.id)
+    assert latest is not None
+    assert latest.status is PublicationStatus.PENDING
+    with session_factory() as session:
+        draft = session.scalar(select(StreamDraftModel))
+        assert draft is not None
+        assert draft.version == 2
+        assert draft.is_dirty is True
