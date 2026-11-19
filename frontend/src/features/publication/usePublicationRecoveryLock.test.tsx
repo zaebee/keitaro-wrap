@@ -103,3 +103,102 @@ describe("usePublicationRecoveryLock union verification", () => {
     });
   });
 });
+
+describe("publication lock lifecycle and migration", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    window.localStorage.clear();
+  });
+
+  it("reads a v1 recovery lock without rewriting or clearing it", async () => {
+    const legacy = {
+      schema: 1,
+      lockId: "legacy-1",
+      affected: [{ campaignId: 42, streamRef: 101 }],
+      reason: "verification",
+      phase: "verification",
+      unionComplete: true,
+      createdAt: "2026-11-19T00:00:00.000Z",
+    };
+    window.localStorage.setItem(RECOVERY_LOCK_KEY, JSON.stringify(legacy));
+    const { result } = renderHook(() => usePublicationRecoveryLock());
+
+    expect(result.current.invalid).toBe(false);
+    expect(result.current.lock).toMatchObject({
+      lockId: "legacy-1",
+      kind: "recovery",
+      stage: "verification",
+      draftVerification: [],
+    });
+    expect(JSON.parse(window.localStorage.getItem(RECOVERY_LOCK_KEY) ?? "")).toEqual(legacy);
+
+    await act(async () => {
+      expect(
+        await result.current.acquire([], "verification", true),
+      ).toBe(false);
+    });
+    await act(async () => {
+      expect(
+        await result.current.release({
+          lockId: "legacy-1",
+          fingerprint: "42:101",
+        }),
+      ).toBe(true);
+    });
+    expect(window.localStorage.getItem(RECOVERY_LOCK_KEY)).toBeNull();
+  });
+
+  it("supports cancel stages and upgrades the persisted lock on first write", async () => {
+    const { result } = renderHook(() => usePublicationRecoveryLock());
+    const target = { campaignId: 42, streamRef: 101 };
+    await act(async () => {
+      expect(
+        await result.current.acquire(
+          [target],
+          "verification",
+          true,
+          { kind: "cancel", stage: "reserved", draftVerification: [target], cancelTarget: target },
+        ),
+      ).toBe(true);
+    });
+    await act(async () => {
+      expect(await result.current.markStage("running")).toBe(true);
+    });
+    await act(async () => {
+      expect(await result.current.markVerification(true)).toBe(true);
+    });
+    await act(async () => {
+      expect(await result.current.markStage("recovery_ready")).toBe(true);
+    });
+    expect(readLock()).toMatchObject({
+      schema: 2,
+      kind: "cancel",
+      stage: "recovery_ready",
+      phase: "verification",
+      draftVerification: [target],
+    });
+    await act(async () => {
+      expect(
+        await result.current.release({
+          lockId: readLock()?.lockId ?? "",
+          fingerprint: "42:101",
+        }),
+      ).toBe(true);
+    });
+  });
+
+  it("fails closed on an incomplete v1 lock", () => {
+    window.localStorage.setItem(
+      RECOVERY_LOCK_KEY,
+      JSON.stringify({ schema: 1, lockId: "broken", affected: [] }),
+    );
+    const { result } = renderHook(() => usePublicationRecoveryLock());
+    expect(result.current.invalid).toBe(true);
+    expect(result.current.lock).toBeNull();
+    expect(window.localStorage.getItem(RECOVERY_LOCK_KEY)).not.toBeNull();
+  });
+});

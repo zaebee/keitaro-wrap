@@ -18,7 +18,9 @@ import {
 } from "../../api/operations";
 import { queryKeys } from "../../queries/queryClient";
 import { useNarrowViewport } from "../../shared/hooks/useNarrowViewport";
+import { PublicationCancelPanel } from "../publication/PublicationCancelPanel";
 import { PublicationStatusPanel } from "../publication/PublicationStatusPanel";
+import { usePublicationRecoveryLock } from "../publication/usePublicationRecoveryLock";
 import { parsePositiveId } from "../campaign-workspace/campaignId";
 import {
   CommittedPanel,
@@ -112,6 +114,7 @@ function Editor({
   const [shareErrors, setShareErrors] = useState<Record<number, string>>({});
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [recoveryRequired, setRecoveryRequired] = useState(false);
+  const publicationLock = usePublicationRecoveryLock();
 
   const committedQuery = useQuery({
     queryKey: queryKeys.committed(campaignId, streamRef),
@@ -282,8 +285,9 @@ function Editor({
       </p>
       <p className={styles.hint}>
         This screen edits only the selected stream; streams remain independent.
-        Committed baseline and staged draft are separate server views. No
-        publication control is available here.
+        Committed baseline and staged draft are separate server views. The
+        publication section below offers only a local publication Cancel;
+        Push remains unavailable.
       </p>
       <Link to={`/campaigns/${campaignId}`}>Back to Campaign Workspace</Link>
 
@@ -404,6 +408,14 @@ function Editor({
           }
           onRetry={() => publicationQuery.refetch()}
           retryDisabled={publicationQuery.isFetching}
+        />
+        <PublicationCancelPanel
+          campaignId={campaignId}
+          streamRef={streamRef}
+          lock={publicationLock}
+          state={publicationQuery.data ?? null}
+          stateError={publicationQuery.isError ? publicationFailure : null}
+          statePending={publicationQuery.isPending}
         />
       </section>
 

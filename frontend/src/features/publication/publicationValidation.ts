@@ -1,4 +1,6 @@
 import type {
+  CancelResultResponse,
+  DraftStateResponse,
   PublicationStateResponse,
   PublicationStatus,
   PublicPublicationResponse,
@@ -34,8 +36,20 @@ function isNonNegativeInt(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
+function isBoolean(value: unknown): value is boolean {
+  return typeof value === "boolean";
+}
+
 function isValidStatus(value: unknown): value is PublicationStatus {
   return typeof value === "string" && STATUSES.has(value as PublicationStatus);
+}
+
+export function isResolvedStatus(status: PublicationStatus): boolean {
+  return TERMINAL_STATUSES.has(status);
+}
+
+export function isUnresolvedStatus(status: PublicationStatus): boolean {
+  return status === "pending" || status === "in_progress" || status === "ambiguous";
 }
 
 function isValidEntries(value: unknown): boolean {
@@ -54,11 +68,70 @@ function isValidEntries(value: unknown): boolean {
   );
 }
 
+function isValidRemoteOffers(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (offer) =>
+        isRecord(offer) &&
+        isPositiveInt(offer.offer_id) &&
+        isNonNegativeInt(offer.share) &&
+        isNonNegativeInt(offer.position) &&
+        (offer.state === null ||
+          offer.state === undefined ||
+          typeof offer.state === "string"),
+    )
+  );
+}
+
+function isValidStagedOffers(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (offer) =>
+        isRecord(offer) &&
+        isPositiveInt(offer.offer_id) &&
+        typeof offer.lifecycle === "string" &&
+        isBoolean(offer.is_pinned) &&
+        isNonNegativeInt(offer.share) &&
+        (offer.state === null || typeof offer.state === "string") &&
+        isNonNegativeInt(offer.position),
+    )
+  );
+}
+
+function isValidConflicts(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (conflict) =>
+        isRecord(conflict) &&
+        isPositiveInt(conflict.stream_ref) &&
+        isPositiveInt(conflict.offer_id) &&
+        typeof conflict.field === "string" &&
+        (conflict.expected === null || isNonNegativeInt(conflict.expected)) &&
+        (conflict.observed === null || isNonNegativeInt(conflict.observed)) &&
+        typeof conflict.reason === "string",
+    )
+  );
+}
+
 export function isValidStreamIdentity(value: unknown): value is StreamIdentity {
   return (
     isRecord(value) &&
     isPositiveInt(value.campaignId) &&
     isPositiveInt(value.streamRef)
+  );
+}
+
+export function hasMatchingStreamIdentity(
+  value: unknown,
+  expected: StreamIdentity,
+): boolean {
+  return (
+    isRecord(value) &&
+    value.campaign_id === expected.campaignId &&
+    value.stream_ref === expected.streamRef
   );
 }
 
@@ -150,6 +223,92 @@ export function isTerminalPublicationState(
   return (
     value.operation === null || TERMINAL_STATUSES.has(value.operation.status)
   );
+}
+
+export function isValidDraftState(
+  value: unknown,
+  expected: StreamIdentity,
+): value is DraftStateResponse {
+  if (!isRecord(value) || value.stream_ref !== expected.streamRef) {
+    return false;
+  }
+  if (value.draft === null) {
+    return true;
+  }
+  const draft = value.draft;
+  return (
+    isRecord(draft) &&
+    draft.stream_ref === expected.streamRef &&
+    isValidStagedOffers(draft.offers) &&
+    isValidRemoteOffers(draft.baseline_offers) &&
+    isRecord(draft.staged_changes) &&
+    isNonNegativeInt(draft.version) &&
+    isBoolean(draft.is_dirty) &&
+    isBoolean(draft.is_stale) &&
+    isValidConflicts(draft.conflicts) &&
+    Array.isArray(draft.policy_cases) &&
+    draft.policy_cases.every((item) => typeof item === "string") &&
+    isNonNegativeInt(draft.unallocated)
+  );
+}
+
+export function parseCancelResult(
+  value: unknown,
+  expected: StreamIdentity,
+): CancelResultResponse | null {
+  if (
+    !isRecord(value) ||
+    value.stream_ref !== expected.streamRef ||
+    !isBoolean(value.draft_discarded)
+  ) {
+    return null;
+  }
+  const status = value.status ?? null;
+  const reason = value.reason ?? null;
+  if (
+    (status !== null && !isValidStatus(status)) ||
+    (reason !== null && typeof reason !== "string")
+  ) {
+    return null;
+  }
+  return {
+    stream_ref: expected.streamRef,
+    status,
+    reason,
+    draft_discarded: value.draft_discarded,
+  };
+}
+
+export type CancelErrorDetails = {
+  result: CancelResultResponse;
+  status: PublicationStatus | null;
+  reason: string | null;
+};
+
+export function parseCancelErrorDetails(
+  value: unknown,
+): CancelErrorDetails | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const result = parseCancelResult(value.result, {
+    campaignId: 0,
+    streamRef: isRecord(value.result) && isPositiveInt(value.result.stream_ref)
+      ? value.result.stream_ref
+      : -1,
+  });
+  if (result === null) {
+    return null;
+  }
+  const status = value.status ?? null;
+  const reason = value.reason ?? null;
+  if (
+    (status !== null && !isValidStatus(status)) ||
+    (reason !== null && typeof reason !== "string")
+  ) {
+    return null;
+  }
+  return { result, status, reason };
 }
 
 export function parseRecoveryResult(value: unknown): RecoveryResultResponse | null {
