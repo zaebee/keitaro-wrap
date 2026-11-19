@@ -564,6 +564,7 @@ export function RecoveryQueuePage() {
           verifyCancelLock(context, {
             mode: "reconcile",
             target,
+            expected,
             onQueue: (queue) => {
               queryClient.setQueryData(queryKeys.recoverablePublications, queue);
             },

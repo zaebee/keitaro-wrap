@@ -37,6 +37,7 @@ export type CancelVerificationOptions = {
   target: StreamIdentity;
   code?: string;
   preDraftVersion?: number;
+  expected?: LockSnapshot;
   onQueue?: (queue: PublicPublicationResponse[]) => void;
 };
 
@@ -65,6 +66,17 @@ function identityKey(identity: StreamIdentity): string {
   return `${identity.campaignId}:${identity.streamRef}`;
 }
 
+function snapshotsEqual(left: LockSnapshot, right: LockSnapshot): boolean {
+  return (
+    left.lockId === right.lockId &&
+    left.kind === right.kind &&
+    left.stage === right.stage &&
+    left.unionFingerprint === right.unionFingerprint &&
+    left.draftFingerprint === right.draftFingerprint &&
+    left.cancelTargetFingerprint === right.cancelTargetFingerprint
+  );
+}
+
 async function readQueue(
   context: LockContext,
   options: CancelVerificationOptions,
@@ -74,6 +86,15 @@ async function readQueue(
     const queue = parseRecoverableQueue(response);
     if (queue === null) {
       return null;
+    }
+    if (options.expected !== undefined) {
+      const beforeUpdate = context.getCurrent();
+      if (
+        beforeUpdate === null ||
+        !snapshotsEqual(lockSnapshot(beforeUpdate), options.expected)
+      ) {
+        return null;
+      }
     }
     options.onQueue?.(queue);
     const updated = await context.updateAffected(
@@ -207,6 +228,17 @@ export async function verifyCancelLock(
   context: LockContext,
   options: CancelVerificationOptions,
 ): Promise<VerificationResult> {
+  if (options.expected !== undefined) {
+    const beforeReads = context.getCurrent();
+    if (
+      beforeReads === null ||
+      !snapshotsEqual(lockSnapshot(beforeReads), options.expected)
+    ) {
+      return blocked(
+        "The lock changed before reconciliation started. No state was changed.",
+      );
+    }
+  }
   const queue = await readQueue(context, options);
   if (queue === null) {
     return blocked(

@@ -1416,3 +1416,71 @@ describe("S8-D3 remaining audit regressions", () => {
     ).toBeInTheDocument();
   });
 });
+
+
+describe("S8-D3 stale retry reconciliation isolation", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("does not mutate a replacement lock when a stale retry reconciles a terminal target", async () => {
+    let cancelPosts = 0;
+    let recoveryPosts = 0;
+    let replaced = false;
+    const replacement = {
+      ...cancelLock("retry_ready"),
+      lockId: "replacement-lock",
+      affected: [{ campaignId: 42, streamRef: 777 }],
+      draftVerification: [],
+      cancelTarget: { campaignId: 42, streamRef: 777 },
+    };
+    window.localStorage.setItem(
+      RECOVERY_LOCK_KEY,
+      JSON.stringify(cancelLock("retry_ready")),
+    );
+    server.use(
+      http.get("*/api/campaigns/42/streams/101/publication", () => {
+        if (!replaced) {
+          replaced = true;
+          window.localStorage.setItem(
+            RECOVERY_LOCK_KEY,
+            JSON.stringify(replacement),
+          );
+        }
+        return HttpResponse.json(stateFor(42, 101, "succeeded"));
+      }),
+      http.get("*/api/campaigns/42/streams/101/draft", () =>
+        HttpResponse.json(draftStateFixture()),
+      ),
+      http.get(QUEUE_PATH, () => HttpResponse.json([])),
+      http.post("*/api/campaigns/42/streams/101/publication/cancel", () => {
+        cancelPosts += 1;
+        return HttpResponse.json({});
+      }),
+      http.post("*/api/publications/recover", () => {
+        recoveryPosts += 1;
+        return HttpResponse.json(recoveryResult());
+      }),
+    );
+    const user = userEvent.setup();
+    renderApp("/recovery");
+
+    await user.click(
+      await screen.findByRole("button", { name: "Confirm cancel retry" }),
+    );
+
+    await waitFor(() => expect(replaced).toBe(true));
+    expect(window.localStorage.getItem(RECOVERY_LOCK_KEY)).toBe(
+      JSON.stringify(replacement),
+    );
+    expect(cancelPosts).toBe(0);
+    expect(recoveryPosts).toBe(0);
+    expect(
+      screen.getByText(/lock changed before reconciliation started/),
+    ).toBeInTheDocument();
+  });
+});
