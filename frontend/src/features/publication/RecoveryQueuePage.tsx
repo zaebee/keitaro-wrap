@@ -34,7 +34,10 @@ import {
   type CancelVerificationMode,
 } from "./publicationLockVerification";
 import styles from "./Publication.module.css";
-import { usePublicationRecoveryLock } from "./usePublicationRecoveryLock";
+import {
+  lockSnapshot,
+  usePublicationRecoveryLock,
+} from "./usePublicationRecoveryLock";
 
 type Failure = {
   message: string;
@@ -208,6 +211,8 @@ export function RecoveryQueuePage() {
     setActionError(null);
     setVerificationError(null);
     setVerificationMessage(null);
+    const startLock = lock.getCurrent();
+    const startSnapshot = startLock === null ? null : lockSnapshot(startLock);
     let freshQueue;
     try {
       const response = await getRecoverablePublications();
@@ -223,20 +228,47 @@ export function RecoveryQueuePage() {
       return;
     }
     if (lock.lock !== null && recoveryReady) {
-      const unionUpdated = await lock.updateAffected(
-        identitiesFromQueue(freshQueue),
-        freshQueue.length < RECOVERABLE_PUBLICATIONS_LIMIT,
-      );
-      if (!unionUpdated) {
+      if (
+        startSnapshot === null ||
+        startSnapshot.kind !== "cancel" ||
+        startSnapshot.stage !== "recovery_ready"
+      ) {
         setActionError(
-          "Could not update the handed-off lock. No recovery pass was started.",
+          "The handoff lock changed before Recovery started. No pass was started.",
         );
         return;
       }
-      const running = await lock.markStage("running");
-      if (!running) {
+      const started = await lock.runExclusive(async (context) => {
+        const observed = context.getCurrent();
+        if (
+          observed === null ||
+          (() => {
+            const snapshot = lockSnapshot(observed);
+            return (
+              snapshot.lockId !== startSnapshot.lockId ||
+              snapshot.kind !== startSnapshot.kind ||
+              snapshot.stage !== startSnapshot.stage
+            );
+          })()
+        ) {
+          return false;
+        }
+        const unionUpdated = await context.updateAffected(
+          identitiesFromQueue(freshQueue),
+          freshQueue.length < RECOVERABLE_PUBLICATIONS_LIMIT,
+        );
+        if (!unionUpdated) {
+          return false;
+        }
+        const afterUnion = context.getCurrent();
+        if (afterUnion === null) {
+          return false;
+        }
+        return await context.markStage("running", lockSnapshot(afterUnion));
+      });
+      if (!started) {
         setActionError(
-          "Could not persist the recovery phase. No recovery pass was started.",
+          "The handoff lock changed before Recovery started. No pass was started.",
         );
         return;
       }
@@ -275,10 +307,10 @@ export function RecoveryQueuePage() {
           return;
         }
         if (initial.kind === "cancel") {
-          const target = initial.affected[0];
-          if (target === undefined) {
+          const target = initial.cancelTarget;
+          if (target === null) {
             setVerificationError(
-              "No tracked stream identities are available. The lock remains active.",
+              "No explicit cancel target is available. The lock remains active.",
             );
             return;
           }
@@ -409,12 +441,13 @@ export function RecoveryQueuePage() {
     setRetryError(null);
     setRetryMessage(null);
     const current = lock.getCurrent();
-    const target = current?.draftVerification[0] ?? current?.affected[0];
-    if (current === null || target === undefined) {
-      setRetryError("No tracked stream identity is available for retry.");
+    const target = current?.cancelTarget;
+    if (current === null || target === null || target === undefined) {
+      setRetryError("No explicit cancel target is available for retry.");
       setRetryInFlight(false);
       return;
     }
+    const expected = lockSnapshot(current);
     try {
       let freshState;
       let freshDraft;
@@ -453,7 +486,9 @@ export function RecoveryQueuePage() {
       ) {
         const observed = freshState.operation?.status ?? null;
         if (observed === "in_progress" || observed === "ambiguous") {
-          const handedOff = await lock.markStage("recovery_ready");
+          const handedOff = await lock.runExclusive(async (context) =>
+            await context.markStage("recovery_ready", expected),
+          );
           if (handedOff) {
             setRetryMessage(
               "Recovery is required. The lock was handed to explicit recovery; no retry Cancel was sent.",
@@ -481,7 +516,9 @@ export function RecoveryQueuePage() {
         }
         return;
       }
-      const running = await lock.markStage("running");
+      const running = await lock.runExclusive(async (context) =>
+        await context.markStage("running", expected),
+      );
       if (!running) {
         setRetryError(
           "The running phase could not be persisted. No retry Cancel was sent.",

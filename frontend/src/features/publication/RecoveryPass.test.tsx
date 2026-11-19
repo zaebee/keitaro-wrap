@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   draftStateFixture,
+  draftViewFixture,
   errorResponse,
   publicationOperationFixture,
 } from "../../test/fixtures";
@@ -772,6 +773,7 @@ const cancelLock = (
   stage,
   affected: [{ campaignId: 42, streamRef: 101 }],
   draftVerification: [{ campaignId: 42, streamRef: 101 }],
+  cancelTarget: { campaignId: 42, streamRef: 101 },
   reason: "handoff",
   unionComplete: true,
   createdAt: new Date().toISOString(),
@@ -1175,6 +1177,126 @@ describe("S8-D3 non-in-flight lock reconciliation", () => {
     await waitFor(() =>
       expect(window.localStorage.getItem(RECOVERY_LOCK_KEY)).toBeNull(),
     );
+    expect(cancelPosts).toBe(0);
+  });
+});
+
+
+describe("S8-D3 target identity and snapshot guards", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("keeps an unrelated pending queue identity from becoming the retry target", async () => {
+    let cancelPosts = 0;
+    const lock = {
+      ...cancelLock("retry_ready"),
+      affected: [
+        { campaignId: 42, streamRef: 102 },
+        { campaignId: 42, streamRef: 101 },
+      ],
+    };
+    window.localStorage.setItem(RECOVERY_LOCK_KEY, JSON.stringify(lock));
+    server.use(
+      http.get(QUEUE_PATH, () =>
+        HttpResponse.json([
+          publicationOperationFixture({
+            operation_uuid: "op-102",
+            stream_ref: 102,
+            status: "pending",
+          }),
+        ]),
+      ),
+      http.get("*/api/campaigns/42/streams/101/publication", () =>
+        HttpResponse.json(stateFor(42, 101, "succeeded")),
+      ),
+      http.get("*/api/campaigns/42/streams/102/publication", () =>
+        HttpResponse.json(stateFor(42, 102, "pending")),
+      ),
+      http.get("*/api/campaigns/42/streams/102/draft", () =>
+        HttpResponse.json(draftStateFixture(draftViewFixture({ stream_ref: 102 }))),
+      ),
+      http.post("*/api/campaigns/42/streams/101/publication/cancel", () => {
+        cancelPosts += 1;
+        return HttpResponse.json({});
+      }),
+    );
+    const user = userEvent.setup();
+    renderApp("/recovery");
+
+    await unlock(user);
+
+    expect(readLock()).toMatchObject({
+      kind: "cancel",
+      stage: "retry_ready",
+      cancelTarget: { campaignId: 42, streamRef: 101 },
+      draftVerification: [{ campaignId: 42, streamRef: 101 }],
+    });
+    expect(cancelPosts).toBe(0);
+    expect(
+      screen.getByText(/unrelated affected stream is pending/),
+    ).toBeInTheDocument();
+  });
+
+  it("does not mutate a replacement lock or send Cancel after a stale preflight", async () => {
+    let cancelPosts = 0;
+    let replaced = false;
+    const replacement = {
+      ...cancelLock("recovery_ready"),
+      lockId: "replacement-lock",
+      kind: "recovery",
+      affected: [{ campaignId: 42, streamRef: 999 }],
+      draftVerification: [],
+      cancelTarget: null,
+    };
+    window.localStorage.setItem(
+      RECOVERY_LOCK_KEY,
+      JSON.stringify(cancelLock("retry_ready")),
+    );
+    server.use(
+      http.get("*/api/campaigns/42/streams/101/publication", () => {
+        if (!replaced) {
+          replaced = true;
+          window.localStorage.setItem(
+            RECOVERY_LOCK_KEY,
+            JSON.stringify(replacement),
+          );
+        }
+        return HttpResponse.json(stateFor(42, 101, "pending"));
+      }),
+      http.get("*/api/campaigns/42/streams/101/draft", () =>
+        HttpResponse.json(draftStateFixture()),
+      ),
+      http.get(QUEUE_PATH, () =>
+        HttpResponse.json([
+          publicationOperationFixture({
+            operation_uuid: "op-pending",
+            status: "pending",
+          }),
+        ]),
+      ),
+      http.post("*/api/campaigns/42/streams/101/publication/cancel", () => {
+        cancelPosts += 1;
+        return HttpResponse.json({});
+      }),
+    );
+    const user = userEvent.setup();
+    renderApp("/recovery");
+
+    await user.click(
+      await screen.findByRole("button", { name: "Confirm cancel retry" }),
+    );
+
+    await waitFor(() => expect(replaced).toBe(true));
+    expect(readLock()).toMatchObject({
+      lockId: "replacement-lock",
+      kind: "recovery",
+      stage: "recovery_ready",
+    });
     expect(cancelPosts).toBe(0);
   });
 });

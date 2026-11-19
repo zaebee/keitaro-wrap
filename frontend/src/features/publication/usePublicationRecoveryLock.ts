@@ -42,6 +42,7 @@ export type RecoveryLockV2 = {
   stage: RecoveryLockStage;
   affected: StreamIdentity[];
   draftVerification: StreamIdentity[];
+  cancelTarget: StreamIdentity | null;
   reason: RecoveryLockReason;
   unionComplete: boolean;
   createdAt: string;
@@ -70,15 +71,31 @@ export type ReleaseExpectation = {
   fingerprint: string;
 };
 
+export type LockSnapshot = {
+  lockId: string;
+  kind: RecoveryLockKind;
+  stage: RecoveryLockStage;
+  unionFingerprint: string;
+  draftFingerprint: string;
+  cancelTargetFingerprint: string | null;
+};
+
 export type LockContext = {
   updateAffected: (
     incoming: StreamIdentity[],
     complete: boolean,
   ) => boolean | Promise<boolean>;
-  markVerification: (unionUpdated: boolean) => boolean | Promise<boolean>;
-  markStage: (stage: RecoveryLockStage) => boolean | Promise<boolean>;
+  markVerification: (
+    unionUpdated: boolean,
+    expected?: LockSnapshot,
+  ) => boolean | Promise<boolean>;
+  markStage: (
+    stage: RecoveryLockStage,
+    expected?: LockSnapshot,
+  ) => boolean | Promise<boolean>;
   markRetryReady: (
     identity?: StreamIdentity,
+    expected?: LockSnapshot,
   ) => boolean | Promise<boolean>;
   abortReserved: (expected: ReleaseExpectation) => boolean | Promise<boolean>;
   release: (expected: ReleaseExpectation) => boolean | Promise<boolean>;
@@ -89,6 +106,7 @@ export type AcquireOptions = {
   kind?: RecoveryLockKind;
   stage?: RecoveryLockStage;
   draftVerification?: StreamIdentity[];
+  cancelTarget?: StreamIdentity | null;
 };
 
 let lockCounter = 0;
@@ -146,6 +164,35 @@ function identityFingerprint(identities: StreamIdentity[]): string {
   return streamUnionFingerprint(identities);
 }
 
+export function lockSnapshot(lock: RecoveryLockV2): LockSnapshot {
+  return {
+    lockId: lock.lockId,
+    kind: lock.kind,
+    stage: lock.stage,
+    unionFingerprint: identityFingerprint(lock.affected),
+    draftFingerprint: identityFingerprint(lock.draftVerification),
+    cancelTargetFingerprint:
+      lock.cancelTarget === null
+        ? null
+        : streamIdentityKeyLocal(lock.cancelTarget),
+  };
+}
+
+function snapshotMatches(
+  observed: RecoveryLockV2,
+  expected: LockSnapshot,
+): boolean {
+  const snapshot = lockSnapshot(observed);
+  return (
+    snapshot.lockId === expected.lockId &&
+    snapshot.kind === expected.kind &&
+    snapshot.stage === expected.stage &&
+    snapshot.unionFingerprint === expected.unionFingerprint &&
+    snapshot.draftFingerprint === expected.draftFingerprint &&
+    snapshot.cancelTargetFingerprint === expected.cancelTargetFingerprint
+  );
+}
+
 function normalize(value: unknown): RecoveryLockV2 | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return null;
@@ -174,6 +221,7 @@ function normalize(value: unknown): RecoveryLockV2 | null {
       stage: record.phase,
       affected: record.affected,
       draftVerification: [],
+      cancelTarget: null,
       reason: record.reason,
       unionComplete: record.unionComplete,
       createdAt: record.createdAt,
@@ -190,10 +238,18 @@ function normalize(value: unknown): RecoveryLockV2 | null {
     return null;
   }
   const affectedKeys = new Set(record.affected.map(streamIdentityKeyLocal));
+  const cancelTarget = record.cancelTarget ?? null;
+  if (cancelTarget !== null && !isValidStreamIdentity(cancelTarget)) {
+    return null;
+  }
   if (
     !record.draftVerification.every((identity) =>
       affectedKeys.has(streamIdentityKeyLocal(identity)),
-    )
+    ) ||
+    (cancelTarget !== null &&
+      !affectedKeys.has(streamIdentityKeyLocal(cancelTarget))) ||
+    (record.kind === "cancel" && cancelTarget === null) ||
+    (record.kind === "recovery" && cancelTarget !== null)
   ) {
     return null;
   }
@@ -204,6 +260,7 @@ function normalize(value: unknown): RecoveryLockV2 | null {
     stage: record.stage,
     affected: record.affected,
     draftVerification: record.draftVerification,
+    cancelTarget,
     reason: record.reason,
     unionComplete: record.unionComplete,
     createdAt: record.createdAt,
@@ -308,11 +365,16 @@ export function usePublicationRecoveryLock() {
       const kind = options.kind ?? "recovery";
       const stage = options.stage ?? "running";
       const draftVerification = options.draftVerification ?? [];
+      const cancelTarget = options.cancelTarget ?? null;
       const affectedKeys = new Set(affected.map(streamIdentityKeyLocal));
       if (
         !draftVerification.every((identity) =>
           affectedKeys.has(streamIdentityKeyLocal(identity)),
-        )
+        ) ||
+        (kind === "cancel" &&
+          (cancelTarget === null ||
+            !affectedKeys.has(streamIdentityKeyLocal(cancelTarget)))) ||
+        (kind === "recovery" && cancelTarget !== null)
       ) {
         return false;
       }
@@ -323,6 +385,7 @@ export function usePublicationRecoveryLock() {
         stage,
         affected,
         draftVerification,
+        cancelTarget,
         reason,
         unionComplete: complete,
         createdAt: new Date().toISOString(),
@@ -394,10 +457,14 @@ export function usePublicationRecoveryLock() {
   );
 
   const markVerificationUnguarded = useCallback(
-    (unionUpdated: boolean) => {
+    (unionUpdated: boolean, expected?: LockSnapshot) => {
       const observed = readState();
       setState(observed);
-      if (observed.kind !== "active" || observed.lock.stage !== "running") {
+      if (
+        observed.kind !== "active" ||
+        observed.lock.stage !== "running" ||
+        (expected !== undefined && !snapshotMatches(observed.lock, expected))
+      ) {
         return false;
       }
       const updated: RecoveryLockV2 = {
@@ -425,10 +492,14 @@ export function usePublicationRecoveryLock() {
   );
 
   const markStageUnguarded = useCallback(
-    (stage: RecoveryLockStage) => {
+    (stage: RecoveryLockStage, expected?: LockSnapshot) => {
       const observed = readState();
       setState(observed);
-      if (observed.kind !== "active" || observed.lock.stage === stage) {
+      if (
+        observed.kind !== "active" ||
+        observed.lock.stage === stage ||
+        (expected !== undefined && !snapshotMatches(observed.lock, expected))
+      ) {
         return false;
       }
       const updated: RecoveryLockV2 = {
@@ -455,10 +526,14 @@ export function usePublicationRecoveryLock() {
   );
 
   const markRetryReadyUnguarded = useCallback(
-    (identity?: StreamIdentity) => {
+    (identity?: StreamIdentity, expected?: LockSnapshot) => {
       const observed = readState();
       setState(observed);
-      if (observed.kind !== "active" || !observed.lock.unionComplete) {
+      if (
+        observed.kind !== "active" ||
+        !observed.lock.unionComplete ||
+        (expected !== undefined && !snapshotMatches(observed.lock, expected))
+      ) {
         return false;
       }
       const drafts = identity
@@ -565,20 +640,20 @@ export function usePublicationRecoveryLock() {
   );
 
   const markVerification = useCallback(
-    async (unionUpdated: boolean) =>
-      await withGuard(() => markVerificationUnguarded(unionUpdated)),
+    async (unionUpdated: boolean, expected?: LockSnapshot) =>
+      await withGuard(() => markVerificationUnguarded(unionUpdated, expected)),
     [markVerificationUnguarded],
   );
 
   const markStage = useCallback(
-    async (stage: RecoveryLockStage) =>
-      await withGuard(() => markStageUnguarded(stage)),
+    async (stage: RecoveryLockStage, expected?: LockSnapshot) =>
+      await withGuard(() => markStageUnguarded(stage, expected)),
     [markStageUnguarded],
   );
 
   const markRetryReady = useCallback(
-    async (identity?: StreamIdentity) =>
-      await withGuard(() => markRetryReadyUnguarded(identity)),
+    async (identity?: StreamIdentity, expected?: LockSnapshot) =>
+      await withGuard(() => markRetryReadyUnguarded(identity, expected)),
     [markRetryReadyUnguarded],
   );
 

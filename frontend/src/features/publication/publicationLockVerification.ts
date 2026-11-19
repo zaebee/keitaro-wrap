@@ -18,7 +18,11 @@ import {
   streamUnionFingerprint,
   type StreamIdentity,
 } from "./publicationValidation";
-import type { LockContext } from "./usePublicationRecoveryLock";
+import {
+  lockSnapshot,
+  type LockContext,
+  type LockSnapshot,
+} from "./usePublicationRecoveryLock";
 
 export type CancelVerificationMode =
   | "success"
@@ -137,12 +141,14 @@ async function routeUnresolved(
   context: LockContext,
   identity: StreamIdentity,
   status: PublicationStatus,
+  target: StreamIdentity,
+  expected: LockSnapshot,
 ): Promise<VerificationResult> {
   if (status === "in_progress" || status === "ambiguous") {
-    const changed = await context.markStage("recovery_ready");
+    const changed = await context.markStage("recovery_ready", expected);
     if (!changed) {
       return blocked(
-        "Could not persist the recovery handoff. The lock remains active.",
+        "The lock changed before the recovery handoff. No state was changed.",
       );
     }
     return {
@@ -152,10 +158,15 @@ async function routeUnresolved(
     };
   }
   if (status === "pending") {
-    const changed = await context.markRetryReady(identity);
+    if (identityKey(identity) !== identityKey(target)) {
+      return blocked(
+        "An unrelated affected stream is pending. The lock remains active and the retry target is unchanged.",
+      );
+    }
+    const changed = await context.markRetryReady(identity, expected);
     if (!changed) {
       return blocked(
-        "Could not persist the pending retry state. The lock remains active.",
+        "The lock changed before the pending retry state could be persisted. No state was changed.",
       );
     }
     return {
@@ -218,10 +229,17 @@ export async function verifyCancelLock(
     return blocked("The persisted lock is unavailable. No state was changed.");
   }
   if (initial.stage === "running") {
-    const phaseChanged = await context.markVerification(queue.complete);
+    const beforeVerification = context.getCurrent();
+    if (beforeVerification === null) {
+      return blocked("The persisted lock changed during verification.");
+    }
+    const phaseChanged = await context.markVerification(
+      queue.complete,
+      lockSnapshot(beforeVerification),
+    );
     if (!phaseChanged) {
       return blocked(
-        "Could not persist the verification phase. The lock remains active.",
+        "The lock changed before verification could be persisted. No state was changed.",
       );
     }
   }
@@ -229,6 +247,14 @@ export async function verifyCancelLock(
   if (lock === null) {
     return blocked("The persisted lock changed during verification.");
   }
+  if (
+    lock.kind === "cancel" &&
+    (lock.cancelTarget === null ||
+      identityKey(lock.cancelTarget) !== identityKey(options.target))
+  ) {
+    return blocked("The cancel target changed during verification.");
+  }
+  const transitionSnapshot = lockSnapshot(lock);
 
   const statuses = new Map<string, StatusRead>();
   for (const identity of lock.affected) {
@@ -246,21 +272,49 @@ export async function verifyCancelLock(
     return blocked("The cancel target could not be verified.");
   }
   if (options.mode === "reconcile") {
+    const targetResult = statuses.get(identityKey(options.target));
+    if (targetResult === undefined || !targetResult.ok) {
+      return blocked("The cancel target could not be verified.");
+    }
+    if (
+      targetResult.status !== null &&
+      isUnresolvedStatus(targetResult.status)
+    ) {
+      if (targetResult.status === "pending") {
+        const draft = await readDraft(
+          options.target,
+          targetResult.streamGone,
+        );
+        if (!draft.ok) {
+          return blocked(
+            "A required draft state could not be validated. The lock remains active.",
+          );
+        }
+      }
+      return await routeUnresolved(
+        context,
+        options.target,
+        targetResult.status,
+        options.target,
+        transitionSnapshot,
+      );
+    }
     for (const identity of lock.affected) {
+      if (identityKey(identity) === identityKey(options.target)) {
+        continue;
+      }
       const result = statuses.get(identityKey(identity));
       if (result === undefined || !result.ok) {
         return blocked("An affected identity was not verified.");
       }
       if (result.status !== null && isUnresolvedStatus(result.status)) {
-        if (result.status === "pending") {
-          const draft = await readDraft(identity, result.streamGone);
-          if (!draft.ok) {
-            return blocked(
-              "A required draft state could not be validated. The lock remains active.",
-            );
-          }
-        }
-        return await routeUnresolved(context, identity, result.status);
+        return await routeUnresolved(
+          context,
+          identity,
+          result.status,
+          options.target,
+          transitionSnapshot,
+        );
       }
     }
     if (!queue.complete || queue.queue.length > 0) {
@@ -269,17 +323,26 @@ export async function verifyCancelLock(
       );
     }
     if (lock.stage !== "verification") {
-      const phaseChanged = await context.markStage("verification");
+      const phaseChanged = await context.markStage(
+        "verification",
+        transitionSnapshot,
+      );
       if (!phaseChanged) {
         return blocked(
-          "Could not persist the verification phase. The lock remains active.",
+          "The lock changed before verification could be persisted. No state was changed.",
         );
       }
     }
   }
   if (options.mode === "success" && targetStatus.status !== "abandoned") {
     if (targetStatus.status !== null && isUnresolvedStatus(targetStatus.status)) {
-      return await routeUnresolved(context, options.target, targetStatus.status);
+      return await routeUnresolved(
+        context,
+        options.target,
+        targetStatus.status,
+        options.target,
+        transitionSnapshot,
+      );
     }
     return blocked(
       "The target status does not confirm cancellation. The lock remains active.",
@@ -290,7 +353,13 @@ export async function verifyCancelLock(
       targetStatus.status !== null &&
       !isResolvedStatus(targetStatus.status)
     ) {
-      return await routeUnresolved(context, options.target, targetStatus.status);
+      return await routeUnresolved(
+        context,
+        options.target,
+        targetStatus.status,
+        options.target,
+        transitionSnapshot,
+      );
     }
   }
   if (options.mode === "refusal") {
@@ -345,7 +414,13 @@ export async function verifyCancelLock(
           );
         }
       }
-      return await routeUnresolved(context, identity, result.status);
+      return await routeUnresolved(
+        context,
+        identity,
+        result.status,
+        options.target,
+        transitionSnapshot,
+      );
     }
   }
 

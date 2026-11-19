@@ -29,7 +29,10 @@ import {
   type CancelVerificationMode,
 } from "./publicationLockVerification";
 import styles from "./Publication.module.css";
-import type { PublicationLockApi } from "./usePublicationRecoveryLock";
+import {
+  lockSnapshot,
+  type PublicationLockApi,
+} from "./usePublicationRecoveryLock";
 
 type Availability =
   | { kind: "cancellable" }
@@ -182,7 +185,12 @@ export function PublicationCancelPanel({
         identities,
         "verification",
         freshQueue.length < 100,
-        { kind: "cancel", stage: "reserved", draftVerification: [identity] },
+        {
+          kind: "cancel",
+          stage: "reserved",
+          draftVerification: [identity],
+          cancelTarget: identity,
+        },
       );
       if (!acquired) {
         setError(
@@ -190,7 +198,10 @@ export function PublicationCancelPanel({
         );
         return;
       }
-      const running = await lock.markStage("running");
+      const reserved = lock.getCurrent();
+      const running =
+        reserved !== null &&
+        (await lock.markStage("running", lockSnapshot(reserved)));
       if (!running) {
         const current = lock.getCurrent();
         const aborted =

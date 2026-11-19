@@ -161,7 +161,7 @@ describe("publication lock lifecycle and migration", () => {
           [target],
           "verification",
           true,
-          { kind: "cancel", stage: "reserved", draftVerification: [target] },
+          { kind: "cancel", stage: "reserved", draftVerification: [target], cancelTarget: target },
         ),
       ).toBe(true);
     });
