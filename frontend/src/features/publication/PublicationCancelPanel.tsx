@@ -83,8 +83,11 @@ function lockMessage(
   if (lock.kind === "cancel" && lock.stage === "retry_ready") {
     return "The operation is still pending. An explicit cancel retry is required in the recovery queue.";
   }
-  if (lock.stage === "running" || lock.stage === "reserved") {
+  if (lock.stage === "running") {
     return "A publication mutation is running. Publication Cancel is blocked until authoritative GET verification succeeds.";
+  }
+  if (lock.stage === "reserved") {
+    return "A Cancel was reserved but no POST was sent. GET reconciliation is available in the recovery queue.";
   }
   return "Publication mutations are locked until authoritative GET verification succeeds.";
 }

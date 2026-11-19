@@ -282,8 +282,12 @@ export function RecoveryQueuePage() {
             );
             return;
           }
+          const mode =
+            initial.stage === "retry_ready" || initial.stage === "reserved"
+              ? "reconcile"
+              : "recovery";
           const result = await verifyCancelLock(context, {
-            mode: "recovery",
+            mode,
             target,
             onQueue: (queue) => {
               queryClient.setQueryData(queryKeys.recoverablePublications, queue);
@@ -293,6 +297,10 @@ export function RecoveryQueuePage() {
             setVerificationMessage(
               "No unresolved operations in the current bounded read; previously tracked stream identities re-read successfully.",
             );
+          } else if (result.status === "retry") {
+            setVerificationMessage(result.message);
+          } else if (result.status === "handoff") {
+            setVerificationMessage(result.message);
           } else {
             setVerificationError(result.message);
           }
@@ -439,10 +447,38 @@ export function RecoveryQueuePage() {
         );
         return;
       }
-      if (freshState.operation === null || freshState.operation.status !== "pending") {
-        setRetryMessage(
-          "The operation is no longer pending. No retry Cancel was sent.",
+      if (
+        freshState.operation === null ||
+        freshState.operation.status !== "pending"
+      ) {
+        const observed = freshState.operation?.status ?? null;
+        if (observed === "in_progress" || observed === "ambiguous") {
+          const handedOff = await lock.markStage("recovery_ready");
+          if (handedOff) {
+            setRetryMessage(
+              "Recovery is required. The lock was handed to explicit recovery; no retry Cancel was sent.",
+            );
+          } else {
+            setRetryError(
+              "Could not persist the recovery handoff. The lock remains active.",
+            );
+          }
+          return;
+        }
+        const verification = await lock.runExclusive((context) =>
+          verifyCancelLock(context, {
+            mode: "reconcile",
+            target,
+            onQueue: (queue) => {
+              queryClient.setQueryData(queryKeys.recoverablePublications, queue);
+            },
+          }),
         );
+        if (verification.status === "released") {
+          setRetryMessage(verification.message);
+        } else {
+          setRetryError(verification.message);
+        }
         return;
       }
       const running = await lock.markStage("running");
@@ -533,9 +569,11 @@ export function RecoveryQueuePage() {
               ? " Recovery is required; the cancel lock was handed to explicit recovery."
               : lock.lock.kind === "cancel" && lock.lock.stage === "retry_ready"
                 ? " The publication is still pending; an explicit cancel retry is required."
-                : lock.lock.phase === "running"
-                  ? " Recovery POST is still running; GET reconciliation is disabled."
-                  : " Read-only actions remain available; further recovery passes are blocked until authoritative GET re-read succeeds."}
+                : lock.lock.stage === "running"
+                  ? " A mutation is in flight; GET reconciliation is disabled until it finishes."
+                  : lock.lock.stage === "reserved"
+                    ? " No Cancel POST was sent; GET reconciliation is available."
+                    : " Read-only actions remain available; further recovery passes are blocked until authoritative GET re-read succeeds."}
           </p>
           <button
             type="button"
@@ -543,8 +581,9 @@ export function RecoveryQueuePage() {
             disabled={
               queueQuery.isFetching ||
               unlockInFlight ||
+              retryInFlight ||
               recoveryMutation.isPending ||
-              lock.lock?.phase !== "verification"
+              lock.lock?.stage === "running"
             }
           >
             Re-read authoritative state

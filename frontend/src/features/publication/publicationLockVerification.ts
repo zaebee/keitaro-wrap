@@ -25,7 +25,8 @@ export type CancelVerificationMode =
   | "noop"
   | "refusal"
   | "unknown"
-  | "recovery";
+  | "recovery"
+  | "reconcile";
 
 export type CancelVerificationOptions = {
   mode: CancelVerificationMode;
@@ -216,7 +217,7 @@ export async function verifyCancelLock(
   if (initial === null) {
     return blocked("The persisted lock is unavailable. No state was changed.");
   }
-  if (initial.stage === "running" || initial.stage === "reserved") {
+  if (initial.stage === "running") {
     const phaseChanged = await context.markVerification(queue.complete);
     if (!phaseChanged) {
       return blocked(
@@ -243,6 +244,38 @@ export async function verifyCancelLock(
   const targetStatus = statuses.get(identityKey(options.target));
   if (targetStatus === undefined || !targetStatus.ok) {
     return blocked("The cancel target could not be verified.");
+  }
+  if (options.mode === "reconcile") {
+    for (const identity of lock.affected) {
+      const result = statuses.get(identityKey(identity));
+      if (result === undefined || !result.ok) {
+        return blocked("An affected identity was not verified.");
+      }
+      if (result.status !== null && isUnresolvedStatus(result.status)) {
+        if (result.status === "pending") {
+          const draft = await readDraft(identity, result.streamGone);
+          if (!draft.ok) {
+            return blocked(
+              "A required draft state could not be validated. The lock remains active.",
+            );
+          }
+        }
+        return await routeUnresolved(context, identity, result.status);
+      }
+    }
+    if (!queue.complete || queue.queue.length > 0) {
+      return blocked(
+        "All tracked states are resolved, but the bounded queue is not complete and empty. The lock remains active.",
+      );
+    }
+    if (lock.stage !== "verification") {
+      const phaseChanged = await context.markStage("verification");
+      if (!phaseChanged) {
+        return blocked(
+          "Could not persist the verification phase. The lock remains active.",
+        );
+      }
+    }
   }
   if (options.mode === "success" && targetStatus.status !== "abandoned") {
     if (targetStatus.status !== null && isUnresolvedStatus(targetStatus.status)) {
@@ -289,7 +322,7 @@ export async function verifyCancelLock(
     }
   }
 
-  for (const identity of lock.affected) {
+  for (const identity of options.mode === "reconcile" ? [] : lock.affected) {
     const result = statuses.get(identityKey(identity));
     if (result === undefined || !result.ok) {
       return blocked("An affected identity was not verified.");
