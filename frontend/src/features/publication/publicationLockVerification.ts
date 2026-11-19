@@ -133,9 +133,25 @@ function queuePreconditionResult(
   options: CancelVerificationOptions,
   queue: { queue: PublicPublicationResponse[]; complete: boolean },
 ): VerificationResult | null {
-  if (options.mode !== "unknown" && options.mode !== "recovery") {
-    return null;
+  if (!queue.complete) {
+    return blocked(
+      "The current queue read is potentially truncated. The lock remains active.",
+    );
   }
+  if (
+    (options.mode === "unknown" || options.mode === "recovery") &&
+    queue.queue.length > 0
+  ) {
+    return blocked(
+      `${queue.queue.length} unresolved operation(s) remain in the complete bounded read. The lock remains active.`,
+    );
+  }
+  return null;
+}
+
+function queueReleaseResult(
+  queue: { queue: PublicPublicationResponse[]; complete: boolean },
+): VerificationResult | null {
   if (!queue.complete) {
     return blocked(
       "The current queue read is potentially truncated. The lock remains active.",
@@ -439,11 +455,6 @@ async function verifyReconcileMode(
       "An unrelated affected stream is unresolved. The lock remains active.",
     );
   }
-  if (!prepared.complete || prepared.queue.length > 0) {
-    return blocked(
-      "All tracked states are resolved, but the bounded queue is not complete and empty. The lock remains active.",
-    );
-  }
   if (prepared.lock.stage !== "verification") {
     const changed = await context.markStage(
       "verification",
@@ -610,6 +621,10 @@ async function verifyDraftsAndRelease(
   prepared: Prepared,
   statuses: Map<string, StatusRead>,
 ): Promise<VerificationResult> {
+  const queueProblem = queueReleaseResult(prepared);
+  if (queueProblem !== null) {
+    return queueProblem;
+  }
   const drafts = await Promise.all(
     prepared.lock.draftVerification.map(async (identity) => {
       const status = statuses.get(identityKey(identity));

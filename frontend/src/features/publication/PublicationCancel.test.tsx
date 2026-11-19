@@ -252,3 +252,103 @@ describe("S8-D3 publication Cancel", () => {
     expect(postCount).toBe(0);
   });
 });
+
+describe("S8-D3 unified queue release predicate", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    window.localStorage.clear();
+  });
+
+  const unresolvedQueue = queueFor([
+    publicationOperationFixture({
+      operation_uuid: "op-102",
+      stream_ref: 102,
+      status: "pending",
+    }),
+  ]);
+
+  const cases = [
+    {
+      name: "success",
+      initialStatus: "pending",
+      status: "abandoned",
+      respond: () =>
+        HttpResponse.json({
+          stream_ref: 101,
+          status: "abandoned",
+          reason: null,
+          draft_discarded: true,
+        }),
+    },
+    {
+      name: "no-op",
+      initialStatus: "pending",
+      status: "succeeded",
+      respond: () =>
+        HttpResponse.json({
+          stream_ref: 101,
+          status: null,
+          reason: "NO_PUBLICATION",
+          draft_discarded: false,
+        }),
+    },
+    {
+      name: "definitive refusal",
+      initialStatus: "failed",
+      status: "failed",
+      respond: () =>
+        errorResponse("PUBLICATION_ABSENCE_EVIDENCE_REQUIRED", 409, {
+          status: "failed",
+          reason: "ABSENCE_EVIDENCE_REQUIRED",
+          result: {
+            stream_ref: 101,
+            status: "failed",
+            reason: "ABSENCE_EVIDENCE_REQUIRED",
+            draft_discarded: false,
+          },
+        }),
+    },
+    {
+      name: "unknown outcome",
+      initialStatus: "pending",
+      status: "abandoned",
+      respond: () => HttpResponse.error(),
+    },
+  ];
+
+  it.each(cases)(
+    "keeps the lock for $name when the complete queue is not empty",
+    async ({ initialStatus, status, respond }) => {
+      let postCount = 0;
+      let posted = false;
+      serveBase(() => stateFor(posted ? status : initialStatus), unresolvedQueue);
+      server.use(
+        http.get("*/api/campaigns/42/streams/102/publication", () =>
+          HttpResponse.json(stateFor("succeeded", 102)),
+        ),
+        http.post(CANCEL_PATH, () => {
+          postCount += 1;
+          posted = true;
+          return respond();
+        }),
+      );
+      const user = userEvent.setup();
+      renderApp(EDITOR_PATH);
+
+      await confirmCancel(user);
+
+      await waitFor(() => expect(postCount).toBe(1));
+      expect(window.localStorage.getItem(RECOVERY_LOCK_KEY)).not.toBeNull();
+      expect(
+        screen.queryByText(/Authoritative status and queue reads passed/),
+      ).toBeNull();
+      expect(
+        await screen.findByText(/1 unresolved operation\(s\) remain/),
+      ).toBeInTheDocument();
+    },
+  );
+});
