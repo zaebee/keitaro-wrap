@@ -20,6 +20,7 @@ import { queryKeys } from "../../queries/queryClient";
 import { useNarrowViewport } from "../../shared/hooks/useNarrowViewport";
 import { PublicationCancelPanel } from "../publication/PublicationCancelPanel";
 import { PublicationStatusPanel } from "../publication/PublicationStatusPanel";
+import { PushUnavailablePanel } from "../publication/PushUnavailablePanel";
 import { usePublicationRecoveryLock } from "../publication/usePublicationRecoveryLock";
 import { parsePositiveId } from "../campaign-workspace/campaignId";
 import {
@@ -286,8 +287,8 @@ function Editor({
       <p className={styles.hint}>
         This screen edits only the selected stream; streams remain independent.
         Committed baseline and staged draft are separate server views. The
-        publication section below offers only a local publication Cancel;
-        Push remains unavailable.
+        publication section below shows read-only status, explains why Push is
+        unavailable, and offers only a local publication Cancel.
       </p>
       <Link to={`/campaigns/${campaignId}`}>Back to Campaign Workspace</Link>
 
@@ -409,6 +410,7 @@ function Editor({
           onRetry={() => publicationQuery.refetch()}
           retryDisabled={publicationQuery.isFetching}
         />
+        <PushUnavailablePanel />
         <PublicationCancelPanel
           campaignId={campaignId}
           streamRef={streamRef}

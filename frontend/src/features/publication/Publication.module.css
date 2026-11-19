@@ -119,6 +119,18 @@
   padding: 0 var(--space-3);
 }
 
+.disabledPanel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  margin: var(--space-3) 0;
+  padding: var(--space-3);
+}
+
+.disabledPanel h3 {
+  margin-top: 0;
+}
+
 .recoveryPanel,
 .lockBanner {
   display: block;
