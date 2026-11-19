@@ -1238,7 +1238,7 @@ describe("S8-D3 target identity and snapshot guards", () => {
     });
     expect(cancelPosts).toBe(0);
     expect(
-      screen.getByText(/unrelated affected stream is pending/),
+      screen.getByText(/unrelated affected stream is unresolved/),
     ).toBeInTheDocument();
   });
 
@@ -1298,5 +1298,121 @@ describe("S8-D3 target identity and snapshot guards", () => {
       stage: "recovery_ready",
     });
     expect(cancelPosts).toBe(0);
+  });
+});
+
+
+describe("S8-D3 remaining audit regressions", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("hands off instead of setting retry_ready when the target is pending and an unrelated stream is in_progress", async () => {
+    let cancelPosts = 0;
+    const lock = {
+      ...cancelLock("retry_ready"),
+      affected: [
+        { campaignId: 42, streamRef: 101 },
+        { campaignId: 42, streamRef: 102 },
+      ],
+    };
+    window.localStorage.setItem(RECOVERY_LOCK_KEY, JSON.stringify(lock));
+    server.use(
+      http.get(QUEUE_PATH, () =>
+        HttpResponse.json([
+          publicationOperationFixture({
+            operation_uuid: "op-102",
+            stream_ref: 102,
+            status: "in_progress",
+          }),
+        ]),
+      ),
+      http.get("*/api/campaigns/42/streams/101/publication", () =>
+        HttpResponse.json(stateFor(42, 101, "pending")),
+      ),
+      http.get("*/api/campaigns/42/streams/102/publication", () =>
+        HttpResponse.json(stateFor(42, 102, "in_progress")),
+      ),
+      http.get("*/api/campaigns/42/streams/101/draft", () =>
+        HttpResponse.json(draftStateFixture()),
+      ),
+      http.post("*/api/campaigns/42/streams/101/publication/cancel", () => {
+        cancelPosts += 1;
+        return HttpResponse.json({});
+      }),
+    );
+    const user = userEvent.setup();
+    renderApp("/recovery");
+
+    await unlock(user);
+
+    await waitFor(() =>
+      expect(readLock()).toMatchObject({
+        kind: "cancel",
+        stage: "recovery_ready",
+        cancelTarget: { campaignId: 42, streamRef: 101 },
+      }),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Confirm cancel retry" }),
+    ).toBeNull();
+    expect(cancelPosts).toBe(0);
+  });
+
+  it("aborts Recovery start when the union changes after preflight but identity and stage stay the same", async () => {
+    let recoveryPosts = 0;
+    let queueGets = 0;
+    const original = cancelLock("recovery_ready");
+    const replacement = {
+      ...original,
+      affected: [
+        { campaignId: 42, streamRef: 101 },
+        { campaignId: 42, streamRef: 777 },
+      ],
+    };
+    window.localStorage.setItem(RECOVERY_LOCK_KEY, JSON.stringify(original));
+    server.use(
+      http.get(QUEUE_PATH, () => {
+        queueGets += 1;
+        if (queueGets === 2) {
+          window.localStorage.setItem(
+            RECOVERY_LOCK_KEY,
+            JSON.stringify(replacement),
+          );
+        }
+        return HttpResponse.json([]);
+      }),
+      http.post("*/api/publications/recover", () => {
+        recoveryPosts += 1;
+        return HttpResponse.json(recoveryResult());
+      }),
+    );
+    const user = userEvent.setup();
+    renderApp("/recovery");
+
+    await user.click(
+      await screen.findByRole("button", { name: "Run recovery" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Confirm recovery" }),
+    );
+
+    await waitFor(() => expect(queueGets).toBeGreaterThanOrEqual(2));
+    expect(recoveryPosts).toBe(0);
+    expect(readLock()).toMatchObject({
+      lockId: "cancel-lock-1",
+      stage: "recovery_ready",
+      affected: [
+        { campaignId: 42, streamRef: 101 },
+        { campaignId: 42, streamRef: 777 },
+      ],
+    });
+    expect(
+      screen.getByText(/handoff lock changed before Recovery started/),
+    ).toBeInTheDocument();
   });
 });

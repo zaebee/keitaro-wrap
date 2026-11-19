@@ -49,6 +49,10 @@ type StatusRead =
   | { ok: true; status: PublicationStatus | null; streamGone: boolean }
   | { ok: false; message: string };
 
+type StatusReadOk = Extract<StatusRead, { ok: true }> & {
+  status: PublicationStatus;
+};
+
 type DraftRead =
   | { ok: true; version: number | null }
   | { ok: false; message: string };
@@ -276,10 +280,45 @@ export async function verifyCancelLock(
     if (targetResult === undefined || !targetResult.ok) {
       return blocked("The cancel target could not be verified.");
     }
+    const unrelatedUnresolved = lock.affected
+      .filter((identity) => identityKey(identity) !== identityKey(options.target))
+      .map((identity) => ({
+        identity,
+        result: statuses.get(identityKey(identity)),
+      }))
+      .filter(
+        (entry): entry is { identity: StreamIdentity; result: StatusReadOk } =>
+          entry.result !== undefined &&
+          entry.result.ok &&
+          entry.result.status !== null &&
+          isUnresolvedStatus(entry.result.status),
+      );
+    const recoveryUnrelated = unrelatedUnresolved.find(
+      (entry) =>
+        entry.result.status === "in_progress" ||
+        entry.result.status === "ambiguous",
+    );
+    if (recoveryUnrelated !== undefined) {
+      return await routeUnresolved(
+        context,
+        recoveryUnrelated.identity,
+        recoveryUnrelated.result.status,
+        options.target,
+        transitionSnapshot,
+      );
+    }
     if (
       targetResult.status !== null &&
       isUnresolvedStatus(targetResult.status)
     ) {
+      if (
+        targetResult.status === "pending" &&
+        unrelatedUnresolved.length > 0
+      ) {
+        return blocked(
+          "An unrelated affected stream is unresolved. The retry target is unchanged and the lock remains active.",
+        );
+      }
       if (targetResult.status === "pending") {
         const draft = await readDraft(
           options.target,
@@ -299,23 +338,10 @@ export async function verifyCancelLock(
         transitionSnapshot,
       );
     }
-    for (const identity of lock.affected) {
-      if (identityKey(identity) === identityKey(options.target)) {
-        continue;
-      }
-      const result = statuses.get(identityKey(identity));
-      if (result === undefined || !result.ok) {
-        return blocked("An affected identity was not verified.");
-      }
-      if (result.status !== null && isUnresolvedStatus(result.status)) {
-        return await routeUnresolved(
-          context,
-          identity,
-          result.status,
-          options.target,
-          transitionSnapshot,
-        );
-      }
+    if (unrelatedUnresolved.length > 0) {
+      return blocked(
+        "An unrelated affected stream is unresolved. The lock remains active.",
+      );
     }
     if (!queue.complete || queue.queue.length > 0) {
       return blocked(

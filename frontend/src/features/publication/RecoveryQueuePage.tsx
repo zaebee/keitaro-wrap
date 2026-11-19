@@ -22,6 +22,7 @@ import {
   isTerminalPublicationState,
   isValidDraftState,
   isValidPublicationState,
+  mergeStreamIdentities,
   parseCancelErrorDetails,
   parseCancelResult,
   parseRecoverableQueue,
@@ -37,6 +38,7 @@ import styles from "./Publication.module.css";
 import {
   lockSnapshot,
   usePublicationRecoveryLock,
+  type LockSnapshot,
 } from "./usePublicationRecoveryLock";
 
 type Failure = {
@@ -51,6 +53,20 @@ type RecoveryRunOutcome = {
   unionUpdated: boolean;
   phaseUpdated: boolean;
 };
+
+function snapshotsEqual(
+  left: LockSnapshot,
+  right: LockSnapshot,
+): boolean {
+  return (
+    left.lockId === right.lockId &&
+    left.kind === right.kind &&
+    left.stage === right.stage &&
+    left.unionFingerprint === right.unionFingerprint &&
+    left.draftFingerprint === right.draftFingerprint &&
+    left.cancelTargetFingerprint === right.cancelTargetFingerprint
+  );
+}
 
 function describeFailure(error: unknown): Failure {
   if (error instanceof ApiError) {
@@ -240,31 +256,27 @@ export function RecoveryQueuePage() {
       }
       const started = await lock.runExclusive(async (context) => {
         const observed = context.getCurrent();
-        if (
-          observed === null ||
-          (() => {
-            const snapshot = lockSnapshot(observed);
-            return (
-              snapshot.lockId !== startSnapshot.lockId ||
-              snapshot.kind !== startSnapshot.kind ||
-              snapshot.stage !== startSnapshot.stage
-            );
-          })()
-        ) {
+        if (observed === null) {
           return false;
         }
+        const observedSnapshot = lockSnapshot(observed);
+        if (!snapshotsEqual(observedSnapshot, startSnapshot)) {
+          return false;
+        }
+        const incoming = identitiesFromQueue(freshQueue);
         const unionUpdated = await context.updateAffected(
-          identitiesFromQueue(freshQueue),
+          incoming,
           freshQueue.length < RECOVERABLE_PUBLICATIONS_LIMIT,
         );
         if (!unionUpdated) {
           return false;
         }
-        const afterUnion = context.getCurrent();
-        if (afterUnion === null) {
-          return false;
-        }
-        return await context.markStage("running", lockSnapshot(afterUnion));
+        const merged = mergeStreamIdentities(observed.affected, incoming);
+        const expectedAfterUnion: LockSnapshot = {
+          ...startSnapshot,
+          unionFingerprint: streamUnionFingerprint(merged.identities),
+        };
+        return await context.markStage("running", expectedAfterUnion);
       });
       if (!started) {
         setActionError(
@@ -479,6 +491,54 @@ export function RecoveryQueuePage() {
           "Fresh authoritative status, draft and queue reads are required before retry.",
         );
         return;
+      }
+      for (const identity of current.affected) {
+        if (
+          identity.campaignId === target.campaignId &&
+          identity.streamRef === target.streamRef
+        ) {
+          continue;
+        }
+        let unrelatedState;
+        try {
+          unrelatedState = await getPublicationState(
+            identity.campaignId,
+            identity.streamRef,
+          );
+          if (!isValidPublicationState(unrelatedState, identity)) {
+            throw new Error("unrelated status mismatch");
+          }
+        } catch {
+          setRetryError(
+            "All affected stream statuses must be re-read before retry. No Cancel was sent.",
+          );
+          return;
+        }
+        const unrelatedStatus = unrelatedState.operation?.status ?? null;
+        if (
+          unrelatedStatus === "in_progress" ||
+          unrelatedStatus === "ambiguous"
+        ) {
+          const handedOff = await lock.runExclusive(async (context) =>
+            await context.markStage("recovery_ready", expected),
+          );
+          if (handedOff) {
+            setRetryMessage(
+              "Unrelated unresolved work requires Recovery. The lock was handed off; no retry Cancel was sent.",
+            );
+          } else {
+            setRetryError(
+              "Could not persist the recovery handoff. No retry Cancel was sent.",
+            );
+          }
+          return;
+        }
+        if (unrelatedStatus === "pending") {
+          setRetryError(
+            "An unrelated affected stream is pending. The retry target is unchanged and no Cancel was sent.",
+          );
+          return;
+        }
       }
       if (
         freshState.operation === null ||
