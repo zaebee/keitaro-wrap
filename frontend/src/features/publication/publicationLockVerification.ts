@@ -129,6 +129,26 @@ async function readQueue(
   }
 }
 
+function queuePreconditionResult(
+  options: CancelVerificationOptions,
+  queue: { queue: PublicPublicationResponse[]; complete: boolean },
+): VerificationResult | null {
+  if (options.mode !== "unknown" && options.mode !== "recovery") {
+    return null;
+  }
+  if (!queue.complete) {
+    return blocked(
+      "The current queue read is potentially truncated. The lock remains active.",
+    );
+  }
+  if (queue.queue.length > 0) {
+    return blocked(
+      `${queue.queue.length} unresolved operation(s) remain in the complete bounded read. The lock remains active.`,
+    );
+  }
+  return null;
+}
+
 async function prepareVerification(
   context: LockContext,
   options: CancelVerificationOptions,
@@ -154,21 +174,9 @@ async function prepareVerification(
       ),
     };
   }
-  if (options.mode === "unknown" || options.mode === "recovery") {
-    if (!queue.complete) {
-      return {
-        result: blocked(
-          "The current queue read is potentially truncated. The lock remains active.",
-        ),
-      };
-    }
-    if (queue.queue.length > 0) {
-      return {
-        result: blocked(
-          `${queue.queue.length} unresolved operation(s) remain in the complete bounded read. The lock remains active.`,
-        ),
-      };
-    }
+  const queueProblem = queuePreconditionResult(options, queue);
+  if (queueProblem !== null) {
+    return { result: queueProblem };
   }
   const initial = context.getCurrent();
   if (initial === null) {
@@ -349,6 +357,39 @@ function unresolvedStatuses(
     }));
 }
 
+async function verifyPendingTarget(
+  context: LockContext,
+  options: CancelVerificationOptions,
+  prepared: Prepared,
+  target: Extract<StatusRead, { ok: true }>,
+  unrelated: UnresolvedStatus[],
+): Promise<VerificationResult | null> {
+  if (target.status !== "pending") {
+    return null;
+  }
+  if (unrelated.length > 0) {
+    return blocked(
+      "An unrelated affected stream is unresolved. The retry target is unchanged and the lock remains active.",
+    );
+  }
+  const draft = await readDraft(options.target, target.streamGone);
+  if (!draft.ok) {
+    return blocked(
+      "A required draft state could not be validated. The lock remains active.",
+    );
+  }
+  return await routeUnresolved(
+    context,
+    {
+      identity: options.target,
+      status: target.status,
+      streamGone: target.streamGone,
+    },
+    options.target,
+    prepared.snapshot,
+  );
+}
+
 async function verifyReconcileMode(
   context: LockContext,
   options: CancelVerificationOptions,
@@ -371,20 +412,17 @@ async function verifyReconcileMode(
       prepared.snapshot,
     );
   }
+  const pendingTarget = await verifyPendingTarget(
+    context,
+    options,
+    prepared,
+    targetResult,
+    unrelated,
+  );
+  if (pendingTarget !== null) {
+    return pendingTarget;
+  }
   if (targetResult.status !== null && isUnresolvedStatus(targetResult.status)) {
-    if (targetResult.status === "pending" && unrelated.length > 0) {
-      return blocked(
-        "An unrelated affected stream is unresolved. The retry target is unchanged and the lock remains active.",
-      );
-    }
-    if (targetResult.status === "pending") {
-      const draft = await readDraft(options.target, targetResult.streamGone);
-      if (!draft.ok) {
-        return blocked(
-          "A required draft state could not be validated. The lock remains active.",
-        );
-      }
-    }
     return await routeUnresolved(
       context,
       {
@@ -455,6 +493,95 @@ function checkRefusal(
   return null;
 }
 
+async function verifyTargetOutcome(
+  context: LockContext,
+  options: CancelVerificationOptions,
+  prepared: Prepared,
+  target: Extract<StatusRead, { ok: true }>,
+): Promise<VerificationResult | null> {
+  if (options.mode === "success" && target.status !== "abandoned") {
+    if (target.status !== null && isUnresolvedStatus(target.status)) {
+      return await routeUnresolved(
+        context,
+        {
+          identity: options.target,
+          status: target.status,
+          streamGone: target.streamGone,
+        },
+        options.target,
+        prepared.snapshot,
+      );
+    }
+    return blocked(
+      "The target status does not confirm cancellation. The lock remains active.",
+    );
+  }
+  if (
+    options.mode === "noop" &&
+    target.status !== null &&
+    !isResolvedStatus(target.status)
+  ) {
+    return await routeUnresolved(
+      context,
+      {
+        identity: options.target,
+        status: target.status,
+        streamGone: target.streamGone,
+      },
+      options.target,
+      prepared.snapshot,
+    );
+  }
+  if (options.mode === "refusal") {
+    return checkRefusal(options, target);
+  }
+  return null;
+}
+
+async function verifyUnresolvedIdentities(
+  context: LockContext,
+  options: CancelVerificationOptions,
+  prepared: Prepared,
+  statuses: Map<string, StatusRead>,
+): Promise<VerificationResult | null> {
+  const unresolved: UnresolvedStatus[] = [];
+  for (const identity of prepared.lock.affected) {
+    const result = statuses.get(identityKey(identity));
+    if (!result?.ok) {
+      return blocked("An affected identity was not verified.");
+    }
+    if (result.status !== null && isUnresolvedStatus(result.status)) {
+      unresolved.push({
+        identity,
+        status: result.status,
+        streamGone: result.streamGone,
+      });
+    }
+  }
+  const first = unresolved[0];
+  if (first === undefined) {
+    return null;
+  }
+  if (first.status === "pending") {
+    const draft = await readDraft(first.identity, first.streamGone);
+    if (!draft.ok) {
+      return blocked(
+        "A required draft state could not be validated. The lock remains active.",
+      );
+    }
+    if (
+      identityKey(first.identity) === identityKey(options.target) &&
+      options.preDraftVersion !== undefined &&
+      draft.version !== options.preDraftVersion
+    ) {
+      return blocked(
+        "The draft changed before verification. The lock remains active.",
+      );
+    }
+  }
+  return await routeUnresolved(context, first, options.target, prepared.snapshot);
+}
+
 async function verifyOutcomeMode(
   context: LockContext,
   options: CancelVerificationOptions,
@@ -465,79 +592,16 @@ async function verifyOutcomeMode(
   if (!targetResult?.ok) {
     return blocked("The cancel target could not be verified.");
   }
-  if (options.mode === "success" && targetResult.status !== "abandoned") {
-    if (targetResult.status !== null && isUnresolvedStatus(targetResult.status)) {
-      return await routeUnresolved(
-        context,
-        {
-          identity: options.target,
-          status: targetResult.status,
-          streamGone: targetResult.streamGone,
-        },
-        options.target,
-        prepared.snapshot,
-      );
-    }
-    return blocked(
-      "The target status does not confirm cancellation. The lock remains active.",
-    );
+  const targetOutcome = await verifyTargetOutcome(
+    context,
+    options,
+    prepared,
+    targetResult,
+  );
+  if (targetOutcome !== null) {
+    return targetOutcome;
   }
-  const noopStatus = targetResult.status;
-  if (
-    options.mode === "noop" &&
-    noopStatus !== null &&
-    !isResolvedStatus(noopStatus)
-  ) {
-    return await routeUnresolved(
-      context,
-      {
-        identity: options.target,
-        status: noopStatus,
-        streamGone: targetResult.streamGone,
-      },
-      options.target,
-      prepared.snapshot,
-    );
-  }
-  if (options.mode === "refusal") {
-    const refusalResult = checkRefusal(options, targetResult);
-    if (refusalResult !== null) {
-      return refusalResult;
-    }
-  }
-  for (const identity of prepared.lock.affected) {
-    const result = statuses.get(identityKey(identity));
-    if (!result?.ok) {
-      return blocked("An affected identity was not verified.");
-    }
-    if (result.status === null || !isUnresolvedStatus(result.status)) {
-      continue;
-    }
-    if (result.status === "pending") {
-      const draft = await readDraft(identity, result.streamGone);
-      if (!draft.ok) {
-        return blocked(
-          "A required draft state could not be validated. The lock remains active.",
-        );
-      }
-      if (
-        identityKey(identity) === identityKey(options.target) &&
-        options.preDraftVersion !== undefined &&
-        draft.version !== options.preDraftVersion
-      ) {
-        return blocked(
-          "The draft changed before verification. The lock remains active.",
-        );
-      }
-    }
-    return await routeUnresolved(
-      context,
-      { identity, status: result.status, streamGone: result.streamGone },
-      options.target,
-      prepared.snapshot,
-    );
-  }
-  return null;
+  return await verifyUnresolvedIdentities(context, options, prepared, statuses);
 }
 
 async function verifyDraftsAndRelease(
@@ -546,21 +610,28 @@ async function verifyDraftsAndRelease(
   prepared: Prepared,
   statuses: Map<string, StatusRead>,
 ): Promise<VerificationResult> {
-  for (const identity of prepared.lock.draftVerification) {
-    const status = statuses.get(identityKey(identity));
-    const draft = await readDraft(
-      identity,
-      status?.ok === true && status.streamGone,
-    );
-    if (!draft.ok) {
+  const drafts = await Promise.all(
+    prepared.lock.draftVerification.map(async (identity) => {
+      const status = statuses.get(identityKey(identity));
+      return {
+        identity,
+        draft: await readDraft(
+          identity,
+          status?.ok === true && status.streamGone,
+        ),
+      };
+    }),
+  );
+  for (const entry of drafts) {
+    if (!entry.draft.ok) {
       return blocked(
         "A required draft state could not be validated. The lock remains active.",
       );
     }
     if (
-      identityKey(identity) === identityKey(options.target) &&
+      identityKey(entry.identity) === identityKey(options.target) &&
       options.preDraftVersion !== undefined &&
-      draft.version !== options.preDraftVersion
+      entry.draft.version !== options.preDraftVersion
     ) {
       return blocked(
         "The draft changed before verification. The lock remains active.",
