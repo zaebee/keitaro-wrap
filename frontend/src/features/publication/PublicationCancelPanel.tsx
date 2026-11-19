@@ -210,7 +210,7 @@ export function PublicationCancelPanel({
             lockId: current.lockId,
             fingerprint: identities
               .map((item) => `${item.campaignId}:${item.streamRef}`)
-              .sort()
+              .sort((left, right) => left.localeCompare(right))
               .join("|"),
           }));
         setError(

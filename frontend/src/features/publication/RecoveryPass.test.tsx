@@ -17,6 +17,8 @@ import {
 } from "./usePublicationRecoveryLock";
 
 const QUEUE_PATH = "*/api/publications/recoverable*";
+const RECOVER_PATH = "*/api/publications/recover";
+const CANCEL_101_PATH = "*/api/campaigns/42/streams/101/publication/cancel";
 const op42 = publicationOperationFixture({
   operation_uuid: "op-42",
   campaign_id: 42,
@@ -69,6 +71,17 @@ async function startRecovery(user: TestUser) {
 async function clickUnlock(user: TestUser) {
   await user.click(
     screen.getByRole("button", { name: "Re-read authoritative state" }),
+  );
+}
+
+function serveQueueGrowthRecovery() {
+  let queue = [op42];
+  server.use(
+    http.get(QUEUE_PATH, () => HttpResponse.json(queue)),
+    http.post(RECOVER_PATH, () => {
+      queue = [op42, op43];
+      return HttpResponse.json(recoveryResult());
+    }),
   );
 }
 
@@ -271,14 +284,7 @@ describe("S8-D2 recovery pass", () => {
 
   it("fails closed when the affected union cannot be persisted", async () => {
     failSetItemOn([2]);
-    let queue = [op42];
-    server.use(
-      http.get(QUEUE_PATH, () => HttpResponse.json(queue)),
-      http.post("*/api/publications/recover", () => {
-        queue = [op42, op43];
-        return HttpResponse.json(recoveryResult());
-      }),
-    );
+    serveQueueGrowthRecovery();
     const user = userEvent.setup();
     renderApp("/recovery");
     await screen.findByRole("button", { name: "Run recovery" });
@@ -567,14 +573,7 @@ describe("S8-D2 recovery pass", () => {
 
   it("blocks unlock while the persisted union is incomplete", async () => {
     failSetItemOn([2, 4]);
-    let queue = [op42];
-    server.use(
-      http.get(QUEUE_PATH, () => HttpResponse.json(queue)),
-      http.post("*/api/publications/recover", () => {
-        queue = [op42, op43];
-        return HttpResponse.json(recoveryResult());
-      }),
-    );
+    serveQueueGrowthRecovery();
     const user = userEvent.setup();
     renderApp("/recovery");
     await screen.findByRole("button", { name: "Run recovery" });
@@ -779,6 +778,63 @@ const cancelLock = (
   createdAt: new Date().toISOString(),
   phase: stage === "retry_ready" ? "running" : "verification",
 });
+
+function seedCancelLock(
+  stage: "recovery_ready" | "retry_ready" | "reserved",
+  overrides: Record<string, unknown> = {},
+) {
+  const lock = { ...cancelLock(stage), ...overrides };
+  window.localStorage.setItem(RECOVERY_LOCK_KEY, JSON.stringify(lock));
+  return lock;
+}
+
+type CancelReconciliationSetup = {
+  statuses: Record<number, string>;
+  queue?: unknown[];
+  drafts?: number[];
+  onStatusGet?: (streamRef: number) => void;
+  onQueueGet?: () => void;
+  onCancelPost?: () => void;
+  onRecoveryPost?: () => void;
+};
+
+function serveCancelReconciliation(setup: CancelReconciliationSetup) {
+  const statusHandlers = Object.entries(setup.statuses).map(
+    ([streamRef, status]) =>
+      http.get(
+        `*/api/campaigns/42/streams/${streamRef}/publication`,
+        () => {
+          setup.onStatusGet?.(Number(streamRef));
+          return HttpResponse.json(stateFor(42, Number(streamRef), status));
+        },
+      ),
+  );
+  const draftHandlers = (setup.drafts ?? [101]).map((streamRef) =>
+    http.get(`*/api/campaigns/42/streams/${streamRef}/draft`, () =>
+      HttpResponse.json(
+        streamRef === 101
+          ? draftStateFixture()
+          : draftStateFixture(draftViewFixture({ stream_ref: streamRef })),
+      ),
+    ),
+  );
+  server.use(
+    ...statusHandlers,
+    ...draftHandlers,
+    http.get(QUEUE_PATH, () => {
+      setup.onQueueGet?.();
+      return HttpResponse.json(setup.queue ?? []);
+    }),
+    http.post(CANCEL_101_PATH, () => {
+      setup.onCancelPost?.();
+      return HttpResponse.json({});
+    }),
+    http.post(RECOVER_PATH, () => {
+      setup.onRecoveryPost?.();
+      return HttpResponse.json(recoveryResult());
+    }),
+  );
+}
 
 async function unlock(user: ReturnType<typeof userEvent.setup>) {
   await user.click(
@@ -1012,27 +1068,16 @@ describe("S8-D3 non-in-flight lock reconciliation", () => {
   it("reconciles retry_ready with a terminal status without any mutation POST", async () => {
     let cancelPosts = 0;
     let recoveryPosts = 0;
-    window.localStorage.setItem(
-      RECOVERY_LOCK_KEY,
-      JSON.stringify(cancelLock("retry_ready")),
-    );
-    server.use(
-      http.get(QUEUE_PATH, () => HttpResponse.json([])),
-      http.get("*/api/campaigns/42/streams/101/publication", () =>
-        HttpResponse.json(stateFor(42, 101, "succeeded")),
-      ),
-      http.get("*/api/campaigns/42/streams/101/draft", () =>
-        HttpResponse.json(draftStateFixture()),
-      ),
-      http.post("*/api/campaigns/42/streams/101/publication/cancel", () => {
+    seedCancelLock("retry_ready");
+    serveCancelReconciliation({
+      statuses: { 101: "succeeded" },
+      onCancelPost: () => {
         cancelPosts += 1;
-        return HttpResponse.json({});
-      }),
-      http.post("*/api/publications/recover", () => {
+      },
+      onRecoveryPost: () => {
         recoveryPosts += 1;
-        return HttpResponse.json(recoveryResult());
-      }),
-    );
+      },
+    });
     const user = userEvent.setup();
     renderApp("/recovery");
 
@@ -1152,23 +1197,13 @@ describe("S8-D3 non-in-flight lock reconciliation", () => {
 
   it("reconciles a persisted reserved lock after reload without sending Cancel", async () => {
     let cancelPosts = 0;
-    window.localStorage.setItem(
-      RECOVERY_LOCK_KEY,
-      JSON.stringify(cancelLock("reserved")),
-    );
-    server.use(
-      http.get(QUEUE_PATH, () => HttpResponse.json([])),
-      http.get("*/api/campaigns/42/streams/101/publication", () =>
-        HttpResponse.json(stateFor(42, 101, "abandoned")),
-      ),
-      http.get("*/api/campaigns/42/streams/101/draft", () =>
-        HttpResponse.json(draftStateFixture()),
-      ),
-      http.post("*/api/campaigns/42/streams/101/publication/cancel", () => {
+    seedCancelLock("reserved");
+    serveCancelReconciliation({
+      statuses: { 101: "abandoned" },
+      onCancelPost: () => {
         cancelPosts += 1;
-        return HttpResponse.json({});
-      }),
-    );
+      },
+    });
     const user = userEvent.setup();
     renderApp("/recovery");
 
@@ -1193,38 +1228,26 @@ describe("S8-D3 target identity and snapshot guards", () => {
 
   it("keeps an unrelated pending queue identity from becoming the retry target", async () => {
     let cancelPosts = 0;
-    const lock = {
-      ...cancelLock("retry_ready"),
+    seedCancelLock("retry_ready", {
       affected: [
         { campaignId: 42, streamRef: 102 },
         { campaignId: 42, streamRef: 101 },
       ],
-    };
-    window.localStorage.setItem(RECOVERY_LOCK_KEY, JSON.stringify(lock));
-    server.use(
-      http.get(QUEUE_PATH, () =>
-        HttpResponse.json([
-          publicationOperationFixture({
-            operation_uuid: "op-102",
-            stream_ref: 102,
-            status: "pending",
-          }),
-        ]),
-      ),
-      http.get("*/api/campaigns/42/streams/101/publication", () =>
-        HttpResponse.json(stateFor(42, 101, "succeeded")),
-      ),
-      http.get("*/api/campaigns/42/streams/102/publication", () =>
-        HttpResponse.json(stateFor(42, 102, "pending")),
-      ),
-      http.get("*/api/campaigns/42/streams/102/draft", () =>
-        HttpResponse.json(draftStateFixture(draftViewFixture({ stream_ref: 102 }))),
-      ),
-      http.post("*/api/campaigns/42/streams/101/publication/cancel", () => {
+    });
+    serveCancelReconciliation({
+      statuses: { 101: "succeeded", 102: "pending" },
+      queue: [
+        publicationOperationFixture({
+          operation_uuid: "op-102",
+          stream_ref: 102,
+          status: "pending",
+        }),
+      ],
+      drafts: [102],
+      onCancelPost: () => {
         cancelPosts += 1;
-        return HttpResponse.json({});
-      }),
-    );
+      },
+    });
     const user = userEvent.setup();
     renderApp("/recovery");
 
@@ -1253,12 +1276,16 @@ describe("S8-D3 target identity and snapshot guards", () => {
       draftVerification: [],
       cancelTarget: null,
     };
-    window.localStorage.setItem(
-      RECOVERY_LOCK_KEY,
-      JSON.stringify(cancelLock("retry_ready")),
-    );
-    server.use(
-      http.get("*/api/campaigns/42/streams/101/publication", () => {
+    seedCancelLock("retry_ready");
+    serveCancelReconciliation({
+      statuses: { 101: "pending" },
+      queue: [
+        publicationOperationFixture({
+          operation_uuid: "op-pending",
+          status: "pending",
+        }),
+      ],
+      onStatusGet: () => {
         if (!replaced) {
           replaced = true;
           window.localStorage.setItem(
@@ -1266,24 +1293,11 @@ describe("S8-D3 target identity and snapshot guards", () => {
             JSON.stringify(replacement),
           );
         }
-        return HttpResponse.json(stateFor(42, 101, "pending"));
-      }),
-      http.get("*/api/campaigns/42/streams/101/draft", () =>
-        HttpResponse.json(draftStateFixture()),
-      ),
-      http.get(QUEUE_PATH, () =>
-        HttpResponse.json([
-          publicationOperationFixture({
-            operation_uuid: "op-pending",
-            status: "pending",
-          }),
-        ]),
-      ),
-      http.post("*/api/campaigns/42/streams/101/publication/cancel", () => {
+      },
+      onCancelPost: () => {
         cancelPosts += 1;
-        return HttpResponse.json({});
-      }),
-    );
+      },
+    });
     const user = userEvent.setup();
     renderApp("/recovery");
 
@@ -1313,38 +1327,25 @@ describe("S8-D3 remaining audit regressions", () => {
 
   it("hands off instead of setting retry_ready when the target is pending and an unrelated stream is in_progress", async () => {
     let cancelPosts = 0;
-    const lock = {
-      ...cancelLock("retry_ready"),
+    seedCancelLock("retry_ready", {
       affected: [
         { campaignId: 42, streamRef: 101 },
         { campaignId: 42, streamRef: 102 },
       ],
-    };
-    window.localStorage.setItem(RECOVERY_LOCK_KEY, JSON.stringify(lock));
-    server.use(
-      http.get(QUEUE_PATH, () =>
-        HttpResponse.json([
-          publicationOperationFixture({
-            operation_uuid: "op-102",
-            stream_ref: 102,
-            status: "in_progress",
-          }),
-        ]),
-      ),
-      http.get("*/api/campaigns/42/streams/101/publication", () =>
-        HttpResponse.json(stateFor(42, 101, "pending")),
-      ),
-      http.get("*/api/campaigns/42/streams/102/publication", () =>
-        HttpResponse.json(stateFor(42, 102, "in_progress")),
-      ),
-      http.get("*/api/campaigns/42/streams/101/draft", () =>
-        HttpResponse.json(draftStateFixture()),
-      ),
-      http.post("*/api/campaigns/42/streams/101/publication/cancel", () => {
+    });
+    serveCancelReconciliation({
+      statuses: { 101: "pending", 102: "in_progress" },
+      queue: [
+        publicationOperationFixture({
+          operation_uuid: "op-102",
+          stream_ref: 102,
+          status: "in_progress",
+        }),
+      ],
+      onCancelPost: () => {
         cancelPosts += 1;
-        return HttpResponse.json({});
-      }),
-    );
+      },
+    });
     const user = userEvent.setup();
     renderApp("/recovery");
 
@@ -1438,12 +1439,10 @@ describe("S8-D3 stale retry reconciliation isolation", () => {
       draftVerification: [],
       cancelTarget: { campaignId: 42, streamRef: 777 },
     };
-    window.localStorage.setItem(
-      RECOVERY_LOCK_KEY,
-      JSON.stringify(cancelLock("retry_ready")),
-    );
-    server.use(
-      http.get("*/api/campaigns/42/streams/101/publication", () => {
+    seedCancelLock("retry_ready");
+    serveCancelReconciliation({
+      statuses: { 101: "succeeded" },
+      onStatusGet: () => {
         if (!replaced) {
           replaced = true;
           window.localStorage.setItem(
@@ -1451,21 +1450,14 @@ describe("S8-D3 stale retry reconciliation isolation", () => {
             JSON.stringify(replacement),
           );
         }
-        return HttpResponse.json(stateFor(42, 101, "succeeded"));
-      }),
-      http.get("*/api/campaigns/42/streams/101/draft", () =>
-        HttpResponse.json(draftStateFixture()),
-      ),
-      http.get(QUEUE_PATH, () => HttpResponse.json([])),
-      http.post("*/api/campaigns/42/streams/101/publication/cancel", () => {
+      },
+      onCancelPost: () => {
         cancelPosts += 1;
-        return HttpResponse.json({});
-      }),
-      http.post("*/api/publications/recover", () => {
+      },
+      onRecoveryPost: () => {
         recoveryPosts += 1;
-        return HttpResponse.json(recoveryResult());
-      }),
-    );
+      },
+    });
     const user = userEvent.setup();
     renderApp("/recovery");
 
@@ -1481,6 +1473,65 @@ describe("S8-D3 stale retry reconciliation isolation", () => {
     expect(recoveryPosts).toBe(0);
     expect(
       screen.getByText(/lock changed before reconciliation started/),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("S8-D3 post-queue snapshot check", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("does not mutate a replacement lock when it is swapped during verification queue GET", async () => {
+    let cancelPosts = 0;
+    let recoveryPosts = 0;
+    let queueGets = 0;
+    const replacement = {
+      ...cancelLock("retry_ready"),
+      lockId: "replacement-queue-lock",
+      affected: [{ campaignId: 42, streamRef: 777 }],
+      draftVerification: [],
+      cancelTarget: { campaignId: 42, streamRef: 777 },
+    };
+    seedCancelLock("retry_ready");
+    serveCancelReconciliation({
+      statuses: { 101: "abandoned" },
+      onQueueGet: () => {
+        queueGets += 1;
+        // 1: page load, 2: retry preflight, 3: verifyCancelLock readQueue.
+        if (queueGets === 3) {
+          window.localStorage.setItem(
+            RECOVERY_LOCK_KEY,
+            JSON.stringify(replacement),
+          );
+        }
+      },
+      onCancelPost: () => {
+        cancelPosts += 1;
+      },
+      onRecoveryPost: () => {
+        recoveryPosts += 1;
+      },
+    });
+    const user = userEvent.setup();
+    renderApp("/recovery");
+
+    await user.click(
+      await screen.findByRole("button", { name: "Confirm cancel retry" }),
+    );
+
+    await waitFor(() => expect(queueGets).toBe(3));
+    expect(window.localStorage.getItem(RECOVERY_LOCK_KEY)).toBe(
+      JSON.stringify(replacement),
+    );
+    expect(cancelPosts).toBe(0);
+    expect(recoveryPosts).toBe(0);
+    expect(
+      screen.getByText(/Authoritative queue verification failed/),
     ).toBeInTheDocument();
   });
 });

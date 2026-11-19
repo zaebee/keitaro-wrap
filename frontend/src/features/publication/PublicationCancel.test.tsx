@@ -28,6 +28,20 @@ function queueFor(operations: ReturnType<typeof publicationOperationFixture>[]) 
   return operations;
 }
 
+
+function absenceEvidenceError() {
+  return errorResponse("PUBLICATION_ABSENCE_EVIDENCE_REQUIRED", 409, {
+    status: "failed",
+    reason: "ABSENCE_EVIDENCE_REQUIRED",
+    result: {
+      stream_ref: 101,
+      status: "failed",
+      reason: "ABSENCE_EVIDENCE_REQUIRED",
+      draft_discarded: false,
+    },
+  });
+}
+
 function serveBase(
   getStatus: () => Record<string, unknown> = () => stateFor("pending"),
   queue = queueFor([]),
@@ -121,16 +135,7 @@ describe("S8-D3 publication Cancel", () => {
     server.use(
       http.post(CANCEL_PATH, () => {
         postCount += 1;
-        return errorResponse("PUBLICATION_ABSENCE_EVIDENCE_REQUIRED", 409, {
-          status: "failed",
-          reason: "ABSENCE_EVIDENCE_REQUIRED",
-          result: {
-            stream_ref: 101,
-            status: "failed",
-            reason: "ABSENCE_EVIDENCE_REQUIRED",
-            draft_discarded: false,
-          },
-        });
+        return absenceEvidenceError();
       }),
     );
     const user = userEvent.setup();
@@ -157,16 +162,7 @@ describe("S8-D3 publication Cancel", () => {
     server.use(
       http.post(CANCEL_PATH, () => {
         postCount += 1;
-        return errorResponse("PUBLICATION_ABSENCE_EVIDENCE_REQUIRED", 409, {
-          status: "failed",
-          reason: "ABSENCE_EVIDENCE_REQUIRED",
-          result: {
-            stream_ref: 101,
-            status: "failed",
-            reason: "ABSENCE_EVIDENCE_REQUIRED",
-            draft_discarded: false,
-          },
-        });
+        return absenceEvidenceError();
       }),
     );
     const user = userEvent.setup();
