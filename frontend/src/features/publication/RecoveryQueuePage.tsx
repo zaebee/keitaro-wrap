@@ -10,6 +10,10 @@ import {
   getRecoverablePublications,
   RECOVERABLE_PUBLICATIONS_LIMIT,
   runRecoveryPass,
+  type DraftStateResponse,
+  type PublicPublicationResponse,
+  type PublicationStateResponse,
+  type PublicationStatus,
   type RecoveryResultResponse,
 } from "../../api/operations";
 import { queryKeys } from "../../queries/queryClient";
@@ -33,12 +37,15 @@ import {
 import {
   verifyCancelLock,
   type CancelVerificationMode,
+  type VerificationResult,
 } from "./publicationLockVerification";
 import styles from "./Publication.module.css";
 import {
   lockSnapshot,
   usePublicationRecoveryLock,
+  type LockContext,
   type LockSnapshot,
+  type PublicationLockApi,
 } from "./usePublicationRecoveryLock";
 
 type Failure = {
@@ -66,6 +73,209 @@ function snapshotsEqual(
     left.draftFingerprint === right.draftFingerprint &&
     left.cancelTargetFingerprint === right.cancelTargetFingerprint
   );
+}
+
+const RECOVERY_VERIFIED_MESSAGE =
+  "No unresolved operations in the current bounded read; previously tracked stream identities re-read successfully.";
+
+function reportVerification(
+  result: VerificationResult,
+  setError: (message: string) => void,
+  setMessage: (message: string) => void,
+): void {
+  if (result.status === "blocked") {
+    setError(result.message);
+  } else {
+    setMessage(result.message);
+  }
+}
+
+async function verifyRecoveryOrigin(
+  context: LockContext,
+): Promise<VerificationResult> {
+  const queue = await getRecoverablePublications();
+  const parsed = parseRecoverableQueue(queue);
+  if (parsed === null) {
+    return { status: "blocked", message: "The bounded queue response was malformed. The lock remains active." };
+  }
+  const merged = await context.updateAffected(
+    identitiesFromQueue(parsed),
+    parsed.length < RECOVERABLE_PUBLICATIONS_LIMIT,
+  );
+  if (!merged) {
+    return { status: "blocked", message: "Could not persist the affected identity union. The lock remains active." };
+  }
+  if (parsed.length >= RECOVERABLE_PUBLICATIONS_LIMIT) {
+    return { status: "blocked", message: "The current queue read is potentially truncated. The lock remains active." };
+  }
+  if (parsed.length > 0) {
+    return {
+      status: "blocked",
+      message: `${parsed.length} unresolved operation(s) remain in the complete bounded read. The lock remains active.`,
+    };
+  }
+  const current = context.getCurrent();
+  if (current === null) {
+    return { status: "blocked", message: "The persisted lock state is unavailable. The lock remains active." };
+  }
+  if (!current.unionComplete) {
+    return { status: "blocked", message: "The affected identity union is incomplete. The lock remains active." };
+  }
+  const checks = await Promise.all(
+    current.affected.map(async (identity: StreamIdentity) => {
+      try {
+        return isTerminalPublicationState(
+          await getPublicationState(identity.campaignId, identity.streamRef),
+          identity,
+        );
+      } catch {
+        return false;
+      }
+    }),
+  );
+  if (!checks.every(Boolean)) {
+    return { status: "blocked", message: "One or more tracked stream states could not be validated. The lock remains active." };
+  }
+  const released = await context.release({
+    lockId: current.lockId,
+    fingerprint: streamUnionFingerprint(current.affected),
+  });
+  if (!released) {
+    return { status: "blocked", message: "The persisted lock changed during verification. The lock remains active." };
+  }
+  return { status: "released", message: RECOVERY_VERIFIED_MESSAGE };
+}
+
+async function startHandoffRecovery(
+  lock: PublicationLockApi,
+  expected: LockSnapshot,
+  queue: PublicPublicationResponse[],
+): Promise<boolean> {
+  if (expected?.kind !== "cancel" || expected?.stage !== "recovery_ready") {
+    return false;
+  }
+  return await lock.runExclusive(async (context) => {
+    const observed = context.getCurrent();
+    if (observed === null || !snapshotsEqual(lockSnapshot(observed), expected)) {
+      return false;
+    }
+    const incoming = identitiesFromQueue(queue);
+    const updated = await context.updateAffected(
+      incoming,
+      queue.length < RECOVERABLE_PUBLICATIONS_LIMIT,
+    );
+    if (!updated) {
+      return false;
+    }
+    const merged = mergeStreamIdentities(observed.affected, incoming);
+    return await context.markStage("running", {
+      ...expected,
+      unionFingerprint: streamUnionFingerprint(merged.identities),
+    });
+  });
+}
+
+function publishBannerText(lock: PublicationLockApi["lock"]): string {
+  if (lock === null) {
+    return "";
+  }
+  if (lock.kind === "cancel" && lock.stage === "recovery_ready") {
+    return " Recovery is required; the cancel lock was handed to explicit recovery.";
+  }
+  if (lock.kind === "cancel" && lock.stage === "retry_ready") {
+    return " The publication is still pending; an explicit cancel retry is required.";
+  }
+  if (lock.stage === "running") {
+    return " A mutation is in flight; GET reconciliation is disabled until it finishes.";
+  }
+  if (lock.stage === "reserved") {
+    return " No Cancel POST was sent; GET reconciliation is available.";
+  }
+  return " Read-only actions remain available; further recovery passes are blocked until authoritative GET re-read succeeds.";
+}
+
+type RetryReads = {
+  state: PublicationStateResponse;
+  draft: DraftStateResponse;
+  queue: PublicPublicationResponse[];
+};
+
+async function readRetryPreflight(
+  target: StreamIdentity,
+): Promise<RetryReads | null> {
+  try {
+    const state = await getPublicationState(target.campaignId, target.streamRef);
+    if (!isValidPublicationState(state, target)) {
+      return null;
+    }
+    const draft = await getDraftState(target.campaignId, target.streamRef);
+    if (!isValidDraftState(draft, target)) {
+      return null;
+    }
+    const queue = parseRecoverableQueue(await getRecoverablePublications());
+    return queue === null ? null : { state, draft, queue };
+  } catch {
+    return null;
+  }
+}
+
+async function readUnrelatedStatuses(
+  affected: StreamIdentity[],
+  target: StreamIdentity,
+): Promise<{ identity: StreamIdentity; status: PublicationStatus | null }[] | null> {
+  const identities = affected.filter(
+    (identity) =>
+      identity.campaignId !== target.campaignId ||
+      identity.streamRef !== target.streamRef,
+  );
+  try {
+    return await Promise.all(
+      identities.map(async (identity) => {
+        const state = await getPublicationState(
+          identity.campaignId,
+          identity.streamRef,
+        );
+        if (!isValidPublicationState(state, identity)) {
+          throw new Error("unrelated status mismatch");
+        }
+        return { identity, status: state.operation?.status ?? null };
+      }),
+    );
+  } catch {
+    return null;
+  }
+}
+
+function retryResultMode(result: ReturnType<typeof parseCancelResult>) {
+  if (result === null) {
+    return { mode: "unknown" as CancelVerificationMode };
+  }
+  if (result.status === "abandoned") {
+    return { mode: "success" as CancelVerificationMode };
+  }
+  if (result.reason === "NO_PUBLICATION") {
+    return { mode: "noop" as CancelVerificationMode };
+  }
+  return { mode: "unknown" as CancelVerificationMode };
+}
+
+function retryErrorMode(
+  error: unknown,
+  target: StreamIdentity,
+): { mode: CancelVerificationMode; code?: string } {
+  if (
+    error instanceof ApiError &&
+    error.code === "STREAM_NOT_FOUND" &&
+    hasMatchingStreamIdentity(error.details, target)
+  ) {
+    return { mode: "refusal", code: "STREAM_NOT_FOUND" };
+  }
+  if (error instanceof ApiError && error.status === 409) {
+    if (parseCancelErrorDetails(error.details) !== null) {
+      return { mode: "refusal", code: error.code };
+    }
+  }
+  return { mode: "unknown" };
 }
 
 function describeFailure(error: unknown): Failure {
@@ -228,7 +438,7 @@ export function RecoveryQueuePage() {
     setVerificationError(null);
     setVerificationMessage(null);
     const startLock = lock.getCurrent();
-    const startSnapshot = startLock === null ? null : lockSnapshot(startLock);
+    const startSnapshot = startLock === null ? undefined : lockSnapshot(startLock);
     let freshQueue;
     try {
       const response = await getRecoverablePublications();
@@ -243,41 +453,10 @@ export function RecoveryQueuePage() {
       );
       return;
     }
-    if (lock.lock !== null && recoveryReady) {
-      if (
-        startSnapshot === null ||
-        startSnapshot.kind !== "cancel" ||
-        startSnapshot.stage !== "recovery_ready"
-      ) {
-        setActionError(
-          "The handoff lock changed before Recovery started. No pass was started.",
-        );
-        return;
-      }
-      const started = await lock.runExclusive(async (context) => {
-        const observed = context.getCurrent();
-        if (observed === null) {
-          return false;
-        }
-        const observedSnapshot = lockSnapshot(observed);
-        if (!snapshotsEqual(observedSnapshot, startSnapshot)) {
-          return false;
-        }
-        const incoming = identitiesFromQueue(freshQueue);
-        const unionUpdated = await context.updateAffected(
-          incoming,
-          freshQueue.length < RECOVERABLE_PUBLICATIONS_LIMIT,
-        );
-        if (!unionUpdated) {
-          return false;
-        }
-        const merged = mergeStreamIdentities(observed.affected, incoming);
-        const expectedAfterUnion: LockSnapshot = {
-          ...startSnapshot,
-          unionFingerprint: streamUnionFingerprint(merged.identities),
-        };
-        return await context.markStage("running", expectedAfterUnion);
-      });
+    if (recoveryReady) {
+      const started =
+        startSnapshot !== undefined &&
+        (await startHandoffRecovery(lock, startSnapshot, freshQueue));
       if (!started) {
         setActionError(
           "The handoff lock changed before Recovery started. No pass was started.",
@@ -356,84 +535,8 @@ export function RecoveryQueuePage() {
           );
           return;
         }
-        const queue = await getRecoverablePublications();
-        const parsed = parseRecoverableQueue(queue);
-        if (parsed === null) {
-          setVerificationError(
-            "The bounded queue response was malformed. The lock remains active.",
-          );
-          return;
-        }
-        queryClient.setQueryData(queryKeys.recoverablePublications, parsed);
-        const merged = await context.updateAffected(
-          identitiesFromQueue(parsed),
-          parsed.length < RECOVERABLE_PUBLICATIONS_LIMIT,
-        );
-        if (!merged) {
-          setVerificationError(
-            "Could not persist the affected identity union. The lock remains active.",
-          );
-          return;
-        }
-        if (parsed.length >= RECOVERABLE_PUBLICATIONS_LIMIT) {
-          setVerificationError(
-            "The current queue read is potentially truncated. The lock remains active.",
-          );
-          return;
-        }
-        if (parsed.length > 0) {
-          setVerificationError(
-            `${parsed.length} unresolved operation(s) remain in the complete bounded read. The lock remains active.`,
-          );
-          return;
-        }
-
-        const current = context.getCurrent();
-        if (current === null) {
-          setVerificationError(
-            "The persisted lock state is unavailable. The lock remains active.",
-          );
-          return;
-        }
-        if (!current.unionComplete) {
-          setVerificationError(
-            "The affected identity union is incomplete. The lock remains active.",
-          );
-          return;
-        }
-        const expected = {
-          lockId: current.lockId,
-          fingerprint: streamUnionFingerprint(current.affected),
-        };
-        const statusChecks = await Promise.all(
-          current.affected.map(async (identity: StreamIdentity) => {
-            try {
-              const state = await getPublicationState(
-                identity.campaignId,
-                identity.streamRef,
-              );
-              return isTerminalPublicationState(state, identity);
-            } catch {
-              return false;
-            }
-          }),
-        );
-        if (!statusChecks.every(Boolean)) {
-          setVerificationError(
-            "One or more tracked stream states could not be validated. The lock remains active.",
-          );
-          return;
-        }
-        const released = await context.release(expected);
-        if (!released) {
-          setVerificationError(
-            "The persisted lock changed during verification. The lock remains active.",
-          );
-          return;
-        }
-        setVerificationMessage(
-          "No unresolved operations in the current bounded read; previously tracked stream identities re-read successfully.",
-        );
+        const result = await verifyRecoveryOrigin(context);
+        reportVerification(result, setVerificationError, setVerificationMessage);
       });
     } catch {
       setVerificationError(
@@ -460,104 +563,56 @@ export function RecoveryQueuePage() {
       return;
     }
     const expected = lockSnapshot(current);
+    const handOff = async (message: string, failure: string) => {
+      const changed = await lock.runExclusive(async (context) =>
+        await context.markStage("recovery_ready", expected),
+      );
+      if (changed) {
+        setRetryMessage(message);
+      } else {
+        setRetryError(failure);
+      }
+    };
     try {
-      let freshState;
-      let freshDraft;
-      try {
-        const rawState = await getPublicationState(
-          target.campaignId,
-          target.streamRef,
-        );
-        if (!isValidPublicationState(rawState, target)) {
-          throw new Error("status mismatch");
-        }
-        const rawDraft = await getDraftState(
-          target.campaignId,
-          target.streamRef,
-        );
-        if (!isValidDraftState(rawDraft, target)) {
-          throw new Error("draft mismatch");
-        }
-        const rawQueue = await getRecoverablePublications();
-        const parsedQueue = parseRecoverableQueue(rawQueue);
-        if (parsedQueue === null) {
-          throw new Error("queue mismatch");
-        }
-        freshState = rawState;
-        freshDraft = rawDraft;
-        queryClient.setQueryData(queryKeys.recoverablePublications, parsedQueue);
-      } catch {
+      const fresh = await readRetryPreflight(target);
+      if (fresh === null) {
         setRetryError(
           "Fresh authoritative status, draft and queue reads are required before retry.",
         );
         return;
       }
-      for (const identity of current.affected) {
-        if (
-          identity.campaignId === target.campaignId &&
-          identity.streamRef === target.streamRef
-        ) {
-          continue;
-        }
-        let unrelatedState;
-        try {
-          unrelatedState = await getPublicationState(
-            identity.campaignId,
-            identity.streamRef,
-          );
-          if (!isValidPublicationState(unrelatedState, identity)) {
-            throw new Error("unrelated status mismatch");
-          }
-        } catch {
-          setRetryError(
-            "All affected stream statuses must be re-read before retry. No Cancel was sent.",
-          );
-          return;
-        }
-        const unrelatedStatus = unrelatedState.operation?.status ?? null;
-        if (
-          unrelatedStatus === "in_progress" ||
-          unrelatedStatus === "ambiguous"
-        ) {
-          const handedOff = await lock.runExclusive(async (context) =>
-            await context.markStage("recovery_ready", expected),
-          );
-          if (handedOff) {
-            setRetryMessage(
-              "Unrelated unresolved work requires Recovery. The lock was handed off; no retry Cancel was sent.",
-            );
-          } else {
-            setRetryError(
-              "Could not persist the recovery handoff. No retry Cancel was sent.",
-            );
-          }
-          return;
-        }
-        if (unrelatedStatus === "pending") {
-          setRetryError(
-            "An unrelated affected stream is pending. The retry target is unchanged and no Cancel was sent.",
-          );
-          return;
-        }
+      queryClient.setQueryData(queryKeys.recoverablePublications, fresh.queue);
+      const unrelated = await readUnrelatedStatuses(current.affected, target);
+      if (unrelated === null) {
+        setRetryError(
+          "All affected stream statuses must be re-read before retry. No Cancel was sent.",
+        );
+        return;
       }
-      if (
-        freshState.operation === null ||
-        freshState.operation.status !== "pending"
-      ) {
-        const observed = freshState.operation?.status ?? null;
+      const recoveryNeeded = unrelated.find(
+        (entry) =>
+          entry.status === "in_progress" || entry.status === "ambiguous",
+      );
+      if (recoveryNeeded !== undefined) {
+        await handOff(
+          "Unrelated unresolved work requires Recovery. The lock was handed off; no retry Cancel was sent.",
+          "Could not persist the recovery handoff. No retry Cancel was sent.",
+        );
+        return;
+      }
+      if (unrelated.some((entry) => entry.status === "pending")) {
+        setRetryError(
+          "An unrelated affected stream is pending. The retry target is unchanged and no Cancel was sent.",
+        );
+        return;
+      }
+      if (fresh.state.operation?.status !== "pending") {
+        const observed = fresh.state.operation?.status ?? null;
         if (observed === "in_progress" || observed === "ambiguous") {
-          const handedOff = await lock.runExclusive(async (context) =>
-            await context.markStage("recovery_ready", expected),
+          await handOff(
+            "Recovery is required. The lock was handed to explicit recovery; no retry Cancel was sent.",
+            "Could not persist the recovery handoff. The lock remains active.",
           );
-          if (handedOff) {
-            setRetryMessage(
-              "Recovery is required. The lock was handed to explicit recovery; no retry Cancel was sent.",
-            );
-          } else {
-            setRetryError(
-              "Could not persist the recovery handoff. The lock remains active.",
-            );
-          }
           return;
         }
         const verification = await lock.runExclusive((context) =>
@@ -570,11 +625,7 @@ export function RecoveryQueuePage() {
             },
           }),
         );
-        if (verification.status === "released") {
-          setRetryMessage(verification.message);
-        } else {
-          setRetryError(verification.message);
-        }
+        reportVerification(verification, setRetryError, setRetryMessage);
         return;
       }
       const running = await lock.runExclusive(async (context) =>
@@ -589,42 +640,29 @@ export function RecoveryQueuePage() {
       let mode: CancelVerificationMode = "unknown";
       let code: string | undefined;
       try {
-        const result = parseCancelResult(
-          await cancelPublication(target.campaignId, target.streamRef),
-          target,
-        );
-        if (result !== null && result.status === "abandoned") {
-          mode = "success";
-        } else if (result?.reason === "NO_PUBLICATION") {
-          mode = "noop";
-        }
+        mode = retryResultMode(
+          parseCancelResult(
+            await cancelPublication(target.campaignId, target.streamRef),
+            target,
+          ),
+        ).mode;
       } catch (error) {
-        if (
-          error instanceof ApiError &&
-          error.code === "STREAM_NOT_FOUND" &&
-          hasMatchingStreamIdentity(error.details, target)
-        ) {
-          mode = "refusal";
-          code = "STREAM_NOT_FOUND";
-        } else if (error instanceof ApiError && error.status === 409) {
-          if (parseCancelErrorDetails(error.details) !== null) {
-            mode = "refusal";
-            code = error.code;
-          }
-        }
+        const classified = retryErrorMode(error, target);
+        mode = classified.mode;
+        code = classified.code;
       }
       const verification = await lock.runExclusive((context) =>
         verifyCancelLock(context, {
           mode,
           code,
           target,
-          preDraftVersion: freshDraft.draft?.version,
+          preDraftVersion: fresh.draft.draft?.version,
           onQueue: (queue) => {
             queryClient.setQueryData(queryKeys.recoverablePublications, queue);
           },
         }),
       );
-      setRetryMessage(verification.message);
+      reportVerification(verification, setRetryError, setRetryMessage);
     } catch {
       setRetryError("The retry Cancel outcome is unknown. No automatic retry was made.");
     } finally {
@@ -663,15 +701,7 @@ export function RecoveryQueuePage() {
           <h2>Recovery lock active</h2>
           <p>
             {lock.lock.affected.length} tracked stream identity/identities.
-            {lock.lock.kind === "cancel" && lock.lock.stage === "recovery_ready"
-              ? " Recovery is required; the cancel lock was handed to explicit recovery."
-              : lock.lock.kind === "cancel" && lock.lock.stage === "retry_ready"
-                ? " The publication is still pending; an explicit cancel retry is required."
-                : lock.lock.stage === "running"
-                  ? " A mutation is in flight; GET reconciliation is disabled until it finishes."
-                  : lock.lock.stage === "reserved"
-                    ? " No Cancel POST was sent; GET reconciliation is available."
-                    : " Read-only actions remain available; further recovery passes are blocked until authoritative GET re-read succeeds."}
+            {publishBannerText(lock.lock)}
           </p>
           <button
             type="button"

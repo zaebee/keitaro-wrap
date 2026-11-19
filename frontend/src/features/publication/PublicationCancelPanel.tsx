@@ -10,6 +10,7 @@ import {
   getRecoverablePublications,
   type CancelResultResponse,
   type DraftStateResponse,
+  type PublicPublicationResponse,
   type PublicationStateResponse,
 } from "../../api/operations";
 import { queryKeys } from "../../queries/queryClient";
@@ -95,6 +96,75 @@ function lockMessage(
   return "Publication mutations are locked until authoritative GET verification succeeds.";
 }
 
+type FreshCancelReads = {
+  state: PublicationStateResponse;
+  draft: DraftStateResponse;
+  queue: PublicPublicationResponse[];
+};
+
+async function readFreshCancelState(
+  campaignId: number,
+  streamRef: number,
+  identity: StreamIdentity,
+): Promise<FreshCancelReads | null> {
+  try {
+    const state = await getPublicationState(campaignId, streamRef);
+    if (!isValidPublicationState(state, identity)) {
+      return null;
+    }
+    const draft = await getDraftState(campaignId, streamRef);
+    if (!isValidDraftState(draft, identity)) {
+      return null;
+    }
+    const queue = parseRecoverableQueue(await getRecoverablePublications());
+    return queue === null ? null : { state, draft, queue };
+  } catch {
+    return null;
+  }
+}
+
+function cancelMode(result: CancelResultResponse | null): CancelVerificationMode {
+  if (result === null) {
+    return "unknown";
+  }
+  if (result.reason === "NO_PUBLICATION") {
+    return "noop";
+  }
+  return result.status === "abandoned" ? "success" : "unknown";
+}
+
+function cancelErrorMode(
+  error: unknown,
+  identity: StreamIdentity,
+): { mode: CancelVerificationMode; code?: string } {
+  if (error instanceof ApiError && error.status === 404) {
+    if (
+      error.code === "STREAM_NOT_FOUND" &&
+      hasMatchingStreamIdentity(error.details, identity)
+    ) {
+      return { mode: "refusal", code: "STREAM_NOT_FOUND" };
+    }
+    return { mode: "unknown" };
+  }
+  if (error instanceof ApiError && error.status === 409) {
+    if (parseCancelErrorDetails(error.details) !== null) {
+      return { mode: "refusal", code: error.code };
+    }
+  }
+  return { mode: "unknown" };
+}
+
+function identityKey(identity: StreamIdentity): string {
+  return `${identity.campaignId}:${identity.streamRef}`;
+}
+
+function fingerprint(identities: StreamIdentity[]): string {
+  return identities
+    .map((item) => `${item.campaignId}:${item.streamRef}`)
+    .sort((left, right) => left.localeCompare(right))
+    .join("|");
+}
+
 export function PublicationCancelPanel({
   campaignId,
   streamRef,
@@ -138,53 +208,33 @@ export function PublicationCancelPanel({
     setOutcome(null);
     setError(null);
     try {
-      let freshState;
-      let freshDraft: DraftStateResponse;
-      let freshQueue;
-      try {
-        const rawState = await getPublicationState(campaignId, streamRef);
-        if (!isValidPublicationState(rawState, identity)) {
-          throw new Error("publication status mismatch");
-        }
-        const rawDraft = await getDraftState(campaignId, streamRef);
-        if (!isValidDraftState(rawDraft, identity)) {
-          throw new Error("draft mismatch");
-        }
-        const rawQueue = await getRecoverablePublications();
-        const parsedQueue = parseRecoverableQueue(rawQueue);
-        if (parsedQueue === null) {
-          throw new Error("queue mismatch");
-        }
-        freshState = rawState;
-        freshDraft = rawDraft;
-        freshQueue = parsedQueue;
-        queryClient.setQueryData(queryKeys.recoverablePublications, parsedQueue);
-        queryClient.setQueryData(queryKeys.draft(campaignId, streamRef), rawDraft);
-      } catch {
+      const fresh = await readFreshCancelState(campaignId, streamRef, identity);
+      if (fresh === null) {
         setError(
           "A fresh valid publication status, draft and queue snapshot is required before Cancel.",
         );
         return;
       }
-
-      const freshAvailability = availabilityFor(freshState);
+      queryClient.setQueryData(queryKeys.recoverablePublications, fresh.queue);
+      queryClient.setQueryData(queryKeys.draft(campaignId, streamRef), fresh.draft);
+      const freshAvailability = availabilityFor(fresh.state);
       if (freshAvailability.kind !== "cancellable") {
         setOutcome(freshAvailability.message);
         return;
       }
-      const preDraftVersion = freshDraft.draft?.version;
-      const { identities, changed } = mergeStreamIdentities(
-        identitiesFromQueue(freshQueue),
+      const preDraftVersion = fresh.draft.draft?.version;
+      const { identities } = mergeStreamIdentities(
+        identitiesFromQueue(fresh.queue),
         [identity],
       );
-      if (!changed && !identities.some((item) => item.streamRef === streamRef && item.campaignId === campaignId)) {
+      if (!identities.some((item) => identityKey(item) === identityKey(identity))) {
         setError("The cancel target could not be added to the lock union.");
         return;
       }
       const acquired = await lock.acquire(
         identities,
         "verification",
-        freshQueue.length < 100,
+        fresh.queue.length < 100,
         {
           kind: "cancel",
           stage: "reserved",
@@ -205,13 +255,10 @@ export function PublicationCancelPanel({
       if (!running) {
         const current = lock.getCurrent();
         const aborted =
-          current !== null &&
+          current?.stage === "reserved" &&
           (await lock.abortReserved({
             lockId: current.lockId,
-            fingerprint: identities
-              .map((item) => `${item.campaignId}:${item.streamRef}`)
-              .sort((left, right) => left.localeCompare(right))
-              .join("|"),
+            fingerprint: fingerprint(identities),
           }));
         setError(
           aborted
@@ -223,37 +270,18 @@ export function PublicationCancelPanel({
 
       let mode: CancelVerificationMode = "unknown";
       let code: string | undefined;
-      let result: CancelResultResponse | null = null;
       try {
-        result = parseCancelResult(await cancelPublication(campaignId, streamRef), identity);
-        if (result === null) {
-          mode = "unknown";
-        } else if (result.reason === "NO_PUBLICATION") {
-          mode = "noop";
-        } else if (result.status === "abandoned") {
-          mode = "success";
-        }
+        mode = cancelMode(
+          parseCancelResult(
+            await cancelPublication(campaignId, streamRef),
+            identity,
+          ),
+        );
       } catch (cancelError) {
-        if (
-          cancelError instanceof ApiError &&
-          cancelError.status === 404 &&
-          cancelError.code === "STREAM_NOT_FOUND" &&
-          hasMatchingStreamIdentity(cancelError.details, identity)
-        ) {
-          mode = "refusal";
-          code = "STREAM_NOT_FOUND";
-        } else if (
-          cancelError instanceof ApiError &&
-          cancelError.status === 409
-        ) {
-          const details = parseCancelErrorDetails(cancelError.details);
-          if (details !== null) {
-            mode = "refusal";
-            code = cancelError.code;
-          }
-        }
+        const classified = cancelErrorMode(cancelError, identity);
+        mode = classified.mode;
+        code = classified.code;
       }
-
       const verification = await lock.runExclusive((context) =>
         verifyCancelLock(context, {
           mode,
@@ -286,10 +314,10 @@ export function PublicationCancelPanel({
         successful remote publication and sends no Keitaro request.
       </p>
       {banner !== null && (
-        <div className={styles.lockBanner} role="status">
+        <output className={styles.lockBanner}>
           <p>{banner}</p>
           <Link to="/recovery">Open recovery queue</Link>
-        </div>
+        </output>
       )}
       {busy && <output>Publication Cancel is running. No retry is made.</output>}
       {outcome !== null && <output>{outcome}</output>}
@@ -308,10 +336,10 @@ export function PublicationCancelPanel({
         <p className={styles.empty}>{availability.message}</p>
       )}
       {!busy && !locked && !stateError && !statePending && availability.kind === "blocked" && (
-        <div className={styles.recoveryPanel} role="status">
+        <output className={styles.recoveryPanel}>
           <p>{availability.message}</p>
           <Link to="/recovery">Inspect recovery queue</Link>
-        </div>
+        </output>
       )}
       {!busy && !locked && !stateError && !statePending && availability.kind === "cancellable" && !confirming && (
         <div className={styles.inlineActions}>
