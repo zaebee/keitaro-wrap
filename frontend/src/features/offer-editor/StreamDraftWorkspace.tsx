@@ -1,0 +1,193 @@
+import { PublicationCancelPanel } from "../publication/PublicationCancelPanel";
+import { PublicationStatusPanel } from "../publication/PublicationStatusPanel";
+import { PushUnavailablePanel } from "../publication/PushUnavailablePanel";
+import {
+  AllocationSummary,
+  DraftCommandFeedback,
+  DraftPanel,
+  PolicyCard,
+  ReadErrorPanel,
+} from "./EditorPanels";
+import styles from "./OfferEditorPage.module.css";
+import { draftChanges } from "./draftChanges";
+import { describeFailure, type useStreamDraft } from "./useStreamDraft";
+
+export type StreamDraftState = ReturnType<typeof useStreamDraft>;
+
+function draftChangesCount(draft: NonNullable<StreamDraftState["draft"]>): number {
+  const changes = draftChanges(draft);
+  return (
+    changes.additions.length +
+    changes.archives.length +
+    changes.restores.length +
+    changes.pinToggles.length +
+    changes.shareEdits.length
+  );
+}
+
+function DraftBanner({
+  draft,
+}: Readonly<{ draft: NonNullable<StreamDraftState["draft"]> }>) {
+  return (
+    <div className={styles.dirtyBanner} data-purpose="conflict-alert">
+      <div>
+        <p className={styles.dirtyBannerTitle}>
+          Draft active on version {draft.version}. {draftChangesCount(draft)}{" "}
+          local staged mutation
+          {draftChangesCount(draft) === 1 ? "" : "s"} awaiting commit.
+        </p>
+        <p className={styles.dirtyBannerHint}>
+          Remote baseline remains pinned. Manual edits automatically toggle offer
+          mode to Pinned.
+        </p>
+      </div>
+      <span className={styles.dirtyPolicy}>Policy: EXACT_100_ENFORCED</span>
+    </div>
+  );
+}
+
+export function StreamDraftHeader({ state }: Readonly<{ state: StreamDraftState }>) {
+  const {
+    draft,
+    draftQuery,
+    busy,
+    announcement,
+    statusRef,
+    mutation,
+    acceptRemoteMutation,
+    recoveryRequired,
+    mutationFailure,
+    staleConflicts,
+    rereadDraft,
+  } = state;
+  return (
+    <>
+      {draft?.is_dirty && <DraftBanner draft={draft} />}
+      {draftQuery.isSuccess && <AllocationSummary draft={draft} />}
+      <DraftCommandFeedback
+        busy={busy}
+        announcement={announcement}
+        statusRef={statusRef}
+        isError={mutation.isError || acceptRemoteMutation.isError}
+        recoveryRequired={recoveryRequired}
+        failure={mutationFailure}
+        staleConflicts={staleConflicts}
+        onRetry={() => void rereadDraft()}
+        retryDisabled={draftQuery.isFetching}
+      />
+    </>
+  );
+}
+
+export function StreamDraftSection({
+  state,
+  workspacePath,
+  showSectionHeading = false,
+}: Readonly<{
+  state: StreamDraftState;
+  workspacePath: string;
+  showSectionHeading?: boolean;
+}>) {
+  const { draft, draftQuery, busy, recoveryRequired, baselineReady } = state;
+  const panel = (
+    <>
+      {draftQuery.isPending && <output>Loading local draft…</output>}
+      {draftQuery.isError && (
+        <ReadErrorPanel
+          heading="Draft state unavailable"
+          message={describeFailure(draftQuery.error).message}
+          code={describeFailure(draftQuery.error).code}
+          retryLabel="Retry draft read"
+          onRetry={() => draftQuery.refetch()}
+          retryDisabled={draftQuery.isFetching}
+        />
+      )}
+      {draftQuery.isSuccess && (
+        <DraftPanel
+          draft={draft}
+          busy={busy}
+          recoveryRequired={recoveryRequired}
+          baselineReady={baselineReady}
+          workspacePath={workspacePath}
+          newOfferId={state.newOfferId}
+          addError={state.addError}
+          shareInputs={state.shareInputs}
+          shareErrors={state.shareErrors}
+          confirmingCancel={state.confirmingCancel}
+          acceptingConflict={state.acceptingConflict}
+          onNewOfferInput={state.onNewOfferInput}
+          onAction={state.onAction}
+          onShareInput={state.onShareInput}
+          onShareSubmit={state.onShareSubmit}
+          onConfirmCancel={state.onConfirmCancel}
+          onKeepDraft={state.onKeepDraft}
+          onAcceptRemote={state.onAcceptRemote}
+          onConfirmAcceptRemote={state.onConfirmAcceptRemote}
+          onKeepConflict={state.onKeepConflict}
+        />
+      )}
+    </>
+  );
+  if (!showSectionHeading) {
+    return panel;
+  }
+  return (
+    <section aria-labelledby="draft-section-heading" className={styles.section}>
+      <h2 id="draft-section-heading">Draft state</h2>
+      {panel}
+    </section>
+  );
+}
+
+export function StreamStatusSide({
+  state,
+  withPublicationCancel = false,
+  showInspectorTitle = false,
+}: Readonly<{
+  state: StreamDraftState;
+  withPublicationCancel?: boolean;
+  showInspectorTitle?: boolean;
+}>) {
+  const {
+    campaignId,
+    streamRef,
+    draft,
+    publicationQuery,
+    publicationFailure,
+    publicationLock,
+  } = state;
+  return (
+    <aside className={styles.inspector} aria-label="Backend inspector">
+      {showInspectorTitle && (
+        <p className={styles.inspectorTitle}>Backend Inspector</p>
+      )}
+      <PolicyCard draft={draft} />
+      <section
+        aria-labelledby="publication-section-heading"
+        className={styles.section}
+      >
+        <h2 id="publication-section-heading">Latest publication status</h2>
+        <PublicationStatusPanel
+          state={publicationQuery.data ?? null}
+          expectedCampaignId={campaignId}
+          expectedStreamRef={streamRef}
+          isPending={publicationQuery.isPending}
+          error={publicationQuery.isError ? publicationFailure : null}
+          onRetry={() => publicationQuery.refetch()}
+          retryDisabled={publicationQuery.isFetching}
+        />
+        <PushUnavailablePanel />
+        {withPublicationCancel && (
+          <PublicationCancelPanel
+            campaignId={campaignId}
+            streamRef={streamRef}
+            lock={publicationLock}
+            state={publicationQuery.data ?? null}
+            stateError={publicationQuery.isError ? publicationFailure : null}
+            statePending={publicationQuery.isPending}
+          />
+        )}
+      </section>
+    </aside>
+  );
+}
