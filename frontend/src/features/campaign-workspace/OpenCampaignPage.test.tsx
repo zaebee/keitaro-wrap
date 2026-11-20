@@ -26,9 +26,9 @@ describe("OpenCampaignPage", () => {
 
     expect(window.location.pathname).toBe("/campaigns/42");
     expect(
-      await screen.findByRole("heading", { name: "Campaign Workspace" }),
+      await screen.findByRole("heading", { name: /Campaign #42/ }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Campaign ID: 42")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Campaign #42/ })).toBeInTheDocument();
   });
 
   it.each(["", "0", "-4", "1.5", "abc", "9007199254740992"])(

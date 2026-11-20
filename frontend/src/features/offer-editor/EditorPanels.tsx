@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { Link } from "react-router-dom";
 
 import type {
@@ -9,6 +9,7 @@ import type {
 } from "../../api/operations";
 import { ErrorSummary } from "../../shared/ui/ErrorSummary";
 import { draftChanges, hasDraftChanges } from "./draftChanges";
+import { failureMessage, hintFor, type Failure } from "./useStreamDraft";
 
 function stagedChangeCount(draft: DraftViewResponse | null): number {
   if (draft === null) {
@@ -58,6 +59,103 @@ export function ReadErrorPanel({
       onRetry={onRetry}
       retryDisabled={retryDisabled}
     />
+  );
+}
+
+export function StreamSyncBadge({
+  draft,
+}: Readonly<{ draft: DraftViewResponse | null }>) {
+  let tone = styles.syncMuted;
+  let label = "No draft";
+  if (draft !== null) {
+    const drifted = draft.is_stale || draft.conflicts.length > 0;
+    tone = drifted ? styles.syncWarn : styles.syncGood;
+    label = drifted ? "Drift detected" : "✓ Synced";
+  }
+  return <span className={`${styles.syncBadge} ${tone}`}>{label}</span>;
+}
+
+export function LastFetchMeta({
+  capturedAt,
+}: Readonly<{ capturedAt: string | null }>) {
+  return (
+    <span className={styles.lastFetch}>
+      <span className={styles.lastFetchLabel}>Last fetch</span>
+      <span className={`${styles.lastFetchValue} tnum`}>
+        {capturedAt ? new Date(capturedAt).toLocaleString() : "not available"}
+      </span>
+    </span>
+  );
+}
+
+export function DraftCommandFeedback({
+  busy,
+  announcement,
+  statusRef,
+  isError,
+  recoveryRequired,
+  failure,
+  staleConflicts,
+  onRetry,
+  retryDisabled,
+}: Readonly<{
+  busy: boolean;
+  announcement: string | null;
+  statusRef: RefObject<HTMLParagraphElement>;
+  isError: boolean;
+  recoveryRequired: boolean;
+  failure: Failure;
+  staleConflicts: ConflictDetailResponse[];
+  onRetry: () => void;
+  retryDisabled: boolean;
+}>) {
+  return (
+    <>
+      {busy && (
+        <output className={styles.pending}>
+          Saving local draft… Duplicate submissions are disabled.
+        </output>
+      )}
+      {announcement && (
+        <p
+          ref={statusRef}
+          className={styles.pending}
+          role="status"
+          aria-live="polite"
+          tabIndex={-1}
+        >
+          {announcement}
+        </p>
+      )}
+      {isError && (
+        <ErrorSummary
+          heading={
+            recoveryRequired
+              ? "Recovery required — draft commands locked"
+              : "Draft command failed"
+          }
+          message={failureMessage(failure)}
+          code={failure.code}
+          detail={
+            <>
+              <p className={styles.hint}>{hintFor(failure)}</p>
+              {recoveryRequired && (
+                <p className={styles.hint}>
+                  The lock is released only by a successful GET re-read. A failed
+                  re-read keeps every draft command disabled.
+                </p>
+              )}
+              {staleConflicts.length > 0 && (
+                <ConflictPanel conflicts={staleConflicts} />
+              )}
+            </>
+          }
+          retryLabel="Read current draft"
+          onRetry={onRetry}
+          retryDisabled={retryDisabled}
+        />
+      )}
+    </>
   );
 }
 

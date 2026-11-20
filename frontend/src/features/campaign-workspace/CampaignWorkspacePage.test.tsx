@@ -54,17 +54,18 @@ describe("CampaignWorkspacePage", () => {
     renderApp("/campaigns/42");
 
     expect(
-      await screen.findByRole("heading", { name: "Cached stream references" }),
+      await screen.findByRole("heading", { name: "Streams" }),
     ).toBeInTheDocument();
-    expect(await within(screen.getByRole("main")).findByText("Main stream")).toBeInTheDocument();
-    expect(screen.getByText("101")).toBeInTheDocument();
-    expect(screen.getByText("regular")).toBeInTheDocument();
-    expect(screen.getByText("landings")).toBeInTheDocument();
-    expect(screen.getByText("Primary stream")).toBeInTheDocument();
-    expect(within(screen.getByRole("main")).getByText("Second stream")).toBeInTheDocument();
-    expect(screen.getByText("retargeting")).toBeInTheDocument();
+    expect(
+      await within(screen.getByRole("main")).findByText(
+        "Main stream · regular #101",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("landings · Primary stream")).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("main")).getByText("Second stream · retargeting #202"),
+    ).toBeInTheDocument();
     expect(screen.getByText("offers")).toBeInTheDocument();
-    expect(screen.getByText("Comments")).toBeInTheDocument();
     expect(screen.queryByText("Fetch summary")).toBeNull();
     expect(postCount).toBe(0);
   });
@@ -178,7 +179,7 @@ describe("CampaignWorkspacePage", () => {
     const user = userEvent.setup();
     renderApp("/campaigns/42");
 
-    await within(screen.getByRole("main")).findByText("Before Fetch");
+    await within(screen.getByRole("main")).findByText(/Before Fetch/);
     expect(getCount).toBe(1);
     const fetchButton = within(screen.getByRole("main")).getByRole("button", { name: "Fetch streams" });
     await user.click(fetchButton);
@@ -195,7 +196,7 @@ describe("CampaignWorkspacePage", () => {
     expect(screen.getByText("Bindings created")).toBeInTheDocument();
     expect(screen.getByText("Conflicted drafts")).toBeInTheDocument();
     await waitFor(() => expect(getCount).toBeGreaterThan(1));
-    expect(await within(screen.getByRole("main")).findByText("After Fetch")).toBeInTheDocument();
+    expect(await within(screen.getByRole("main")).findByText(/After Fetch/)).toBeInTheDocument();
   });
 
   it("retries a failed cached read without invoking Fetch", async () => {
@@ -230,7 +231,7 @@ describe("CampaignWorkspacePage", () => {
       screen.getByRole("button", { name: "Retry cached list read" }),
     );
 
-    expect(await within(screen.getByRole("main")).findByText("Main stream")).toBeInTheDocument();
+    expect(await within(screen.getByRole("main")).findByText(/Main stream/)).toBeInTheDocument();
     expect(getCount).toBe(2);
     expect(postCount).toBe(0);
   });
@@ -256,7 +257,7 @@ describe("CampaignWorkspacePage", () => {
     const user = userEvent.setup();
     renderApp("/campaigns/42");
 
-    await within(screen.getByRole("main")).findByText("Main stream");
+    await within(screen.getByRole("main")).findByText(/Main stream/);
     await user.click(within(screen.getByRole("main")).getByRole("button", { name: "Fetch streams" }));
 
     expect(await screen.findByText("Fetch failed")).toBeInTheDocument();
@@ -298,8 +299,44 @@ describe("CampaignWorkspacePage", () => {
     await user.click(
       screen.getByRole("button", { name: "Retry cached list read" }),
     );
-    expect(await within(screen.getByRole("main")).findByText("Main stream")).toBeInTheDocument();
+    expect(await within(screen.getByRole("main")).findByText(/Main stream/)).toBeInTheDocument();
     expect(getCount).toBe(2);
+  });
+
+  it("renders the inline offer table for the expanded stream and collapses it", async () => {
+    serveStreams([streamFixture({ stream_ref: 101, name: "Main stream" })]);
+    server.use(
+      http.get("*/api/campaigns/42/streams/101/committed", () =>
+        HttpResponse.json(committedFixture()),
+      ),
+      http.get("*/api/campaigns/42/streams/101/draft", () =>
+        HttpResponse.json(draftStateFixture()),
+      ),
+      http.get("*/api/campaigns/42/streams/101/publication", () =>
+        HttpResponse.json(publicationStateFixture()),
+      ),
+    );
+    const user = userEvent.setup();
+    renderApp("/campaigns/42");
+    const main = within(screen.getByRole("main"));
+
+    expect(
+      await main.findByRole("heading", { name: /Traffic allocation/ }),
+    ).toBeInTheDocument();
+    expect(
+      await main.findByRole("row", { name: /Offer #8/ }),
+    ).toBeInTheDocument();
+    expect(
+      await main.findByText("Latest publication status"),
+    ).toBeInTheDocument();
+
+    const toggle = main.getByRole("button", {
+      name: /Main stream · regular #101/,
+    });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(main.queryByRole("row", { name: /Offer #8/ })).toBeNull();
   });
 
   it("keeps the URL campaign ID on direct navigation and a simulated reload", async () => {
@@ -312,12 +349,12 @@ describe("CampaignWorkspacePage", () => {
     );
 
     renderApp("/campaigns/42");
-    expect(await screen.findByText("Campaign ID: 42")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /Campaign #42/ })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/campaigns/42");
 
     cleanup();
     renderApp("/campaigns/42");
-    expect(await screen.findByText("Campaign ID: 42")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /Campaign #42/ })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/campaigns/42");
     expect(getCount).toBe(2);
   });
@@ -372,7 +409,7 @@ describe("CampaignWorkspacePage", () => {
     renderApp("/campaigns/42");
 
     expect(
-      (await screen.findByRole("region", { name: "Campaign Workspace" }))
+      (await screen.findByRole("region", { name: /Campaign #42/ }))
         .className,
     ).toContain("narrow");
   });
