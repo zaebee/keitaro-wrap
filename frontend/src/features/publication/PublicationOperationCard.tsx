@@ -30,15 +30,20 @@ export function PublicationOperationCard({
         <PublicationStatusBadge status={operation.status} />
       </h3>
       <dl className={styles.meta}>
-        <dt>Campaign</dt>
-        <dd>{operation.campaign_id}</dd>
-        <dt>Draft version</dt>
-        <dd>{operation.draft_version}</dd>
-        <dt>Attempt count</dt>
-        <dd>{operation.attempt_count}</dd>
         <dt>Operation UUID</dt>
-        <dd>{operation.operation_uuid}</dd>
+        <dd className={styles.mono}>{operation.operation_uuid}</dd>
+        <dt>Campaign</dt>
+        <dd className="tnum">{operation.campaign_id}</dd>
+        <dt>Target version</dt>
+        <dd className="tnum">{operation.draft_version}</dd>
+        <dt>Attempt (zero-retry)</dt>
+        <dd className="tnum">{operation.attempt_count}</dd>
       </dl>
+      <p className={styles.syncLockNote}>
+        <strong>Keitaro Sync Lock.</strong> Publication commands are
+        zero-retry; this card shows the single recorded attempt, never a
+        retried outcome.
+      </p>
       <p className={styles.hint}>Effective published entries (backend allowlisted):</p>
       {operation.effective_entries.length === 0 ? (
         <p className={styles.empty}>No effective entries were reported.</p>
