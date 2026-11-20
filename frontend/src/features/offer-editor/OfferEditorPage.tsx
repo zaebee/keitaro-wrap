@@ -36,18 +36,27 @@ import {
   type DraftActionRequest,
 } from "./EditorPanels";
 import styles from "./OfferEditorPage.module.css";
-import { draftChanges } from "./draftChanges";
 import type { DraftViewResponse } from "../../api/operations";
 
 function draftChangesCount(draft: DraftViewResponse): number {
-  const changes = draftChanges(draft);
-  return (
-    changes.additions.length +
-    changes.archives.length +
-    changes.restores.length +
-    changes.pinToggles.length +
-    changes.shareEdits.length
+  const baselineById = new Map(
+    draft.baseline_offers.map((offer) => [offer.offer_id, offer]),
   );
+  let count = 0;
+  for (const offer of draft.offers) {
+    const baseline = baselineById.get(offer.offer_id);
+    if (baseline === undefined) {
+      count += 1;
+      continue;
+    }
+    if (baseline.share !== offer.share) {
+      count += 1;
+    }
+    if (offer.lifecycle === "ARCHIVED") {
+      count += 1;
+    }
+  }
+  return count;
 }
 
 type Failure = { message: string; code: string | null; status: number | null };
