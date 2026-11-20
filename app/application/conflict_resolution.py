@@ -93,10 +93,13 @@ class ConflictResolutionService:
         campaign_id: int, stream_ref: int, document: Mapping[str, object]
     ) -> FetchedStream:
         """Validate one targeted stream document as a fresh remote observation."""
-        if (
-            document.get("id") != stream_ref
-            or document.get("campaign_id") != campaign_id
-        ):
+        observed_id = document.get("id")
+        observed_campaign = document.get("campaign_id")
+        if type(observed_id) is not int or type(observed_campaign) is not int:
+            raise ConflictResolutionInputError(
+                "stream id and campaign_id must be integers"
+            )
+        if observed_id != stream_ref or observed_campaign != campaign_id:
             raise ConflictResolutionInputError(
                 f"stream {stream_ref} does not belong to campaign {campaign_id}"
             )

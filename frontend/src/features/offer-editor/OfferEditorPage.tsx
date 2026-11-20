@@ -198,14 +198,29 @@ function Editor({
   });
 
   const acceptRemoteMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const current = draftQuery.data?.draft;
       if (current === null || current === undefined) {
-        throw new Error("no draft to resolve");
+        throw new ApiError(
+          422,
+          "DOMAIN_POLICY_REJECTION",
+          "no draft to resolve",
+          {},
+        );
       }
-      return acceptRemoteConflict(campaignId, streamRef, {
-        expected_version: current.version,
-        expected_conflicts_fingerprint: current.conflicts_fingerprint,
+      return await publicationLock.runExclusive(async (context) => {
+        if (publicationLock.invalid || context.getCurrent() !== null) {
+          throw new ApiError(
+            409,
+            "PUBLICATION_UNRESOLVED",
+            "An active or unreadable publication recovery lock blocks conflict resolution.",
+            {},
+          );
+        }
+        return await acceptRemoteConflict(campaignId, streamRef, {
+          expected_version: current.version,
+          expected_conflicts_fingerprint: current.conflicts_fingerprint,
+        });
       });
     },
     onSuccess: (result) => {
@@ -246,7 +261,7 @@ function Editor({
   };
 
   const requestAcceptRemote = async () => {
-    if (recoveryRequired || busy || draft === null) {
+    if (recoveryRequired || busy || draft === null || publicationLock.invalid) {
       return;
     }
     const unlocked = await publicationLock.runExclusive(

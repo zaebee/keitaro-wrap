@@ -109,6 +109,20 @@ class FakeClient:
         raise AssertionError("unexpected Keitaro mutation")
 
 
+class IdentityClient:
+    """Read-only client double that returns an arbitrary identity document."""
+
+    def __init__(self, document: dict[str, object]):
+        """Store the document to return from the targeted GET."""
+        self.document = document
+        self.gets = 0
+
+    async def get_stream_document(self, stream_ref: int):
+        """Return the configured identity document once."""
+        self.gets += 1
+        return self.document
+
+
 class FakeDrafts:
     """In-memory draft repository recording writes."""
 
@@ -120,12 +134,10 @@ class FakeDrafts:
 
     def get_stream_campaign(self, stream_ref: int) -> int | None:
         """Return the seeded campaign owner."""
-        assert stream_ref == 12
         return self.campaign
 
     def get_view(self, stream_ref: int):
         """Return the seeded draft view."""
-        assert stream_ref == 12
         return self.view
 
     def accept_remote(
@@ -139,7 +151,9 @@ class FakeDrafts:
         return AcceptRemoteResult(command.stream_ref, self.view, False, 2)
 
 
-def service(client: FakeClient, drafts: FakeDrafts) -> ConflictResolutionService:
+def service(
+    client: FakeClient | IdentityClient, drafts: FakeDrafts
+) -> ConflictResolutionService:
     """Wire the workflow to doubles."""
     return ConflictResolutionService(
         cast(KeitaroClientPort, client), cast(StreamDraftRepository, drafts)
@@ -246,6 +260,31 @@ def test_read_and_validation_failures_leave_local_state_unwritten(document, erro
         asyncio.run(
             service(client, drafts).accept_remote(command(fingerprint="sha256:test"))
         )
+    assert client.gets == 1
+    assert drafts.writes == []
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        {"id": True, "campaign_id": 1, "offers": []},
+        {"id": 1, "campaign_id": True, "offers": []},
+    ],
+)
+def test_boolean_identity_is_rejected(document):
+    """Boolean IDs must not satisfy an expected numeric identity of 1."""
+    from tests.api_support import sample_draft_view
+
+    view = replace(
+        sample_draft_view(1),
+        is_stale=True,
+        conflicts_fingerprint="sha256:test",
+    )
+    client = IdentityClient(document)
+    drafts = FakeDrafts(view, campaign=1)
+    command = AcceptRemoteCommand(1, 1, 1, "sha256:test")
+    with pytest.raises(ConflictResolutionInputError):
+        asyncio.run(service(client, drafts).accept_remote(command))
     assert client.gets == 1
     assert drafts.writes == []
 
