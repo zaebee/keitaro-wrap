@@ -71,7 +71,8 @@ export function CommittedPanel({
       className={`${styles.panel} ${styles.committed}`}
     >
       <h2 id="committed-heading">
-        Committed baseline <span className={styles.tag}>read-only</span>
+        Committed baseline{" "}
+        <span className={styles.tag}>read-only</span>
       </h2>
       <p className={styles.hint}>
         Durable wrapper bindings and the last backend-cached remote observation.
@@ -122,6 +123,49 @@ export function CommittedPanel({
   );
 }
 
+function staleCheckLabel(draft: DraftViewResponse | null): string {
+  if (draft === null) {
+    return "No draft";
+  }
+  return draft.is_stale ? "Drift detected" : "Clean (No Drift)";
+}
+
+export function PolicyCard({
+  draft,
+}: Readonly<{ draft: DraftViewResponse | null }>) {
+  const conflictCount = draft?.conflicts.length ?? 0;
+  const fingerprint = draft?.conflicts_fingerprint ?? "";
+  return (
+    <div className={styles.policyCard}>
+      <span className={styles.policyHeading}>Policy &amp; Validation</span>
+      <div className={styles.policyRow}>
+        <span className={styles.policyLabel}>Stale check:</span>
+        <span
+          className={`${styles.policyValue} ${
+            draft?.is_stale ? styles.policyWarn : styles.policyGood
+          }`}
+        >
+          {staleCheckLabel(draft)}
+        </span>
+      </div>
+      <div className={styles.policyRow}>
+        <span className={styles.policyLabel}>Conflict risk:</span>
+        <span className={styles.policyValue}>
+          {conflictCount > 0 ? `${conflictCount} conflict(s)` : "None detected"}
+        </span>
+      </div>
+      <div className={styles.policyRow}>
+        <span className={styles.policyLabel}>Checksum:</span>
+        <span className={styles.policyChecksum}>
+          {draft === null
+            ? "not available"
+            : `fingerprint: ${fingerprint.slice(0, 8)}…`}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 const SEGMENT_COLORS = ["#2563eb", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899"];
 
 export function AllocationSummary({
@@ -146,7 +190,7 @@ export function AllocationSummary({
     >
       <div className={styles.allocationHeader}>
         <h2 id="allocation-summary-heading">
-          Traffic allocation
+          Traffic allocation{" "}
           <span className={styles.allocationSubtitle}>
             ({draft?.is_dirty ? "Staged distribution" : "Committed distribution"})
           </span>
@@ -209,7 +253,8 @@ export function AllocationSummary({
           );
         })}
         <div className={styles.legendUnallocated}>
-          Unallocated: <span>{unallocated}%</span>
+          Unallocated:{" "}
+          <span>{unallocated}%</span>
         </div>
       </div>
       {draft?.is_dirty && (
@@ -283,7 +328,8 @@ export function DraftPanel({
       className={`${styles.panel} ${styles.draft}`}
     >
       <h2 id="draft-heading">
-        Staged draft <span className={styles.tag}>local, unpublished</span>
+        Staged draft{" "}
+        <span className={styles.tag}>local, unpublished</span>
       </h2>
       {draft === null ? (
         <p className={styles.empty}>

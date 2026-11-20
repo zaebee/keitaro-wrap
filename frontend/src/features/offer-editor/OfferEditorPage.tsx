@@ -16,6 +16,7 @@ import {
   setDraftShare,
   unpinDraftOffer,
   type ConflictDetailResponse,
+  type DraftViewResponse,
 } from "../../api/operations";
 import { queryKeys } from "../../queries/queryClient";
 import { useFocusOnChange } from "../../shared/hooks/useFocusOnChange";
@@ -31,13 +32,13 @@ import {
   CommittedPanel,
   ConflictPanel,
   DraftPanel,
+  PolicyCard,
   ReadErrorPanel,
   ReviewPanel,
   type DraftActionRequest,
 } from "./EditorPanels";
 import styles from "./OfferEditorPage.module.css";
 import { draftChanges } from "./draftChanges";
-import type { DraftViewResponse } from "../../api/operations";
 
 function draftChangesCount(draft: DraftViewResponse): number {
   const changes = draftChanges(draft);
@@ -534,41 +535,7 @@ function Editor({
 
         <aside className={styles.inspector} aria-label="Backend inspector">
           <p className={styles.inspectorTitle}>Backend Inspector</p>
-          <div className={styles.policyCard}>
-            <span className={styles.policyHeading}>Policy &amp; Validation</span>
-            <div className={styles.policyRow}>
-              <span className={styles.policyLabel}>Stale check:</span>
-              <span
-                className={`${styles.policyValue} ${
-                  draft?.is_stale
-                    ? styles.policyWarn
-                    : styles.policyGood
-                }`}
-              >
-                {draft === null
-                  ? "No draft"
-                  : draft.is_stale
-                    ? "Drift detected"
-                    : "Clean (No Drift)"}
-              </span>
-            </div>
-            <div className={styles.policyRow}>
-              <span className={styles.policyLabel}>Conflict risk:</span>
-              <span className={styles.policyValue}>
-                {(draft?.conflicts.length ?? 0) > 0
-                  ? `${draft?.conflicts.length} conflict(s)`
-                  : "None detected"}
-              </span>
-            </div>
-            <div className={styles.policyRow}>
-              <span className={styles.policyLabel}>Checksum:</span>
-              <span className={styles.policyChecksum}>
-                {draft === null
-                  ? "not available"
-                  : `fingerprint: ${(draft.conflicts_fingerprint ?? "").slice(0, 8)}…`}
-              </span>
-            </div>
-          </div>
+          <PolicyCard draft={draft} />
 
       <section
         aria-labelledby="publication-section-heading"
