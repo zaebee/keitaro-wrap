@@ -368,17 +368,27 @@ function Editor({
       data-recovery-lock={recoveryRequired ? "active" : "inactive"}
     >
       <header className={styles.topBar}>
-        <div className={styles.breadcrumbs}>
-          <Link className={styles.crumbLink} to={`/campaigns/${campaignId}`}>
-            Back to Campaign Workspace
+        <nav aria-label="Breadcrumb" className={styles.breadcrumbs}>
+          <Link className={styles.crumbLink} to="/campaigns/open">
+            Campaigns
           </Link>
           <span className={styles.crumbSep} aria-hidden="true">
             ›
           </span>
-          <span className={`${styles.crumbCurrent} tnum`}>
-            Campaign {campaignId} · Stream {streamRef}
+          <Link
+            className={styles.crumbLink}
+            to={`/campaigns/${campaignId}`}
+            aria-label={`Campaign ${campaignId} workspace`}
+          >
+            <span className="tnum">Campaign #{campaignId}</span>
+          </Link>
+          <span className={styles.crumbSep} aria-hidden="true">
+            ›
           </span>
-        </div>
+          <span className={`${styles.crumbCurrent} tnum`} aria-current="page">
+            Stream #{streamRef}
+          </span>
+        </nav>
         <div className={styles.titleRow}>
           <h1 id="editor-heading">Offer Editor</h1>
           <span className={`${styles.titleStream} tnum`}>
