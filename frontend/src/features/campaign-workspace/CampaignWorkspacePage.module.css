@@ -16,10 +16,10 @@
 }
 
 .campaignActions {
+  align-items: center;
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-3);
-  margin: var(--space-6) 0;
 }
 
 .campaignActions button {
@@ -184,12 +184,6 @@
   max-width: 520px;
 }
 
-.campaignActions {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-}
 
 .streamCard {
   background: var(--color-surface);

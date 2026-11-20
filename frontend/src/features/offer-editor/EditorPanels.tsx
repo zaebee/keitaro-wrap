@@ -65,23 +65,14 @@ export function ReadErrorPanel({
 export function StreamSyncBadge({
   draft,
 }: Readonly<{ draft: DraftViewResponse | null }>) {
-  const synced =
-    draft !== null && !draft.is_stale && draft.conflicts.length === 0;
-  const drifted =
-    draft !== null && (draft.is_stale || draft.conflicts.length > 0);
-  return (
-    <span
-      className={`${styles.syncBadge} ${
-        synced
-          ? styles.syncGood
-          : drifted
-            ? styles.syncWarn
-            : styles.syncMuted
-      }`}
-    >
-      {synced ? "✓ Synced" : drifted ? "Drift detected" : "No draft"}
-    </span>
-  );
+  let tone = styles.syncMuted;
+  let label = "No draft";
+  if (draft !== null) {
+    const drifted = draft.is_stale || draft.conflicts.length > 0;
+    tone = drifted ? styles.syncWarn : styles.syncGood;
+    label = drifted ? "Drift detected" : "✓ Synced";
+  }
+  return <span className={`${styles.syncBadge} ${tone}`}>{label}</span>;
 }
 
 export function LastFetchMeta({
