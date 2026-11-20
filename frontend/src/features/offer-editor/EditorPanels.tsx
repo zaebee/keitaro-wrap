@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 
 import type {
@@ -121,6 +121,19 @@ export function CommittedPanel({
       )}
     </section>
   );
+}
+
+function lifecycleStatus(
+  offer: StagedOfferResponse,
+  shareModified: boolean,
+): ReactNode {
+  if (offer.lifecycle !== "ACTIVE") {
+    return <span className={styles.stateArchived}>Archived</span>;
+  }
+  if (shareModified) {
+    return <span className={styles.stateModified}>Active · Modified</span>;
+  }
+  return <span className={styles.stateSynced}>Active · Synced</span>;
 }
 
 function staleCheckLabel(draft: DraftViewResponse | null): string {
@@ -538,15 +551,7 @@ function OfferCard({
         <dd>{offer.position}</dd>
       </dl>
       <p className={styles.offerStatus}>
-        {offer.lifecycle === "ACTIVE" ? (
-          shareModified ? (
-            <span className={styles.stateModified}>Active · Modified</span>
-          ) : (
-            <span className={styles.stateSynced}>Active · Synced</span>
-          )
-        ) : (
-          <span className={styles.stateArchived}>Archived</span>
-        )}
+        {lifecycleStatus(offer, shareModified)}
         {offer.is_pinned && <span className={styles.pinNote}>Manual lock</span>}
       </p>
       <div className={styles.inlineActions}>
