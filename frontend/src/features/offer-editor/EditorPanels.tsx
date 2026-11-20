@@ -429,24 +429,36 @@ export function DraftPanel({
             const archivedOffers = draft.offers.filter(
               (offer) => offer.lifecycle === "ARCHIVED",
             );
-            const renderOfferCards = (offers: typeof activeOffers) => (
-              <ul className={styles.offerCards}>
-                {offers.map((offer) => (
-                  <OfferCard
-                    key={offer.offer_id}
-                    offer={offer}
-                    disabled={commandsDisabled}
-                    baselineShare={draft.baseline_offers.find(
-                      (baseline) => baseline.offer_id === offer.offer_id,
-                    )?.share}
-                    shareInput={shareInputs[offer.offer_id] ?? ""}
-                    shareError={shareErrors[offer.offer_id]}
-                    onAction={onAction}
-                    onShareInput={onShareInput}
-                    onShareSubmit={onShareSubmit}
-                  />
-                ))}
-              </ul>
+            const renderOfferTable = (offers: typeof activeOffers) => (
+              <table className={styles.offerTable}>
+                <thead>
+                  <tr>
+                    <th scope="col">Offer ID</th>
+                    <th scope="col">State</th>
+                    <th scope="col">Pin</th>
+                    <th scope="col">Share</th>
+                    <th scope="col">Position</th>
+                    <th scope="col">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {offers.map((offer) => (
+                    <OfferRow
+                      key={offer.offer_id}
+                      offer={offer}
+                      disabled={commandsDisabled}
+                      baselineShare={draft.baseline_offers.find(
+                        (baseline) => baseline.offer_id === offer.offer_id,
+                      )?.share}
+                      shareInput={shareInputs[offer.offer_id] ?? ""}
+                      shareError={shareErrors[offer.offer_id]}
+                      onAction={onAction}
+                      onShareInput={onShareInput}
+                      onShareSubmit={onShareSubmit}
+                    />
+                  ))}
+                </tbody>
+              </table>
             );
             return (
               <>
@@ -455,7 +467,7 @@ export function DraftPanel({
                   {activeOffers.length === 0 ? (
                     <p className={styles.empty}>No active offers.</p>
                   ) : (
-                    renderOfferCards(activeOffers)
+                    renderOfferTable(activeOffers)
                   )}
                 </div>
                 <div>
@@ -475,7 +487,7 @@ export function DraftPanel({
                           Click to expand
                         </span>
                       </summary>
-                      {renderOfferCards(archivedOffers)}
+                      {renderOfferTable(archivedOffers)}
                     </details>
                   )}
                 </div>
@@ -523,7 +535,7 @@ export function DraftPanel({
   );
 }
 
-type OfferCardProps = Readonly<{
+type OfferRowProps = Readonly<{
   offer: StagedOfferResponse;
   disabled: boolean;
   baselineShare?: number;
@@ -534,7 +546,7 @@ type OfferCardProps = Readonly<{
   onShareSubmit: (offerId: number) => void;
 }>;
 
-function OfferCard({
+function OfferRow({
   offer,
   disabled,
   baselineShare,
@@ -543,30 +555,27 @@ function OfferCard({
   onAction,
   onShareInput,
   onShareSubmit,
-}: OfferCardProps) {
+}: OfferRowProps) {
   const shareModified =
     baselineShare !== undefined && baselineShare !== offer.share;
   return (
-    <li
-      className={`${styles.offerCard} ${
-        offer.lifecycle === "ARCHIVED" ? styles.offerArchived : ""
-      }`}
-    >
-      <h4>
-        Offer #{offer.offer_id}
+    <tr className={offer.lifecycle === "ARCHIVED" ? styles.offerArchived : ""}>
+      <th scope="row" className={styles.offerIdCell}>
+        <span className={styles.offerIdValue}>Offer #{offer.offer_id}</span>
         {shareModified && (
           <span className={styles.modifiedDot} title="Share modified in draft" />
         )}
-      </h4>
-      <dl className={styles.offerFields}>
-        <dt>Lifecycle</dt>
-        <dd>{offer.lifecycle}</dd>
-        <dt>State</dt>
-        <dd>{offer.state ?? "not provided"}</dd>
-        <dt>Pin</dt>
-        <dd>{offer.is_pinned ? "pinned" : "not pinned"}</dd>
-        <dt>Share</dt>
-        <dd className="tnum">
+        {offer.is_pinned && <span className={styles.pinNote}>Manual lock</span>}
+      </th>
+      <td className={styles.offerStateCell}>
+        {offer.state ?? "not provided"}
+        <span className={styles.offerLifecycle}>
+          {lifecycleStatus(offer, shareModified)}
+        </span>
+      </td>
+      <td>{offer.is_pinned ? "pinned" : "not pinned"}</td>
+      <td className={styles.offerShareCell}>
+        <span className="tnum">
           {shareModified ? (
             <>
               <s>{baselineShare}</s> <span className={styles.shareArrow}>→</span>{" "}
@@ -575,81 +584,78 @@ function OfferCard({
           ) : (
             offer.share
           )}
-        </dd>
-        <dt>Position</dt>
-        <dd>{offer.position}</dd>
-      </dl>
-      <p className={styles.offerStatus}>
-        {lifecycleStatus(offer, shareModified)}
-        {offer.is_pinned && <span className={styles.pinNote}>Manual lock</span>}
-      </p>
-      <div className={styles.inlineActions}>
-        {offer.lifecycle === "ACTIVE" ? (
-          <button
-            type="button"
-            disabled={disabled}
-            aria-label={`Remove offer ${offer.offer_id}`}
-            onClick={() => onAction({ kind: "remove", offerId: offer.offer_id })}
+        </span>
+        {offer.lifecycle === "ACTIVE" && (
+          <form
+            className={styles.shareForm}
+            noValidate
+            onSubmit={(event) => {
+              event.preventDefault();
+              onShareSubmit(offer.offer_id);
+            }}
           >
-            Remove
-          </button>
-        ) : (
-          <button
-            type="button"
-            disabled={disabled}
-            aria-label={`Restore offer ${offer.offer_id}`}
-            onClick={() => onAction({ kind: "restore", offerId: offer.offer_id })}
-          >
-            Restore
-          </button>
+            <input
+              id={`share-${offer.offer_id}`}
+              type="text"
+              inputMode="numeric"
+              aria-label="Share 0–100"
+              value={shareInput}
+              onChange={(event) => onShareInput(offer.offer_id, event.target.value)}
+              aria-invalid={Boolean(shareError)}
+              aria-describedby={
+                shareError ? `share-${offer.offer_id}-error` : undefined
+              }
+              disabled={disabled}
+            />
+            <button type="submit" disabled={disabled}>
+              Set share
+            </button>
+            {shareError && (
+              <p className={styles.fieldError} id={`share-${offer.offer_id}-error`}>
+                {shareError}
+              </p>
+            )}
+          </form>
         )}
-        <button
-          type="button"
-          disabled={disabled}
-          aria-label={`${offer.is_pinned ? "Unpin" : "Pin"} offer ${offer.offer_id}`}
-          onClick={() =>
-            onAction({
-              kind: offer.is_pinned ? "unpin" : "pin",
-              offerId: offer.offer_id,
-            })
-          }
-        >
-          {offer.is_pinned ? "Unpin" : "Pin"}
-        </button>
-      </div>
-      {offer.lifecycle === "ACTIVE" && (
-        <form
-          className={styles.shareForm}
-          noValidate
-          onSubmit={(event) => {
-            event.preventDefault();
-            onShareSubmit(offer.offer_id);
-          }}
-        >
-          <label htmlFor={`share-${offer.offer_id}`}>Share 0–100</label>
-          <input
-            id={`share-${offer.offer_id}`}
-            type="text"
-            inputMode="numeric"
-            value={shareInput}
-            onChange={(event) => onShareInput(offer.offer_id, event.target.value)}
-            aria-invalid={Boolean(shareError)}
-            aria-describedby={
-              shareError ? `share-${offer.offer_id}-error` : undefined
-            }
-            disabled={disabled}
-          />
-          <button type="submit" disabled={disabled}>
-            Set share
-          </button>
-          {shareError && (
-            <p className={styles.fieldError} id={`share-${offer.offer_id}-error`}>
-              {shareError}
-            </p>
+      </td>
+      <td className="tnum">{offer.position}</td>
+      <td>
+        <div className={styles.inlineActions}>
+          {offer.lifecycle === "ACTIVE" ? (
+            <button
+              type="button"
+              disabled={disabled}
+              aria-label={`Remove offer ${offer.offer_id}`}
+              onClick={() => onAction({ kind: "remove", offerId: offer.offer_id })}
+            >
+              Remove
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={disabled}
+              aria-label={`Restore offer ${offer.offer_id}`}
+              onClick={() => onAction({ kind: "restore", offerId: offer.offer_id })}
+            >
+              Restore
+            </button>
           )}
-        </form>
-      )}
-    </li>
+          <button
+            type="button"
+            disabled={disabled}
+            aria-label={`${offer.is_pinned ? "Unpin" : "Pin"} offer ${offer.offer_id}`}
+            onClick={() =>
+              onAction({
+                kind: offer.is_pinned ? "unpin" : "pin",
+                offerId: offer.offer_id,
+              })
+            }
+          >
+            {offer.is_pinned ? "Unpin" : "Pin"}
+          </button>
+        </div>
+      </td>
+    </tr>
   );
 }
 

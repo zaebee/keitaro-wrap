@@ -354,7 +354,7 @@ test("full mocked journey covers Fetch → conflict → Accept remote → recove
   await expect(page.getByText("Sticky Fetch conflicts")).toHaveCount(0);
   await page.getByLabel("Add offer by ID").fill("9");
   await page.getByRole("button", { name: "Add offer" }).click();
-  await expect(page.getByRole("heading", { name: "Offer #9" })).toBeVisible();
+  await expect(page.getByRole("row", { name: /Offer #9/ })).toBeVisible();
   expect(stagedBody).toEqual({ expected_version: 0, offer_id: 9 });
   expect((currentDraft as DraftView | null)?.is_stale).toBe(false);
 
@@ -399,13 +399,9 @@ test("full mocked journey covers Fetch → conflict → Accept remote → recove
   await expect(definition("Version")).toHaveText("2");
   await expect(definition("State")).toHaveText("clean");
   await expect(definition("Stale")).toHaveText("no");
-  await expect(page.getByRole("heading", { name: "Offer #9" })).toHaveCount(0);
-  const acceptedOffer7 = page
-    .getByRole("heading", { name: "Offer #7" })
-    .locator("xpath=ancestor::li[1]");
-  const acceptedOffer8 = page
-    .getByRole("heading", { name: "Offer #8" })
-    .locator("xpath=ancestor::li[1]");
+  await expect(page.getByRole("row", { name: /Offer #9/ })).toHaveCount(0);
+  const acceptedOffer7 = page.getByRole("row", { name: /Offer #7/ });
+  const acceptedOffer8 = page.getByRole("row", { name: /Offer #8/ });
   await expect(acceptedOffer7).toContainText("90");
   await expect(acceptedOffer8).toContainText("40");
   await expect(page.getByRole("button", { name: "Add offer" })).toBeEnabled();
