@@ -101,6 +101,9 @@ class FakeDrafts:
             is_dirty=True,
             is_stale=stale,
             conflicts=(),
+            conflicts_fingerprint=(
+                "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            ),
             policy_cases=(PolicyCase.SINGLE_ACTIVE_OFFER,) if share8 == 100 else (),
             unallocated=0,
         )

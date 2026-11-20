@@ -16,6 +16,26 @@ class UpstreamError(RuntimeError):
         super().__init__(f"upstream error {status}: {message}")
 
 
+class ConflictResolutionInputError(ValueError):
+    """The requested conflict resolution has no applicable conflicted draft."""
+
+
+class ConflictChangedError(RuntimeError):
+    """The conflict evidence changed since the operator reviewed it."""
+
+    def __init__(
+        self,
+        stream_ref: int,
+        expected_fingerprint: str,
+        current_fingerprint: str,
+    ):
+        """Keep both fingerprints structured for the typed transport error."""
+        self.stream_ref = stream_ref
+        self.expected_fingerprint = expected_fingerprint
+        self.current_fingerprint = current_fingerprint
+        super().__init__(f"conflicts for stream {stream_ref} changed before resolution")
+
+
 class StreamNotFoundError(KeyError):
     """A stream reference is unknown or belongs to another campaign."""
 

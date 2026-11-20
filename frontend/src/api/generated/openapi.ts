@@ -82,6 +82,7 @@ export interface DraftViewResponse {
   is_dirty: boolean;
   is_stale: boolean;
   conflicts: ConflictDetailResponse[];
+  conflicts_fingerprint: string;
   policy_cases: PolicyCase[];
   unallocated: number;
 }
@@ -102,6 +103,18 @@ export interface ConflictDetailResponse {
   expected: (number | null);
   observed: (number | null);
   reason: string;
+}
+
+export interface AcceptRemoteRequest {
+  expected_version: number;
+  expected_conflicts_fingerprint: string;
+}
+
+export interface ConflictResolutionResponse {
+  stream_ref: number;
+  draft: (DraftViewResponse | null);
+  noop: boolean;
+  version: (number | null);
 }
 
 export interface DraftCommandResultResponse {

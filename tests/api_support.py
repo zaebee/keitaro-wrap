@@ -36,7 +36,11 @@ from app.domain.allocation import PolicyCase
 from app.domain.campaign_creation import OperationStatus
 from app.domain.draft import StagedOffer
 from app.domain.publication import OfferEntry, PublicationStatus
-from app.domain.reconciliation import BindingLifecycle, RemoteOffer
+from app.domain.reconciliation import (
+    BindingLifecycle,
+    RemoteOffer,
+    conflict_fingerprint,
+)
 
 
 def sample_draft_view(stream_ref: int = 12, version: int = 1) -> DraftView:
@@ -59,6 +63,7 @@ def sample_draft_view(stream_ref: int = 12, version: int = 1) -> DraftView:
         is_dirty=False,
         is_stale=False,
         conflicts=(),
+        conflicts_fingerprint=conflict_fingerprint(()),
         policy_cases=(PolicyCase.SINGLE_ACTIVE_OFFER,),
         unallocated=0,
     )

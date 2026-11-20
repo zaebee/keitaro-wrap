@@ -117,12 +117,16 @@ type DraftPanelProps = Readonly<{
   shareInputs: Record<number, string>;
   shareErrors: Record<number, string>;
   confirmingCancel: boolean;
+  acceptingConflict: boolean;
   onNewOfferInput: (value: string) => void;
   onAction: (action: DraftActionRequest) => void;
   onShareInput: (offerId: number, value: string) => void;
   onShareSubmit: (offerId: number) => void;
   onConfirmCancel: () => void;
   onKeepDraft: () => void;
+  onAcceptRemote: () => void;
+  onConfirmAcceptRemote: () => void;
+  onKeepConflict: () => void;
 }>;
 
 export function DraftPanel({
@@ -136,12 +140,16 @@ export function DraftPanel({
   shareInputs,
   shareErrors,
   confirmingCancel,
+  acceptingConflict,
   onNewOfferInput,
   onAction,
   onShareInput,
   onShareSubmit,
   onConfirmCancel,
   onKeepDraft,
+  onAcceptRemote,
+  onConfirmAcceptRemote,
+  onKeepConflict,
 }: DraftPanelProps) {
   const blocked = draft?.is_stale === true || (draft?.conflicts.length ?? 0) > 0;
   const commandsDisabled = busy || recoveryRequired || blocked || !baselineReady;
@@ -178,7 +186,15 @@ export function DraftPanel({
         </dl>
       )}
 
-      {draft && <ConflictPanel conflicts={draft.conflicts} />}
+      {draft && (
+        <ConflictPanel
+          conflicts={draft.conflicts}
+          acceptingConflict={acceptingConflict}
+          onAcceptRemote={onAcceptRemote}
+          onConfirmAcceptRemote={onConfirmAcceptRemote}
+          onKeepConflict={onKeepConflict}
+        />
+      )}
 
       {!baselineReady && (
         <div className={styles.fetchRequired}>
@@ -398,7 +414,17 @@ function OfferCard({
 
 export function ConflictPanel({
   conflicts,
-}: Readonly<{ conflicts: ConflictDetailResponse[] }>) {
+  acceptingConflict = false,
+  onAcceptRemote,
+  onConfirmAcceptRemote,
+  onKeepConflict,
+}: Readonly<{
+  conflicts: ConflictDetailResponse[];
+  acceptingConflict?: boolean;
+  onAcceptRemote?: () => void;
+  onConfirmAcceptRemote?: () => void;
+  onKeepConflict?: () => void;
+}>) {
   if (conflicts.length === 0) {
     return null;
   }
@@ -406,9 +432,30 @@ export function ConflictPanel({
     <div className={styles.conflictPanel} role="alert">
       <h3>Sticky Fetch conflicts</h3>
       <p>
-        The backend blocks editing while these conflicts remain. There is no
-        resolve action in this slice; Cancel preserves them unchanged.
+        The backend blocks editing while these conflicts remain. Accept remote
+        discards staged intent and adopts a fresh remote observation; local
+        Cancel preserves the conflicts unchanged.
       </p>
+      {onAcceptRemote !== undefined &&
+        (acceptingConflict ? (
+          <fieldset className={styles.confirm}>
+            <legend>Confirm accept remote</legend>
+            <p>
+              Discard all staged changes for this stream and rebuild it from a
+              fresh Keitaro read? No Keitaro mutation is sent.
+            </p>
+            <button type="button" onClick={onConfirmAcceptRemote}>
+              Confirm accept remote
+            </button>
+            <button type="button" className={styles.secondary} onClick={onKeepConflict}>
+              Keep conflict
+            </button>
+          </fieldset>
+        ) : (
+          <button type="button" className={styles.secondary} onClick={onAcceptRemote}>
+            Accept remote
+          </button>
+        ))}
       <ul>
         {conflicts.map((conflict, index) => (
           <li key={`${conflict.offer_id}-${conflict.field}-${index}`}>

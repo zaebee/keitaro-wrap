@@ -388,6 +388,7 @@ class DraftView:
     is_dirty: bool
     is_stale: bool
     conflicts: tuple[ConflictDetail, ...]
+    conflicts_fingerprint: str
     policy_cases: tuple[PolicyCase, ...]
     unallocated: int
 
@@ -399,6 +400,26 @@ class DraftCommandResult:
     view: DraftView
     created: bool = False
     noop: bool = False
+
+
+@dataclass(frozen=True)
+class AcceptRemoteCommand:
+    """Explicit Accept-remote conflict resolution with a concurrency token."""
+
+    campaign_id: int
+    stream_ref: int
+    expected_version: int
+    expected_conflicts_fingerprint: str
+
+
+@dataclass(frozen=True)
+class AcceptRemoteResult:
+    """Observable result of one Accept-remote resolution attempt."""
+
+    stream_ref: int
+    draft: DraftView | None
+    noop: bool
+    version: int | None
 
 
 @dataclass(frozen=True)

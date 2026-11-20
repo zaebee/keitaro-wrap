@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import UUID4, BaseModel, ConfigDict, Field, StrictInt, StrictStr
 
 from app.application.dto import (
+    AcceptRemoteResult,
     CampaignCreationResult,
     CommittedStateView,
     DraftCommandResult,
@@ -79,6 +80,13 @@ class CancelDraftRequest(RequestModel):
     """Discard local staged intent."""
 
     expected_version: StrictInt
+
+
+class AcceptRemoteRequest(RequestModel):
+    """Explicit Accept-remote resolution with both concurrency tokens."""
+
+    expected_version: StrictInt = Field(gt=0)
+    expected_conflicts_fingerprint: StrictStr = Field(min_length=7)
 
 
 class PushRequest(RequestModel):
@@ -249,6 +257,7 @@ class DraftViewResponse(ResponseModel):
     is_dirty: bool
     is_stale: bool
     conflicts: list[ConflictDetailResponse]
+    conflicts_fingerprint: StrictStr
     policy_cases: list[PolicyCase]
     unallocated: int
 
@@ -268,6 +277,7 @@ class DraftViewResponse(ResponseModel):
             conflicts=[
                 ConflictDetailResponse(**item.__dict__) for item in view.conflicts
             ],
+            conflicts_fingerprint=view.conflicts_fingerprint,
             policy_cases=list(view.policy_cases),
             unallocated=view.unallocated,
         )
@@ -414,6 +424,27 @@ class CancelResultResponse(ResponseModel):
             status=result.status,
             reason=result.reason,
             draft_discarded=result.draft_discarded,
+        )
+
+
+class ConflictResolutionResponse(ResponseModel):
+    """Observable result of one Accept-remote resolution attempt."""
+
+    stream_ref: int
+    draft: DraftViewResponse | None
+    noop: bool
+    version: int | None
+
+    @classmethod
+    def from_result(cls, result: AcceptRemoteResult) -> ConflictResolutionResponse:
+        """Build a response from the application resolution result."""
+        return cls(
+            stream_ref=result.stream_ref,
+            draft=DraftViewResponse.from_view(result.draft)
+            if result.draft is not None
+            else None,
+            noop=result.noop,
+            version=result.version,
         )
 
 

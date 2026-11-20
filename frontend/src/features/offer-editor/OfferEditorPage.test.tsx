@@ -14,6 +14,7 @@ import {
   publicationStateFixture,
   REMOTE_OFFERS,
 } from "../../test/fixtures";
+import { RECOVERY_LOCK_KEY } from "../publication/usePublicationRecoveryLock";
 import { renderApp } from "../../test/renderApp";
 import { server } from "../../test/server";
 
@@ -45,6 +46,7 @@ describe("OfferEditorPage", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     window.matchMedia = originalMatchMedia;
+    window.localStorage.clear();
   });
 
   it("loads committed and draft GETs on direct navigation and reload without Fetch", async () => {
@@ -380,6 +382,91 @@ describe("OfferEditorPage", () => {
 
     await waitFor(() => expect(draftGetCount).toBeGreaterThan(beforeRetry));
     expect(postCount).toBe(1);
+  });
+
+  it("accepts a fresh remote observation and refreshes the clean draft", async () => {
+    const conflict = conflictFixture();
+    const staleView = draftViewFixture({
+      version: 3,
+      is_stale: true,
+      conflicts: [conflict],
+      conflicts_fingerprint: "sha256:stale",
+    });
+    let acceptBody: unknown = null;
+    const resolved = draftViewFixture({
+      version: 4,
+      conflicts: [],
+      conflicts_fingerprint: "sha256:empty",
+    });
+    serveReads(committedFixture(), draftStateFixture(staleView));
+    server.use(
+      http.post(
+        "*/api/campaigns/42/streams/101/draft/accept-remote",
+        async ({ request }) => {
+          acceptBody = await request.json();
+          return HttpResponse.json({
+            stream_ref: 101,
+            draft: resolved,
+            noop: false,
+            version: 4,
+          });
+        },
+      ),
+    );
+    const user = userEvent.setup();
+    renderApp(EDITOR_PATH);
+    await screen.findByText("Sticky Fetch conflicts");
+
+    await user.click(screen.getByRole("button", { name: "Accept remote" }));
+    expect(
+      screen.getByRole("group", { name: "Confirm accept remote" }),
+    ).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Confirm accept remote" }),
+    );
+
+    await waitFor(() =>
+      expect(acceptBody).toEqual({
+        expected_version: 3,
+        expected_conflicts_fingerprint: "sha256:stale",
+      }),
+    );
+    expect(await within(draftRegion()).findByText("4")).toBeInTheDocument();
+    expect(screen.queryByText("Sticky Fetch conflicts")).not.toBeInTheDocument();
+  });
+
+  it("does not offer conflict resolution while the frontend recovery lock is active", async () => {
+    const staleView = draftViewFixture({
+      version: 3,
+      is_stale: true,
+      conflicts: [conflictFixture()],
+      conflicts_fingerprint: "sha256:stale",
+    });
+    window.localStorage.setItem(
+      RECOVERY_LOCK_KEY,
+      JSON.stringify({
+        schema: 2,
+        lockId: "lock-1",
+        kind: "recovery",
+        stage: "running",
+        affected: [{ campaignId: 42, streamRef: 101 }],
+        draftVerification: [],
+        cancelTarget: null,
+        reason: "unknown",
+        unionComplete: true,
+        createdAt: new Date().toISOString(),
+        phase: "running",
+      }),
+    );
+    serveReads(committedFixture(), draftStateFixture(staleView));
+    const user = userEvent.setup();
+    renderApp(EDITOR_PATH);
+    await screen.findByText("Sticky Fetch conflicts");
+
+    await user.click(screen.getByRole("button", { name: "Accept remote" }));
+    expect(
+      screen.queryByRole("group", { name: "Confirm accept remote" }),
+    ).not.toBeInTheDocument();
   });
 
   it("blocks edits on a stale draft and preserves sticky conflicts through Cancel", async () => {

@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 
 import { ApiError } from "../../api/client";
 import {
+  acceptRemoteConflict,
   addDraftOffer,
   cancelLocalDraft,
   getCommittedState,
@@ -89,6 +90,9 @@ function hintFor(failure: Failure): string {
   if (failure.code === "DRAFT_STALE_CONFLICT") {
     return "Sticky conflicts still block editing. Cancel preserves them; no conflict was resolved.";
   }
+  if (failure.code === "DRAFT_CONFLICT_CHANGED") {
+    return "Conflict details changed before resolution. Read the current draft again; nothing was changed.";
+  }
   if (failure.code === null || (failure.status !== null && failure.status >= 500)) {
     return "Only a GET re-read is offered. The previous command is not retried.";
   }
@@ -114,6 +118,7 @@ function Editor({
   const [shareInputs, setShareInputs] = useState<Record<number, string>>({});
   const [shareErrors, setShareErrors] = useState<Record<number, string>>({});
   const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const [acceptingConflict, setAcceptingConflict] = useState(false);
   const [recoveryRequired, setRecoveryRequired] = useState(false);
   const publicationLock = usePublicationRecoveryLock();
 
@@ -192,11 +197,41 @@ function Editor({
     },
   });
 
+  const acceptRemoteMutation = useMutation({
+    mutationFn: () => {
+      const current = draftQuery.data?.draft;
+      if (current === null || current === undefined) {
+        throw new Error("no draft to resolve");
+      }
+      return acceptRemoteConflict(campaignId, streamRef, {
+        expected_version: current.version,
+        expected_conflicts_fingerprint: current.conflicts_fingerprint,
+      });
+    },
+    onSuccess: (result) => {
+      queryClient.setQueryData(queryKeys.draft(campaignId, streamRef), {
+        stream_ref: streamRef,
+        draft: result.draft,
+      });
+      void committedQuery.refetch();
+      void publicationQuery.refetch();
+      setAcceptingConflict(false);
+      acceptRemoteMutation.reset();
+    },
+    onError: (error: unknown) => {
+      const failure = describeFailure(error);
+      if (failure.code === null || (failure.status !== null && failure.status >= 500)) {
+        setRecoveryRequired(true);
+      }
+      setAcceptingConflict(false);
+    },
+  });
+
   const draft = draftQuery.data?.draft ?? null;
-  const mutationFailure = describeFailure(mutation.error);
+  const mutationFailure = describeFailure(mutation.error ?? acceptRemoteMutation.error);
   const publicationFailure = describeFailure(publicationQuery.error);
   const staleConflicts = conflictDetails(mutation.error);
-  const busy = mutation.isPending;
+  const busy = mutation.isPending || acceptRemoteMutation.isPending;
   const blocked = draft?.is_stale === true || (draft?.conflicts.length ?? 0) > 0;
   const snapshot = committedQuery.data?.snapshot;
   const baselineReady = Boolean(snapshot && snapshot.offers.length > 0);
@@ -206,7 +241,21 @@ function Editor({
     if (result.status === "success") {
       setRecoveryRequired(false);
       mutation.reset();
+      acceptRemoteMutation.reset();
     }
+  };
+
+  const requestAcceptRemote = async () => {
+    if (recoveryRequired || busy || draft === null) {
+      return;
+    }
+    const unlocked = await publicationLock.runExclusive(
+      async (context) => context.getCurrent() === null,
+    );
+    if (!unlocked) {
+      return;
+    }
+    setAcceptingConflict(true);
   };
 
   const handleAction = (action: DraftActionRequest) => {
@@ -375,6 +424,7 @@ function Editor({
             shareInputs={shareInputs}
             shareErrors={shareErrors}
             confirmingCancel={confirmingCancel}
+            acceptingConflict={acceptingConflict}
             onNewOfferInput={(value) => {
               setNewOfferId(value);
               setAddError(null);
@@ -390,6 +440,9 @@ function Editor({
               }
             }}
             onKeepDraft={() => setConfirmingCancel(false)}
+            onAcceptRemote={() => void requestAcceptRemote()}
+            onConfirmAcceptRemote={() => acceptRemoteMutation.mutate()}
+            onKeepConflict={() => setAcceptingConflict(false)}
           />
         )}
       </section>
