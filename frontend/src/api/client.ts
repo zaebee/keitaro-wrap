@@ -20,6 +20,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   OPERATION_NOT_FOUND: "No durable operation exists for this UUID.",
   STREAM_NOT_FOUND: "The requested stream does not belong to this campaign.",
   DRAFT_VERSION_CONFLICT: "The draft changed since it was loaded. Reload before retrying.",
+  DRAFT_CONFLICT_CHANGED:
+    "Fetch conflict details changed before resolution. Reload and review.",
   DRAFT_STALE_CONFLICT: "This draft has sticky conflicts and cannot be edited.",
   DRAFT_BASELINE_UNAVAILABLE: "The draft baseline is unavailable; reload the stream.",
   PUBLICATION_UNRESOLVED: "An unresolved publication blocks this action.",

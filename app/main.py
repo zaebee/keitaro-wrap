@@ -8,6 +8,7 @@ from fastapi import FastAPI, Request
 from app.api.errors import register_error_handlers
 from app.api.routes import router
 from app.application.campaign_creation import CampaignCreationService
+from app.application.conflict_resolution import ConflictResolutionService
 from app.application.draft import DraftService
 from app.application.fetch import FetchService
 from app.application.publication import PublicationService
@@ -43,6 +44,10 @@ async def lifespan(app: FastAPI):
     )
     app.state.draft_service = DraftService(
         repository=SqlAlchemyStreamDraftRepository(),
+    )
+    app.state.conflict_resolution_service = ConflictResolutionService(
+        client=app.state.keitaro_client,
+        drafts=SqlAlchemyStreamDraftRepository(),
     )
     app.state.publication_service = PublicationService(
         client=app.state.keitaro_client,

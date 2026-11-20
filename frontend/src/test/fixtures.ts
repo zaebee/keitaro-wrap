@@ -129,6 +129,7 @@ export function draftViewFixture(
     is_dirty: boolean;
     is_stale: boolean;
     conflicts: ReturnType<typeof conflictFixture>[];
+    conflicts_fingerprint: string;
     policy_cases: string[];
     unallocated: number;
   }> = {},
@@ -159,6 +160,7 @@ export function draftViewFixture(
     is_dirty: false,
     is_stale: false,
     conflicts: [],
+    conflicts_fingerprint: "sha256:empty",
     policy_cases: [],
     unallocated: 0,
     ...overrides,

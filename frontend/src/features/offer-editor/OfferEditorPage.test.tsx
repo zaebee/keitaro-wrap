@@ -14,6 +14,7 @@ import {
   publicationStateFixture,
   REMOTE_OFFERS,
 } from "../../test/fixtures";
+import { RECOVERY_LOCK_KEY } from "../publication/usePublicationRecoveryLock";
 import { renderApp } from "../../test/renderApp";
 import { server } from "../../test/server";
 
@@ -35,6 +36,86 @@ function serveReads(
   );
 }
 
+const ACCEPT_REMOTE_PATH =
+  "*/api/campaigns/42/streams/101/draft/accept-remote";
+
+function activeRecoveryLock() {
+  return {
+    schema: 2,
+    lockId: "lock-1",
+    kind: "recovery",
+    stage: "running",
+    affected: [{ campaignId: 42, streamRef: 101 }],
+    draftVerification: [],
+    cancelTarget: null,
+    reason: "unknown",
+    unionComplete: true,
+    createdAt: new Date().toISOString(),
+    phase: "running",
+  };
+}
+
+function staleAcceptRemoteView() {
+  return draftViewFixture({
+    version: 3,
+    is_stale: true,
+    conflicts: [conflictFixture()],
+    conflicts_fingerprint: "sha256:stale",
+  });
+}
+
+function setLockState(state: unknown) {
+  window.localStorage.setItem(
+    RECOVERY_LOCK_KEY,
+    typeof state === "string" ? state : JSON.stringify(state),
+  );
+}
+
+async function renderStaleAcceptRemote() {
+  const posts: unknown[] = [];
+  serveReads(committedFixture(), draftStateFixture(staleAcceptRemoteView()));
+  server.use(
+    http.post(ACCEPT_REMOTE_PATH, async ({ request }) => {
+      posts.push(await request.json());
+      return HttpResponse.json({
+        stream_ref: 101,
+        draft: draftViewFixture({
+          version: 4,
+          conflicts: [],
+          conflicts_fingerprint: "sha256:empty",
+        }),
+        noop: false,
+        version: 4,
+      });
+    }),
+  );
+  const user = userEvent.setup();
+  renderApp(EDITOR_PATH);
+  await screen.findByText("Sticky Fetch conflicts");
+  return { user, posts };
+}
+
+async function openAcceptConfirmation(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: "Accept remote" }));
+  expect(
+    screen.getByRole("group", { name: "Confirm accept remote" }),
+  ).toBeInTheDocument();
+}
+
+async function confirmAcceptRemote(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(
+    screen.getByRole("button", { name: "Confirm accept remote" }),
+  );
+}
+
+async function expectConfirmationClosed() {
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("group", { name: "Confirm accept remote" }),
+    ).not.toBeInTheDocument(),
+  );
+}
+
 function draftRegion(): HTMLElement {
   return screen.getByRole("heading", { name: /Staged draft/ }).closest(
     "section",
@@ -45,6 +126,7 @@ describe("OfferEditorPage", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     window.matchMedia = originalMatchMedia;
+    window.localStorage.clear();
   });
 
   it("loads committed and draft GETs on direct navigation and reload without Fetch", async () => {
@@ -380,6 +462,47 @@ describe("OfferEditorPage", () => {
 
     await waitFor(() => expect(draftGetCount).toBeGreaterThan(beforeRetry));
     expect(postCount).toBe(1);
+  });
+
+  it("accepts a fresh remote observation and refreshes the clean draft", async () => {
+    const { user, posts } = await renderStaleAcceptRemote();
+    await openAcceptConfirmation(user);
+    await confirmAcceptRemote(user);
+
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0]).toEqual({
+      expected_version: 3,
+      expected_conflicts_fingerprint: "sha256:stale",
+    });
+    expect(await within(draftRegion()).findByText("4")).toBeInTheDocument();
+    expect(screen.queryByText("Sticky Fetch conflicts")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["active", () => activeRecoveryLock()],
+    ["invalid", () => "not-json"],
+  ])("refuses Accept remote when the lock is %s before render", async (_, state) => {
+    setLockState(state());
+    const { user, posts } = await renderStaleAcceptRemote();
+
+    await user.click(screen.getByRole("button", { name: "Accept remote" }));
+    expect(
+      screen.queryByRole("group", { name: "Confirm accept remote" }),
+    ).not.toBeInTheDocument();
+    expect(posts).toHaveLength(0);
+  });
+
+  it.each([
+    ["active", () => activeRecoveryLock()],
+    ["invalid", () => "not-json"],
+  ])("rejects a lock that becomes %s after confirmation opens", async (_, state) => {
+    const { user, posts } = await renderStaleAcceptRemote();
+    await openAcceptConfirmation(user);
+
+    setLockState(state());
+    await confirmAcceptRemote(user);
+    await expectConfirmationClosed();
+    expect(posts).toHaveLength(0);
   });
 
   it("blocks edits on a stale draft and preserves sticky conflicts through Cancel", async () => {

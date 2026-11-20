@@ -1,5 +1,7 @@
 """Pure primitives for reconciling remote stream offers with committed bindings."""
 
+import hashlib
+import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
@@ -163,6 +165,45 @@ def _allocation_input_ids(
     share_edits = _staged_mapping_ids(staged_changes, "share_edits")
     active = (candidates - archives) | (restores & candidates)
     return active - share_edits
+
+
+def canonical_conflicts_json(conflicts: Iterable[ConflictDetail]) -> str:
+    """Serialise conflict details in a stable order for comparison and hashing."""
+    ordered = sorted(
+        conflicts,
+        key=lambda item: (
+            item.stream_ref,
+            item.offer_id,
+            item.field,
+            str(item.expected),
+            str(item.observed),
+            item.reason,
+        ),
+    )
+    return json.dumps(
+        [
+            {
+                "stream_ref": item.stream_ref,
+                "offer_id": item.offer_id,
+                "field": item.field,
+                "expected": item.expected,
+                "observed": item.observed,
+                "reason": item.reason,
+            }
+            for item in ordered
+        ],
+        separators=(",", ":"),
+    )
+
+
+def conflict_fingerprint(conflicts: Iterable[ConflictDetail]) -> str:
+    """Return an opaque hash of the canonical conflict representation."""
+    return (
+        "sha256:"
+        + hashlib.sha256(
+            canonical_conflicts_json(conflicts).encode("utf-8")
+        ).hexdigest()
+    )
 
 
 def _merge_conflicts(

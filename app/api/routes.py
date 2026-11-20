@@ -7,17 +7,20 @@ from pydantic import UUID4
 
 from app.api.deps import (
     get_campaign_creation_service,
+    get_conflict_resolution_service,
     get_draft_service,
     get_fetch_service,
     get_publication_service,
 )
 from app.api.errors import ApiError
 from app.api.schemas import (
+    AcceptRemoteRequest,
     AddDraftRequest,
     CampaignCreationResponse,
     CancelDraftRequest,
     CancelResultResponse,
     CommittedStateResponse,
+    ConflictResolutionResponse,
     CreateCampaignRequest,
     DraftCommandResultResponse,
     DraftStateResponse,
@@ -35,8 +38,10 @@ from app.api.schemas import (
     StreamRefResponse,
 )
 from app.application.campaign_creation import CampaignCreationService
+from app.application.conflict_resolution import ConflictResolutionService
 from app.application.draft import DraftService
 from app.application.dto import (
+    AcceptRemoteCommand,
     AddOfferCommand,
     CancelDraftCommand,
     CancelPublicationCommand,
@@ -308,6 +313,29 @@ async def cancel_draft(
         CancelDraftCommand(campaign_id, stream_ref, request.expected_version)
     )
     return DraftCommandResultResponse.from_result(result)
+
+
+@router.post(
+    "/campaigns/{campaign_id}/streams/{stream_ref}/draft/accept-remote",
+)
+async def accept_remote_conflict(
+    request: AcceptRemoteRequest,
+    campaign_id: Annotated[int, Path(gt=0)],
+    stream_ref: Annotated[int, Path(gt=0)],
+    service: Annotated[
+        ConflictResolutionService, Depends(get_conflict_resolution_service)
+    ],
+) -> ConflictResolutionResponse:
+    """Explicitly accept a fresh remote observation for one conflicted draft."""
+    result = await service.accept_remote(
+        AcceptRemoteCommand(
+            campaign_id=campaign_id,
+            stream_ref=stream_ref,
+            expected_version=request.expected_version,
+            expected_conflicts_fingerprint=request.expected_conflicts_fingerprint,
+        )
+    )
+    return ConflictResolutionResponse.from_result(result)
 
 
 @router.post("/campaigns/{campaign_id}/push")

@@ -44,6 +44,8 @@ const WRAPPER_SCHEMAS = [
   "DraftViewResponse",
   "StagedOfferResponse",
   "ConflictDetailResponse",
+  "AcceptRemoteRequest",
+  "ConflictResolutionResponse",
   "DraftCommandResultResponse",
   "PolicyCase",
   "OfferDraftRequest",

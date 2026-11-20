@@ -246,6 +246,8 @@ export function isValidDraftState(
     isBoolean(draft.is_dirty) &&
     isBoolean(draft.is_stale) &&
     isValidConflicts(draft.conflicts) &&
+    typeof draft.conflicts_fingerprint === "string" &&
+    draft.conflicts_fingerprint.length > 0 &&
     Array.isArray(draft.policy_cases) &&
     draft.policy_cases.every((item) => typeof item === "string") &&
     isNonNegativeInt(draft.unallocated)

@@ -16,7 +16,12 @@ from app.application.campaign_creation import (
     OperationNotFoundError,
 )
 from app.application.draft import DraftStaleError, DraftVersionConflict
-from app.application.errors import StreamNotFoundError, UpstreamError
+from app.application.errors import (
+    ConflictChangedError,
+    ConflictResolutionInputError,
+    StreamNotFoundError,
+    UpstreamError,
+)
 from app.application.fetch import FetchInputError
 from app.application.publication import (
     PublicationConflictError,
@@ -184,6 +189,18 @@ def _publication_conflict_handler(_: Request, exc: Exception) -> JSONResponse:
     return error_response(409, "PUBLICATION_CONCURRENT_CHANGE", str(exc), {})
 
 
+def _conflict_changed_handler(_: Request, exc: Exception) -> JSONResponse:
+    """Translate a changed conflict token into a typed 409 with details."""
+    details: dict[str, Any] = {}
+    if isinstance(exc, ConflictChangedError):
+        details = {
+            "stream_ref": exc.stream_ref,
+            "expected": exc.expected_fingerprint,
+            "observed": exc.current_fingerprint,
+        }
+    return error_response(409, "DRAFT_CONFLICT_CHANGED", str(exc), details)
+
+
 def _domain_rejection_handler(_: Request, exc: Exception) -> JSONResponse:
     """Translate domain and workflow input rejections to a typed 422."""
     return error_response(
@@ -217,11 +234,13 @@ def register_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(OperationNotFoundError, _operation_not_found_handler)
     app.add_exception_handler(StreamNotFoundError, _stream_not_found_handler)
     app.add_exception_handler(DraftVersionConflict, _version_conflict_handler)
+    app.add_exception_handler(ConflictChangedError, _conflict_changed_handler)
     app.add_exception_handler(DraftStaleError, _stale_draft_handler)
     app.add_exception_handler(DraftBaselineUnavailable, _baseline_unavailable_handler)
     app.add_exception_handler(PublicationGateError, _publication_gate_handler)
     app.add_exception_handler(PublicationConflictError, _publication_conflict_handler)
     app.add_exception_handler(FetchInputError, _domain_rejection_handler)
+    app.add_exception_handler(ConflictResolutionInputError, _domain_rejection_handler)
     app.add_exception_handler(DraftInputError, _domain_rejection_handler)
     app.add_exception_handler(PublicationInputError, _domain_rejection_handler)
     app.add_exception_handler(AllocationError, _domain_rejection_handler)

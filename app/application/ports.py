@@ -1,9 +1,12 @@
 """Application ports."""
 
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Protocol
 
 from app.application.dto import (
+    AcceptRemoteCommand,
+    AcceptRemoteResult,
     CampaignCreateDTO,
     CampaignDTO,
     ConfiguredResources,
@@ -12,6 +15,7 @@ from app.application.dto import (
     DraftCommandBase,
     DraftCommandResult,
     DraftView,
+    FetchedStream,
     FetchOutcome,
     FetchSnapshot,
     GroupDTO,
@@ -232,6 +236,15 @@ class StreamDraftRepository(Protocol):
 
     def get_view(self, stream_ref: int) -> DraftView | None:
         """Load the derived staged view for one stream, if it has a draft."""
+        ...
+
+    def accept_remote(
+        self,
+        command: AcceptRemoteCommand,
+        observation: FetchedStream,
+        captured_at: datetime,
+    ) -> AcceptRemoteResult:
+        """Atomically adopt a fresh remote observation for one conflicted draft."""
         ...
 
 

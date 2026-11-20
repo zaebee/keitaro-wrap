@@ -1,9 +1,11 @@
 import { apiRequest, type CampaignCreationResponse } from "./client";
 import type {
+  AcceptRemoteRequest,
   AddDraftRequest,
   CancelDraftRequest,
   CancelResultResponse,
   CommittedStateResponse,
+  ConflictResolutionResponse,
   CreateCampaignRequest,
   DraftCommandResultResponse,
   DraftStateResponse,
@@ -20,6 +22,7 @@ import type {
 
 export type {
   CancelResultResponse,
+  ConflictResolutionResponse,
   ConflictDetailResponse,
   DraftViewResponse,
   OfferEntryResponse,
@@ -31,6 +34,7 @@ export type {
 } from "./generated/openapi";
 
 export type {
+  AcceptRemoteRequest,
   AddDraftRequest,
   CancelDraftRequest,
   CommittedStateResponse,
@@ -132,6 +136,18 @@ export async function getDraftState(
 
 function streamPath(campaignId: number, streamRef: number): string {
   return `/campaigns/${encodeURIComponent(String(campaignId))}/streams/${encodeURIComponent(String(streamRef))}`;
+}
+
+export async function acceptRemoteConflict(
+  campaignId: number,
+  streamRef: number,
+  body: AcceptRemoteRequest,
+): Promise<ConflictResolutionResponse> {
+  const result = await apiRequest<ConflictResolutionResponse>(
+    `${streamPath(campaignId, streamRef)}/draft/accept-remote`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+  return result.data;
 }
 
 async function postDraftCommand(

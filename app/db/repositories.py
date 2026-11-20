@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import cast
 
-from sqlalchemy import delete, update
+from sqlalchemy import delete, exists, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -15,6 +15,8 @@ from app.application.campaign_creation import (
 )
 from app.application.draft import DraftStaleError, DraftVersionConflict
 from app.application.dto import (
+    AcceptRemoteCommand,
+    AcceptRemoteResult,
     ConfiguredResources,
     DirtyDraftView,
     DraftCommandBase,
@@ -30,6 +32,11 @@ from app.application.dto import (
     StreamBindingView,
     StreamDraftView,
     StreamRefView,
+)
+from app.application.errors import (
+    ConflictChangedError,
+    ConflictResolutionInputError,
+    StreamNotFoundError,
 )
 from app.application.publication import (
     PublicationConflictError,
@@ -82,6 +89,8 @@ from app.domain.reconciliation import (
     DraftState,
     RemoteOffer,
     TransitionKind,
+    canonical_conflicts_json,
+    conflict_fingerprint,
     plan_reconciliation,
     validate_remote_offers,
 )
@@ -395,21 +404,8 @@ def _load_offers(raw: str) -> tuple[RemoteOffer, ...]:
 
 
 def _dump_conflicts(conflicts: tuple[ConflictDetail, ...]) -> str:
-    """Serialize structured draft conflicts."""
-    return json.dumps(
-        [
-            {
-                "stream_ref": conflict.stream_ref,
-                "offer_id": conflict.offer_id,
-                "field": conflict.field,
-                "expected": conflict.expected,
-                "observed": conflict.observed,
-                "reason": conflict.reason,
-            }
-            for conflict in conflicts
-        ],
-        separators=(",", ":"),
-    )
+    """Serialize structured draft conflicts in canonical form."""
+    return canonical_conflicts_json(conflicts)
 
 
 def _load_conflicts(raw: str | None) -> tuple[ConflictDetail, ...]:
@@ -981,6 +977,7 @@ def _draft_view(
         is_dirty=staged.has_changes,
         is_stale=is_stale,
         conflicts=conflicts,
+        conflicts_fingerprint=conflict_fingerprint(conflicts),
         policy_cases=data.policy_cases,
         unallocated=data.unallocated,
     )
@@ -1375,6 +1372,199 @@ class SqlAlchemyStreamDraftRepository:
                 draft.is_stale,
                 _load_conflicts(draft.conflict_details_json),
             )
+
+    def accept_remote(
+        self,
+        command: AcceptRemoteCommand,
+        observation: FetchedStream,
+        captured_at: datetime,
+    ) -> AcceptRemoteResult:
+        """Atomically replace a conflicted draft with a fresh remote baseline."""
+        with self._session_factory() as session:
+            try:
+                ref = (
+                    session.query(StreamRefModel)
+                    .filter_by(keitaro_stream_id=command.stream_ref)
+                    .one_or_none()
+                )
+                if ref is None or ref.campaign_id != command.campaign_id:
+                    raise StreamNotFoundError(command.campaign_id, command.stream_ref)
+                draft = (
+                    session.query(StreamDraftModel)
+                    .filter_by(stream_ref_id=ref.id)
+                    .one_or_none()
+                )
+                if draft is None:
+                    raise ConflictResolutionInputError(
+                        "no conflicted draft exists for this stream"
+                    )
+                current_conflicts = _load_conflicts(draft.conflict_details_json)
+                current_fingerprint = conflict_fingerprint(current_conflicts)
+                if current_fingerprint != command.expected_conflicts_fingerprint:
+                    raise ConflictChangedError(
+                        command.stream_ref,
+                        command.expected_conflicts_fingerprint,
+                        current_fingerprint,
+                    )
+                if draft.version != command.expected_version:
+                    raise DraftVersionConflict(
+                        DRAFT_VERSION_CONFLICT,
+                        stream_ref=command.stream_ref,
+                        expected_version=command.expected_version,
+                        current_version=draft.version,
+                    )
+                if _has_unresolved_publication(session, ref.id):
+                    raise PublicationGateError(
+                        f"stream {command.stream_ref} has an unresolved publication"
+                    )
+                cached = (
+                    session.query(RemoteOfferSnapshotModel)
+                    .filter_by(stream_ref_id=ref.id)
+                    .one_or_none()
+                )
+                if cached is not None and cached.captured_at > captured_at:
+                    raise ConflictChangedError(
+                        command.stream_ref,
+                        command.expected_conflicts_fingerprint,
+                        current_fingerprint,
+                    )
+                bindings = SqlAlchemyStreamReconciliationRepository._load_bindings(
+                    session, ref.id
+                )
+                plan = plan_reconciliation(
+                    stream_ref=command.stream_ref,
+                    remote_offers=observation.offers,
+                    previous_bindings=bindings,
+                )
+                updated_bindings = self._bindings_after_plan(bindings, plan.transitions)
+                baseline_bindings = load_baseline_bindings(
+                    tuple(
+                        BaselineBinding(item.offer_id, item.lifecycle, item.is_pinned)
+                        for item in updated_bindings
+                    )
+                )
+                new_version = command.expected_version + 1
+                gate_absent = ~exists(
+                    select(StreamPublicationModel.id).where(
+                        StreamPublicationModel.stream_ref_id == ref.id,
+                        StreamPublicationModel.status.in_(UNRESOLVED_STATUSES),
+                    )
+                )
+                snapshot_current = ~exists(
+                    select(RemoteOfferSnapshotModel.id).where(
+                        RemoteOfferSnapshotModel.stream_ref_id == ref.id,
+                        RemoteOfferSnapshotModel.captured_at > captured_at,
+                    )
+                )
+                result = session.execute(
+                    update(StreamDraftModel)
+                    .where(StreamDraftModel.id == draft.id)
+                    .where(StreamDraftModel.version == command.expected_version)
+                    .where(StreamDraftModel.is_stale.is_(True))
+                    .where(
+                        StreamDraftModel.conflict_details_json
+                        == _dump_conflicts(current_conflicts)
+                    )
+                    .where(gate_absent)
+                    .where(snapshot_current)
+                    .values(
+                        baseline_snapshot_json=_dump_offers(observation.offers),
+                        baseline_bindings_json=_dump_bindings(baseline_bindings),
+                        baseline_captured_at=captured_at,
+                        staged_changes_json="{}",
+                        is_dirty=False,
+                        is_stale=False,
+                        conflict_details_json=None,
+                        version=new_version,
+                    )
+                )
+                if getattr(result, "rowcount", 0) != 1:
+                    raise ConflictChangedError(
+                        command.stream_ref,
+                        command.expected_conflicts_fingerprint,
+                        current_fingerprint,
+                    )
+                counts = {
+                    "created_bindings": 0,
+                    "archived_bindings": 0,
+                    "reactivated_bindings": 0,
+                    "share_updates": 0,
+                }
+                SqlAlchemyStreamReconciliationRepository(
+                    self._session_factory
+                )._apply_transitions(session, ref.id, plan.transitions, counts)
+                SqlAlchemyStreamReconciliationRepository._upsert_remote_snapshot(
+                    session,
+                    ref.id,
+                    plan.remote_offers,
+                    captured_at,
+                    cached,
+                )
+                ref.draft_version_counter = max(ref.draft_version_counter, new_version)
+                session.commit()
+                context = DraftContext(
+                    command.stream_ref,
+                    observation.offers,
+                    baseline_bindings,
+                    DraftIntent(),
+                )
+                view = _draft_view(
+                    command.stream_ref,
+                    context,
+                    baseline_view(context),
+                    DraftIntent(),
+                    new_version,
+                    False,
+                    (),
+                )
+                return AcceptRemoteResult(command.stream_ref, view, False, new_version)
+            except Exception:
+                session.rollback()
+                raise
+
+    @staticmethod
+    def _bindings_after_plan(
+        bindings: tuple[BindingState, ...],
+        transitions: tuple[BindingTransition, ...],
+    ) -> tuple[BindingState, ...]:
+        """Apply planned committed transitions to a pure binding snapshot."""
+        updated = {binding.offer_id: binding for binding in bindings}
+        for transition in transitions:
+            current = updated.get(transition.offer_id)
+            if transition.kind is TransitionKind.CREATED:
+                updated[transition.offer_id] = BindingState(
+                    transition.offer_id,
+                    BindingLifecycle.ACTIVE,
+                    False,
+                    transition.share,
+                )
+            elif transition.kind is TransitionKind.ARCHIVED:
+                if current is None:
+                    raise RuntimeError(
+                        f"missing binding for offer {transition.offer_id}"
+                    )
+                updated[transition.offer_id] = replace(
+                    current, lifecycle=BindingLifecycle.ARCHIVED, last_remote_share=None
+                )
+            elif transition.kind is TransitionKind.REACTIVATED:
+                if current is None:
+                    raise RuntimeError(
+                        f"missing binding for offer {transition.offer_id}"
+                    )
+                updated[transition.offer_id] = replace(
+                    current,
+                    lifecycle=BindingLifecycle.ACTIVE,
+                    last_remote_share=transition.share,
+                )
+            elif transition.kind is TransitionKind.SHARE_CHANGED:
+                if current is None:
+                    raise RuntimeError(
+                        f"missing binding for offer {transition.offer_id}"
+                    )
+                updated[transition.offer_id] = replace(
+                    current, last_remote_share=transition.share
+                )
+        return tuple(updated[offer_id] for offer_id in sorted(updated))
 
 
 class SqlAlchemyStreamPublicationRepository:
