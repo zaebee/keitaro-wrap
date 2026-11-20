@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 
 import type {
@@ -6,6 +7,7 @@ import type {
   DraftViewResponse,
   StagedOfferResponse,
 } from "../../api/operations";
+import { ErrorSummary } from "../../shared/ui/ErrorSummary";
 import { draftChanges, hasDraftChanges } from "./draftChanges";
 import styles from "./OfferEditorPage.module.css";
 
@@ -34,14 +36,14 @@ export function ReadErrorPanel({
   retryDisabled: boolean;
 }>) {
   return (
-    <div className={styles.errorPanel} role="alert">
-      <h3>{heading}</h3>
-      <p>{message}</p>
-      {code && <p className={styles.hint}>API error code: {code}</p>}
-      <button type="button" onClick={onRetry} disabled={retryDisabled}>
-        {retryLabel}
-      </button>
-    </div>
+    <ErrorSummary
+      heading={heading}
+      message={message}
+      code={code}
+      retryLabel={retryLabel}
+      onRetry={onRetry}
+      retryDisabled={retryDisabled}
+    />
   );
 }
 
@@ -151,6 +153,13 @@ export function DraftPanel({
   onConfirmAcceptRemote,
   onKeepConflict,
 }: DraftPanelProps) {
+  const cancelConfirmRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (confirmingCancel) {
+      cancelConfirmRef.current?.focus();
+    }
+  }, [confirmingCancel]);
+
   const blocked = draft?.is_stale === true || (draft?.conflicts.length ?? 0) > 0;
   const commandsDisabled = busy || recoveryRequired || blocked || !baselineReady;
 
@@ -290,6 +299,7 @@ export function DraftPanel({
             </p>
             <button
               type="button"
+              ref={cancelConfirmRef}
               onClick={onConfirmCancel}
               disabled={busy || recoveryRequired}
             >
@@ -425,6 +435,13 @@ export function ConflictPanel({
   onConfirmAcceptRemote?: () => void;
   onKeepConflict?: () => void;
 }>) {
+  const acceptConfirmRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (acceptingConflict) {
+      acceptConfirmRef.current?.focus();
+    }
+  }, [acceptingConflict]);
+
   if (conflicts.length === 0) {
     return null;
   }
@@ -444,7 +461,11 @@ export function ConflictPanel({
               Discard all staged changes for this stream and rebuild it from a
               fresh Keitaro read? No Keitaro mutation is sent.
             </p>
-            <button type="button" onClick={onConfirmAcceptRemote}>
+            <button
+              type="button"
+              ref={acceptConfirmRef}
+              onClick={onConfirmAcceptRemote}
+            >
               Confirm accept remote
             </button>
             <button type="button" className={styles.secondary} onClick={onKeepConflict}>

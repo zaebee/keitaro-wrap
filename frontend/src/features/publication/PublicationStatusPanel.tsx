@@ -1,4 +1,5 @@
 import type { PublicationStateResponse } from "../../api/operations";
+import { ErrorSummary } from "../../shared/ui/ErrorSummary";
 import { PublicationOperationCard } from "./PublicationOperationCard";
 import { isValidPublicationState } from "./publicationValidation";
 import styles from "./Publication.module.css";
@@ -22,14 +23,14 @@ export function PublicationReadError({
   retryDisabled: boolean;
 }) {
   return (
-    <div className={styles.errorPanel} role="alert">
-      <h3>{heading}</h3>
-      <p>{message}</p>
-      {code && <p className={styles.hint}>API error code: {code}</p>}
-      <button type="button" onClick={onRetry} disabled={retryDisabled}>
-        {retryLabel}
-      </button>
-    </div>
+    <ErrorSummary
+      heading={heading}
+      message={message}
+      code={code}
+      retryLabel={retryLabel}
+      onRetry={onRetry}
+      retryDisabled={retryDisabled}
+    />
   );
 }
 

@@ -18,7 +18,9 @@ import {
   type ConflictDetailResponse,
 } from "../../api/operations";
 import { queryKeys } from "../../queries/queryClient";
+import { useFocusOnChange } from "../../shared/hooks/useFocusOnChange";
 import { useNarrowViewport } from "../../shared/hooks/useNarrowViewport";
+import { ErrorSummary } from "../../shared/ui/ErrorSummary";
 import { PublicationCancelPanel } from "../publication/PublicationCancelPanel";
 import { PublicationStatusPanel } from "../publication/PublicationStatusPanel";
 import { PushUnavailablePanel } from "../publication/PushUnavailablePanel";
@@ -120,6 +122,8 @@ function Editor({
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [acceptingConflict, setAcceptingConflict] = useState(false);
   const [recoveryRequired, setRecoveryRequired] = useState(false);
+  const [announcement, setAnnouncement] = useState<string | null>(null);
+  const statusRef = useFocusOnChange<HTMLParagraphElement>(announcement);
   const publicationLock = usePublicationRecoveryLock();
 
   const committedQuery = useQuery({
@@ -188,8 +192,10 @@ function Editor({
       setShareInputs({});
       setShareErrors({});
       setConfirmingCancel(false);
+      setAnnouncement("Draft command verified. The server view has been refreshed.");
     },
     onError: (error: unknown) => {
+      setAnnouncement(null);
       if (requiresRecovery(error)) {
         setRecoveryRequired(true);
       }
@@ -231,9 +237,11 @@ function Editor({
       void committedQuery.refetch();
       void publicationQuery.refetch();
       setAcceptingConflict(false);
+      setAnnouncement("Remote state accepted. The draft is clean on the new baseline.");
       acceptRemoteMutation.reset();
     },
     onError: (error: unknown) => {
+      setAnnouncement(null);
       const failure = describeFailure(error);
       if (failure.code === null || (failure.status !== null && failure.status >= 500)) {
         setRecoveryRequired(true);
@@ -362,38 +370,45 @@ function Editor({
         </output>
       )}
 
-      {mutation.isError && (
-        <div
-          className={`${styles.errorPanel} ${recoveryRequired ? styles.recoveryPanel : ""}`}
-          role="alert"
+      {announcement && (
+        <p
+          ref={statusRef}
+          className={styles.pending}
+          role="status"
+          aria-live="polite"
+          tabIndex={-1}
         >
-          <h2>
-            {recoveryRequired
+          {announcement}
+        </p>
+      )}
+
+      {(mutation.isError || acceptRemoteMutation.isError) && (
+        <ErrorSummary
+          heading={
+            recoveryRequired
               ? "Recovery required — draft commands locked"
-              : "Draft command failed"}
-          </h2>
-          <p>{failureMessage(mutationFailure)}</p>
-          {mutationFailure.code && (
-            <p className={styles.hint}>API error code: {mutationFailure.code}</p>
-          )}
-          <p className={styles.hint}>{hintFor(mutationFailure)}</p>
-          {recoveryRequired && (
-            <p className={styles.hint}>
-              The lock is released only by a successful GET re-read. A failed
-              re-read keeps every draft command disabled.
-            </p>
-          )}
-          {staleConflicts.length > 0 && (
-            <ConflictPanel conflicts={staleConflicts} />
-          )}
-          <button
-            type="button"
-            onClick={() => void rereadDraft()}
-            disabled={draftQuery.isFetching}
-          >
-            Read current draft
-          </button>
-        </div>
+              : "Draft command failed"
+          }
+          message={failureMessage(mutationFailure)}
+          code={mutationFailure.code}
+          detail={
+            <>
+              <p className={styles.hint}>{hintFor(mutationFailure)}</p>
+              {recoveryRequired && (
+                <p className={styles.hint}>
+                  The lock is released only by a successful GET re-read. A failed
+                  re-read keeps every draft command disabled.
+                </p>
+              )}
+              {staleConflicts.length > 0 && (
+                <ConflictPanel conflicts={staleConflicts} />
+              )}
+            </>
+          }
+          retryLabel="Read current draft"
+          onRetry={() => void rereadDraft()}
+          retryDisabled={draftQuery.isFetching}
+        />
       )}
 
       <section aria-labelledby="committed-section-heading" className={styles.section}>

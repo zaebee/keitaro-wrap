@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { useNarrowViewport } from "../../shared/hooks/useNarrowViewport";
+import { ErrorSummary } from "../../shared/ui/ErrorSummary";
 import { parseCampaignId } from "./campaignId";
 import styles from "./OpenCampaignPage.module.css";
 
@@ -36,11 +37,7 @@ export function OpenCampaignPage() {
         references.
       </p>
 
-      {error && (
-        <div className={styles.errorSummary} role="alert">
-          {error}
-        </div>
-      )}
+      {error && <ErrorSummary heading="Invalid campaign ID" message={error} />}
 
       <form onSubmit={submit} noValidate>
         <div className={styles.field}>

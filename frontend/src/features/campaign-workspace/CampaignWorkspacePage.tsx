@@ -9,6 +9,7 @@ import {
   type FetchOutcomeResponse,
 } from "../../api/operations";
 import { queryKeys } from "../../queries/queryClient";
+import { useFocusOnChange } from "../../shared/hooks/useFocusOnChange";
 import { useNarrowViewport } from "../../shared/hooks/useNarrowViewport";
 import { parseCampaignId } from "./campaignId";
 import styles from "./CampaignWorkspacePage.module.css";
@@ -36,6 +37,8 @@ function Workspace({ campaignId }: Readonly<{ campaignId: number }>) {
   const [fetchOutcome, setFetchOutcome] = useState<FetchOutcomeResponse | null>(
     null,
   );
+  const [announcement, setAnnouncement] = useState<string | null>(null);
+  const statusRef = useFocusOnChange<HTMLParagraphElement>(announcement);
 
   const streamsQuery = useQuery({
     queryKey: queryKeys.campaignStreams(campaignId),
@@ -49,6 +52,9 @@ function Workspace({ campaignId }: Readonly<{ campaignId: number }>) {
     mutationFn: () => fetchCampaignStreams(campaignId),
     onSuccess: (outcome) => {
       setFetchOutcome(outcome);
+      setAnnouncement(
+        `Fetch complete: ${outcome.stream_count} stream(s) returned, ${outcome.conflicted_drafts} conflicted draft(s).`,
+      );
       void queryClient.invalidateQueries({
         queryKey: queryKeys.campaignStreams(campaignId),
       });
@@ -67,6 +73,17 @@ function Workspace({ campaignId }: Readonly<{ campaignId: number }>) {
       className={`${styles.card} ${narrow ? styles.narrow : ""}`}
     >
       <h1 id="workspace-heading">Campaign Workspace</h1>
+      {announcement && (
+        <p
+          ref={statusRef}
+          className={styles.pending}
+          role="status"
+          aria-live="polite"
+          tabIndex={-1}
+        >
+          {announcement}
+        </p>
+      )}
       <p className={styles.campaignId}>Campaign ID: {campaignId}</p>
       <p className={styles.hint}>
         Stream references are read from the local cache. Fetch is an explicit
@@ -86,7 +103,10 @@ function Workspace({ campaignId }: Readonly<{ campaignId: number }>) {
         <button
           className={styles.primary}
           type="button"
-          onClick={() => fetchMutation.mutate()}
+          onClick={() => {
+            setAnnouncement(null);
+            fetchMutation.mutate();
+          }}
           disabled={fetchMutation.isPending}
         >
           {fetchMutation.isPending ? "Fetching streams…" : "Fetch streams"}

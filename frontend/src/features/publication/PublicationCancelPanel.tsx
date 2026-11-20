@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import { ApiError } from "../../api/client";
+import { ErrorSummary } from "../../shared/ui/ErrorSummary";
 import {
   cancelPublication,
   getDraftState,
@@ -322,9 +323,7 @@ export function PublicationCancelPanel({
       {busy && <output>Publication Cancel is running. No retry is made.</output>}
       {outcome !== null && <output>{outcome}</output>}
       {error !== null && (
-        <p className={styles.fieldError} role="alert">
-          {error}
-        </p>
+        <ErrorSummary heading="Publication Cancel blocked" message={error} />
       )}
       {stateError !== null && (
         <p className={styles.hint}>

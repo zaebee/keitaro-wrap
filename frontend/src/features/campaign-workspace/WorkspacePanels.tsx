@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 
 import type { FetchOutcomeResponse, StreamRefResponse } from "../../api/operations";
+import { ErrorSummary } from "../../shared/ui/ErrorSummary";
 import styles from "./CampaignWorkspacePage.module.css";
 
 export function FetchSummary({
@@ -98,13 +99,13 @@ export function ErrorPanel({
   retryDisabled,
 }: ErrorPanelProps) {
   return (
-    <div className={styles.errorPanel} role="alert">
-      <h2>{heading}</h2>
-      <p>{message}</p>
-      {code && <p className={styles.hint}>API error code: {code}</p>}
-      <button type="button" onClick={onRetry} disabled={retryDisabled}>
-        {retryLabel}
-      </button>
-    </div>
+    <ErrorSummary
+      heading={heading}
+      message={message}
+      code={code}
+      retryLabel={retryLabel}
+      onRetry={onRetry}
+      retryDisabled={retryDisabled}
+    />
   );
 }

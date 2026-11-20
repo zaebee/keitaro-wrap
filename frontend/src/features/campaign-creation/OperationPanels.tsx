@@ -1,6 +1,8 @@
+import { useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 
 import type { CampaignCreationResponse } from "../../api/client";
+import { ErrorSummary } from "../../shared/ui/ErrorSummary";
 import styles from "./OperationPage.module.css";
 
 export type PendingAction = "retry" | "new" | null;
@@ -30,13 +32,26 @@ export function OperationErrorPanel({
   onConfirmNew,
   onCancel,
 }: ErrorPanelProps) {
+  const retryRef = useRef<HTMLButtonElement>(null);
+  const newAttemptRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (pendingAction === "retry") {
+      retryRef.current?.focus();
+    } else if (pendingAction === "new") {
+      newAttemptRef.current?.focus();
+    }
+  }, [pendingAction]);
+
   return (
-    <div className={styles.errorPanel} role="alert">
-      <h2>Action needed</h2>
-      <p>{message}</p>
-      <p className={styles.hint}>
-        The UUID above is unchanged. No replacement UUID was generated.
-      </p>
+    <ErrorSummary
+      heading="Action needed"
+      message={message}
+      detail={
+        <>
+          <p className={styles.hint}>
+            The UUID above is unchanged. No replacement UUID was generated.
+          </p>
       {pendingAction === null && (
         <div className={styles.actions}>
           {canRetrySameUuid && (
@@ -57,7 +72,7 @@ export function OperationErrorPanel({
       {pendingAction === "retry" && (
         <div className={styles.confirm}>
           <p>Retry creation with this exact UUID and the original intent?</p>
-          <button type="button" onClick={onConfirmRetry}>
+          <button type="button" ref={retryRef} onClick={onConfirmRetry}>
             Confirm same-UUID retry
           </button>
           <button type="button" className={styles.secondary} onClick={onCancel}>
@@ -71,7 +86,7 @@ export function OperationErrorPanel({
             Clear the stored attempt and generate a new UUID only for a new
             logical creation attempt?
           </p>
-          <button type="button" onClick={onConfirmNew}>
+          <button type="button" ref={newAttemptRef} onClick={onConfirmNew}>
             Confirm new attempt
           </button>
           <button type="button" className={styles.secondary} onClick={onCancel}>
@@ -79,7 +94,9 @@ export function OperationErrorPanel({
           </button>
         </div>
       )}
-    </div>
+        </>
+      }
+    />
   );
 }
 

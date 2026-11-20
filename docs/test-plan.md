@@ -37,6 +37,15 @@
 - Publication safety: per-stream partial success, typed `LIVE_WRITES_DISABLED` → `503` with the full `PushResult`, allowlisted public publication fields, D25 Cancel matrix, degraded recovery.
 - D14 route-level assertion that synchronous repository work runs off the event-loop thread; no live Keitaro mutation in any API test.
 
+## Executed for S8 frontend (issues #41, #43, #47, #49–#56, #58, #59)
+- Frontend unit/component tests use Vitest + Testing Library + MSW against the generated wrapper contract; no test calls live Keitaro or a real backend.
+- Campaign creation tests cover URL/sessionStorage precedence, UUID persistence before POST, replay vs new attempt, terminal/non-terminal gating, explicit Resume, ambiguous status and keyboard/narrow smoke.
+- Workspace tests cover cached GET on entry, explicit Fetch only, duplicate-submission blocking, zero-stream vs empty-cache states, GET/Fetch error separation and focus/announcement behavior.
+- Editor tests cover committed/draft separation, every versioned draft command, stale/version/conflict errors without blind retry, local Cancel, Accept remote with fresh observation/fingerprint/CAS, advisory recovery-lock recheck at confirmation, and focus/announcement behavior.
+- Publication tests cover latest-status reads, D25 Cancel matrix, advisory lock verification, bounded recovery queue and pass, disabled-Push presentation and absence of a Push control/request.
+- E2E/axe: Playwright covers all primary routes with zero critical/serious axe findings, mobile (<768 px) and tablet (768–1279 px) layouts, and one full mocked journey: creation → workspace Fetch → editor draft → mocked remote change → explicit repeated Fetch → sticky conflict/stale draft → Accept remote → clean baseline with no staged intent → publication status → recovery. The journey asserts no direct Keitaro call, no Push request and no false success.
+- S8 debt boundaries: #38 (PUT semantics) and #40 (discovery/settings) stay outside S8; #39 is only partially delivered by Accept remote v1 (Rebase and Discard/restart deferred); #46 is separate bookkeeping after #57.
+
 ## Committed vs staged tests
 - Staged changes do not overwrite committed binding state until Push commits.
 - Cancel restores committed state and discards staged changes.

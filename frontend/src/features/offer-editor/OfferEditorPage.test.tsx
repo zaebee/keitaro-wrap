@@ -467,9 +467,15 @@ describe("OfferEditorPage", () => {
   it("accepts a fresh remote observation and refreshes the clean draft", async () => {
     const { user, posts } = await renderStaleAcceptRemote();
     await openAcceptConfirmation(user);
+    await waitFor(() =>
+      expect(document.activeElement).toHaveTextContent("Confirm accept remote"),
+    );
     await confirmAcceptRemote(user);
 
     await waitFor(() => expect(posts).toHaveLength(1));
+    const status = await screen.findByText(/Remote state accepted/);
+    expect(status).toHaveAttribute("role", "status");
+    await waitFor(() => expect(document.activeElement).toBe(status));
     expect(posts[0]).toEqual({
       expected_version: 3,
       expected_conflicts_fingerprint: "sha256:stale",
@@ -502,6 +508,9 @@ describe("OfferEditorPage", () => {
     setLockState(state());
     await confirmAcceptRemote(user);
     await expectConfirmationClosed();
+    const message = await screen.findByText(/An active or unreadable/);
+    const alert = message.closest('[role="alert"]') as HTMLElement;
+    await waitFor(() => expect(document.activeElement).toBe(alert));
     expect(posts).toHaveLength(0);
   });
 
