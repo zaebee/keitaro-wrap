@@ -366,18 +366,39 @@ function Editor({
       className={`${styles.card} ${narrow ? styles.narrow : ""}`}
       data-recovery-lock={recoveryRequired ? "active" : "inactive"}
     >
-      <h1 id="editor-heading">Offer Editor</h1>
-      <p className={styles.identity}>
-        Campaign {campaignId} · Stream {streamRef}
-      </p>
-      <p className={styles.hint}>
-        This screen edits only the selected stream; streams remain independent.
-        Committed baseline and staged draft are separate server views. The
-        publication section below shows read-only status, explains why Push is
-        unavailable, and offers only a local publication Cancel.
-      </p>
-      <Link to={`/campaigns/${campaignId}`}>Back to Campaign Workspace</Link>
+      <header className={styles.topBar}>
+        <div className={styles.breadcrumbs}>
+          <Link className={styles.crumbLink} to={`/campaigns/${campaignId}`}>
+            Back to Campaign Workspace
+          </Link>
+          <span className={styles.crumbSep} aria-hidden="true">
+            ›
+          </span>
+          <span className={`${styles.crumbCurrent} tnum`}>
+            Campaign {campaignId} · Stream {streamRef}
+          </span>
+        </div>
+        <div className={styles.titleRow}>
+          <h1 id="editor-heading">Offer Editor</h1>
+          <span className={`${styles.titleStream} tnum`}>
+            Stream #{streamRef}
+          </span>
+          {draft?.is_dirty && (
+            <span className={styles.dirtyBadge}>
+              Draft v{draft.version} (Dirty)
+            </span>
+          )}
+        </div>
+        <p className={styles.hint}>
+          This screen edits only the selected stream; streams remain
+          independent. Committed baseline and staged draft are separate server
+          views. The publication section shows read-only status, explains why
+          Push is unavailable, and offers only a local publication Cancel.
+        </p>
+      </header>
 
+      <div className={styles.columns}>
+        <div className={styles.mainColumn}>
       {draft?.is_dirty && (
         <div className={styles.dirtyBanner} data-purpose="conflict-alert">
           <div>
@@ -509,6 +530,45 @@ function Editor({
           />
         )}
       </section>
+        </div>
+
+        <aside className={styles.inspector} aria-label="Backend inspector">
+          <p className={styles.inspectorTitle}>Backend Inspector</p>
+          <div className={styles.policyCard}>
+            <span className={styles.policyHeading}>Policy &amp; Validation</span>
+            <div className={styles.policyRow}>
+              <span className={styles.policyLabel}>Stale check:</span>
+              <span
+                className={`${styles.policyValue} ${
+                  draft?.is_stale
+                    ? styles.policyWarn
+                    : styles.policyGood
+                }`}
+              >
+                {draft === null
+                  ? "No draft"
+                  : draft.is_stale
+                    ? "Drift detected"
+                    : "Clean (No Drift)"}
+              </span>
+            </div>
+            <div className={styles.policyRow}>
+              <span className={styles.policyLabel}>Conflict risk:</span>
+              <span className={styles.policyValue}>
+                {(draft?.conflicts.length ?? 0) > 0
+                  ? `${draft?.conflicts.length} conflict(s)`
+                  : "None detected"}
+              </span>
+            </div>
+            <div className={styles.policyRow}>
+              <span className={styles.policyLabel}>Checksum:</span>
+              <span className={styles.policyChecksum}>
+                {draft === null
+                  ? "not available"
+                  : `SHA256:${(draft.conflicts_fingerprint ?? "").slice(0, 8)}…`}
+              </span>
+            </div>
+          </div>
 
       <section
         aria-labelledby="publication-section-heading"
@@ -536,12 +596,30 @@ function Editor({
           statePending={publicationQuery.isPending}
         />
       </section>
+        </aside>
+      </div>
 
       <ReviewPanel draft={draft} />
-      <p className={styles.hint}>
-        Local / trusted environment only. No Keitaro request is made by opening
-        this editor.
-      </p>
+      <footer className={styles.actionBar}>
+        <div className={styles.stagedSummary}>
+          <span
+            className={`${styles.stagedDot} ${
+              (draft?.is_dirty && styles.stagedDotActive) || ""
+            }`}
+            aria-hidden="true"
+          />
+          <span className={styles.stagedCount}>
+            {draft ? draftChangesCount(draft) : 0} staged changes
+          </span>
+          <span className={styles.stagedMeta}>
+            · Stream {streamRef} (v{draft?.version ?? 0} draft)
+          </span>
+        </div>
+        <p className={styles.actionBarHint}>
+          Local / trusted environment only. No Keitaro request is made by
+          opening this editor.
+        </p>
+      </footer>
     </section>
   );
 }

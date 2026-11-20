@@ -442,6 +442,210 @@ button:disabled {
   white-space: nowrap;
 }
 
+/* Mockup shell: top bar, main + inspector columns, staged action bar */
+.topBar {
+  border-bottom: 1px solid var(--color-border);
+  margin: calc(-1 * var(--space-6)) calc(-1 * var(--space-6)) var(--space-4);
+  padding: var(--space-3) var(--space-6);
+}
+
+.narrow .topBar {
+  margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-4)) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+}
+
+.breadcrumbs {
+  align-items: center;
+  color: var(--color-text-muted);
+  display: flex;
+  font-size: 12px;
+  gap: var(--space-2);
+}
+
+.crumbLink {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.crumbLink:hover {
+  color: var(--color-primary);
+}
+
+.crumbSep {
+  color: var(--color-border);
+}
+
+.crumbCurrent {
+  color: var(--color-text);
+  font-family: var(--font-mono);
+}
+
+.titleRow {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.titleRow h1 {
+  margin: 0;
+}
+
+.titleStream {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.dirtyBadge {
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+  border-radius: 4px;
+  color: #92400e;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px var(--space-2);
+}
+
+.columns {
+  align-items: start;
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: minmax(0, 1fr) 300px;
+  margin-top: var(--space-4);
+}
+
+.mainColumn {
+  min-width: 0;
+}
+
+.inspector {
+  border-left: 1px solid var(--color-border);
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  padding-left: var(--space-4);
+  position: sticky;
+  top: var(--space-4);
+}
+
+.inspectorTitle {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.inspector .section {
+  border-top: 1px solid var(--color-border);
+  margin-top: 0;
+  padding-top: var(--space-3);
+}
+
+.inspector .section > h2 {
+  margin-bottom: var(--space-2);
+}
+
+.policyCard {
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+}
+
+.policyHeading {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.policyRow {
+  align-items: center;
+  display: flex;
+  font-size: 12px;
+  justify-content: space-between;
+}
+
+.policyLabel {
+  color: var(--color-text-muted);
+}
+
+.policyValue {
+  font-weight: 600;
+}
+
+.policyGood {
+  color: var(--color-success);
+  font-family: var(--font-mono);
+}
+
+.policyWarn {
+  color: var(--color-warning);
+  font-family: var(--font-mono);
+}
+
+.policyChecksum {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.actionBar {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  box-shadow: 0 -1px 4px rgba(23, 32, 51, 0.08);
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  justify-content: space-between;
+  margin-top: var(--space-6);
+  padding: var(--space-3) var(--space-4);
+  position: sticky;
+  bottom: var(--space-2);
+}
+
+.stagedSummary {
+  align-items: center;
+  display: flex;
+  font-size: 12px;
+  gap: var(--space-2);
+}
+
+.stagedDot {
+  background: var(--color-border);
+  border-radius: 50%;
+  display: inline-block;
+  height: 10px;
+  width: 10px;
+}
+
+.stagedDotActive {
+  background: var(--color-accent-amber);
+}
+
+.stagedCount {
+  font-weight: 700;
+}
+
+.stagedMeta {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.actionBarHint {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  margin: 0;
+}
+
 /* Traffic allocation card (mockup: segmented bar + legend) */
 .allocationCard {
   margin: var(--space-4) 0;
@@ -611,5 +815,17 @@ button:disabled {
   .dirtyBanner {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inspector {
+    border-left: none;
+    border-top: 1px solid var(--color-border);
+    padding-left: 0;
+    padding-top: var(--space-3);
+    position: static;
   }
 }
