@@ -675,6 +675,7 @@ class CampaignCreationService:
         for stage in CreationStage:
             if not await self._verify_step(operation, stage):
                 return self._to_result(operation)
+        operation.error_message = None
         await self._save(operation, status=OperationStatus.CREATED)
         return self._to_result(operation)
 

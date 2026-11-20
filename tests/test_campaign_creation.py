@@ -586,6 +586,7 @@ async def test_success_sequence_payloads_and_readback():
     result = await service(client, operations).create(command())
 
     assert result.status is OperationStatus.CREATED
+    assert result.error_message is None
     assert result.campaign_id is not None
     assert result.country_flow_id is not None
     assert result.offer_flow_id is not None
@@ -667,6 +668,7 @@ async def test_zero_reconciliation_matches_stays_ambiguous():
     result = await service(client, reconcile_attempts=2, max_pages=2).create(command())
 
     assert result.status is OperationStatus.AMBIGUOUS
+    assert "unresolved" in (result.error_message or "")
     assert result.campaign_id is None
     assert len(client.create_campaign_calls) == 1
     assert client.list_campaigns_calls == 4
@@ -690,6 +692,7 @@ async def test_one_campaign_match_is_adopted(monkeypatch):
     result = await service(client).create(command())
 
     assert result.status is OperationStatus.CREATED
+    assert result.error_message is None
     assert result.campaign_id == 555
     assert len(client.create_campaign_calls) == 1
 
@@ -706,6 +709,7 @@ async def test_multiple_matches_stay_ambiguous(count):
     result = await service(client).create(command())
 
     assert result.status is OperationStatus.AMBIGUOUS
+    assert "unresolved" in (result.error_message or "")
     assert "create_stream" not in client.calls
 
 
@@ -719,6 +723,7 @@ async def test_stream_timeout_zero_matches_stays_ambiguous():
     result = await service(client, reconcile_attempts=2).create(command())
 
     assert result.status is OperationStatus.AMBIGUOUS
+    assert "unresolved" in (result.error_message or "")
     assert result.country_flow_id is None
     assert client.list_streams_calls == 2
     assert len(client.create_stream_calls) == 1
@@ -752,6 +757,7 @@ async def test_uncertain_campaign_responses_reconcile_without_retry(
 
     assert result.campaign_id == 321
     assert result.status is OperationStatus.CREATED
+    assert result.error_message is None
     assert len(client.create_campaign_calls) == 1
 
 
@@ -777,6 +783,53 @@ async def test_uncertain_stream_responses_reconcile_without_retry(failure):
     assert result.country_flow_id == 901
     assert len(client.create_stream_calls) == 2
     assert [c.type for c in client.create_stream_calls] == ["forced", "default"]
+
+
+@pytest.mark.asyncio
+async def test_uncertain_country_flow_reconciliation_clears_persisted_diagnostic(
+    tmp_path,
+):
+    """A reconciled GEO POST clears its diagnostic only when created is persisted."""
+    client = FakeClient()
+    engine = create_engine(f"sqlite:///{tmp_path / 'creation.db'}")
+    Base.metadata.create_all(engine)
+    operations = SqlAlchemyCampaignCreationOperations(sessionmaker(bind=engine))
+    entry = operation(status=OperationStatus.PARTIAL)
+    operations.add(entry)
+    assert (
+        operations.claim_step(entry.operation_uuid, CreationStage.CAMPAIGN) is not None
+    )
+    assert (
+        operations.confirm_step(
+            entry.operation_uuid,
+            CreationStage.CAMPAIGN,
+            remote_id=10,
+            status=None,
+            error=None,
+        )
+        is not None
+    )
+    entry.keitaro_campaign_id = 10
+    client.campaigns[10] = remote_campaign(entry, 10)
+    country = remote_stream(entry, CreationStage.COUNTRY_FLOW, 20)
+    offer = remote_stream(entry, CreationStage.OFFER_FLOW, 101)
+    client.stream_matches = [country, offer]
+    client.failures["create_stream:1"] = KeitaroError(0, "")
+
+    result = await CampaignCreationService(
+        cast(KeitaroClientPort, client), operations, FakeSettings(config())
+    ).resume(entry.operation_uuid)
+
+    assert result.status is OperationStatus.CREATED
+    assert result.error_message is None
+    assert result.country_flow_id == 20
+    assert result.offer_flow_id == 101
+    assert client.calls.count("create_stream") == 2
+    assert [c.type for c in client.create_stream_calls] == ["forced", "default"]
+    stored = operations.get_by_uuid(entry.operation_uuid)
+    assert stored is not None
+    assert stored.status is OperationStatus.CREATED
+    assert stored.error_message is None
 
 
 @pytest.mark.parametrize(
@@ -923,6 +976,7 @@ async def test_campaign_verification_mismatch(field, value):
     result = await service(client, operations).resume(entry.operation_uuid)
 
     assert result.status is OperationStatus.AMBIGUOUS
+    assert result.error_message == "readback verification failed"
     assert get_step(entry, CreationStage.CAMPAIGN) is StepState.CONFIRMED
 
 
@@ -956,6 +1010,7 @@ async def test_country_flow_verification_mismatch(field, value):
     result = await service(client, operations).resume(entry.operation_uuid)
 
     assert result.status is OperationStatus.AMBIGUOUS
+    assert result.error_message == "readback verification failed"
     assert get_step(entry, CreationStage.COUNTRY_FLOW) is StepState.CONFIRMED
 
 
@@ -988,6 +1043,7 @@ async def test_offer_flow_shape_verification_mismatch(field, value):
     result = await service(client, operations).resume(entry.operation_uuid)
 
     assert result.status is OperationStatus.AMBIGUOUS
+    assert result.error_message == "readback verification failed"
     assert get_step(entry, CreationStage.OFFER_FLOW) is StepState.CONFIRMED
 
 
@@ -1014,6 +1070,7 @@ async def test_offer_flow_offer_verification_mismatch(field, value):
     result = await service(client, operations).resume(entry.operation_uuid)
 
     assert result.status is OperationStatus.AMBIGUOUS
+    assert result.error_message == "readback verification failed"
 
 
 @pytest.mark.asyncio
@@ -1037,6 +1094,7 @@ async def test_filter_mismatch_prevents_created():
     result = await service(client, operations).resume(entry.operation_uuid)
 
     assert result.status is OperationStatus.AMBIGUOUS
+    assert result.error_message == "readback verification failed"
 
 
 @pytest.mark.asyncio
