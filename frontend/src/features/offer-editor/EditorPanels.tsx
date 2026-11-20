@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 
 import type {
@@ -152,6 +153,13 @@ export function DraftPanel({
   onConfirmAcceptRemote,
   onKeepConflict,
 }: DraftPanelProps) {
+  const cancelConfirmRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (confirmingCancel) {
+      cancelConfirmRef.current?.focus();
+    }
+  }, [confirmingCancel]);
+
   const blocked = draft?.is_stale === true || (draft?.conflicts.length ?? 0) > 0;
   const commandsDisabled = busy || recoveryRequired || blocked || !baselineReady;
 
@@ -291,7 +299,7 @@ export function DraftPanel({
             </p>
             <button
               type="button"
-              autoFocus
+              ref={cancelConfirmRef}
               onClick={onConfirmCancel}
               disabled={busy || recoveryRequired}
             >
@@ -427,6 +435,13 @@ export function ConflictPanel({
   onConfirmAcceptRemote?: () => void;
   onKeepConflict?: () => void;
 }>) {
+  const acceptConfirmRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (acceptingConflict) {
+      acceptConfirmRef.current?.focus();
+    }
+  }, [acceptingConflict]);
+
   if (conflicts.length === 0) {
     return null;
   }
@@ -446,7 +461,11 @@ export function ConflictPanel({
               Discard all staged changes for this stream and rebuild it from a
               fresh Keitaro read? No Keitaro mutation is sent.
             </p>
-            <button type="button" autoFocus onClick={onConfirmAcceptRemote}>
+            <button
+              type="button"
+              ref={acceptConfirmRef}
+              onClick={onConfirmAcceptRemote}
+            >
               Confirm accept remote
             </button>
             <button type="button" className={styles.secondary} onClick={onKeepConflict}>

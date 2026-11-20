@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 
 import type { CampaignCreationResponse } from "../../api/client";
@@ -31,6 +32,17 @@ export function OperationErrorPanel({
   onConfirmNew,
   onCancel,
 }: ErrorPanelProps) {
+  const retryRef = useRef<HTMLButtonElement>(null);
+  const newAttemptRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (pendingAction === "retry") {
+      retryRef.current?.focus();
+    } else if (pendingAction === "new") {
+      newAttemptRef.current?.focus();
+    }
+  }, [pendingAction]);
+
   return (
     <ErrorSummary
       heading="Action needed"
@@ -60,7 +72,7 @@ export function OperationErrorPanel({
       {pendingAction === "retry" && (
         <div className={styles.confirm}>
           <p>Retry creation with this exact UUID and the original intent?</p>
-          <button type="button" autoFocus onClick={onConfirmRetry}>
+          <button type="button" ref={retryRef} onClick={onConfirmRetry}>
             Confirm same-UUID retry
           </button>
           <button type="button" className={styles.secondary} onClick={onCancel}>
@@ -74,7 +86,7 @@ export function OperationErrorPanel({
             Clear the stored attempt and generate a new UUID only for a new
             logical creation attempt?
           </p>
-          <button type="button" autoFocus onClick={onConfirmNew}>
+          <button type="button" ref={newAttemptRef} onClick={onConfirmNew}>
             Confirm new attempt
           </button>
           <button type="button" className={styles.secondary} onClick={onCancel}>
