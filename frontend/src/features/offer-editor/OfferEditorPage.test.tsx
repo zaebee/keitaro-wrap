@@ -320,7 +320,7 @@ describe("OfferEditorPage", () => {
 
   it.each(offerCommands)(
     "sends $action to its own endpoint with expected_version",
-    async ({ button, draft, body, expected }) => {
+    async ({ action, button, draft, body, expected }) => {
       let actualAction: string | null = null;
       let actualBody: unknown = null;
       serveReads(committedFixture(), draftStateFixture(draft));
@@ -335,6 +335,9 @@ describe("OfferEditorPage", () => {
       renderApp(EDITOR_PATH);
       await screen.findByRole("button", { name: "Add offer" });
 
+      if (action === "restore") {
+        await user.click(screen.getByText("Archived offers in baseline"));
+      }
       await user.click(screen.getByRole("button", { name: button }));
 
       await waitFor(() => expect(actualAction).toBe(expected.action));
@@ -872,6 +875,7 @@ describe("OfferEditorPage", () => {
         ),
       }),
       trigger: async (user) => {
+        await user.click(screen.getByText("Archived offers in baseline"));
         await user.click(screen.getByRole("button", { name: "Restore offer 8" }));
       },
     },
@@ -1241,6 +1245,34 @@ describe("OfferEditorPage", () => {
 
     expect(await screen.findByText("Succeeded")).toBeInTheDocument();
     expect(publicationGets).toBe(2);
+  });
+
+  it("renders archived offers as a collapsed tray with a count chip", async () => {
+    serveReads(
+      committedFixture(),
+      draftStateFixture(
+        draftViewFixture({
+          offers: draftViewFixture().offers.map((offer) =>
+            offer.offer_id === 8
+              ? { ...offer, lifecycle: "ARCHIVED", share: 0 }
+              : offer,
+          ),
+        }),
+      ),
+    );
+    renderApp(EDITOR_PATH);
+
+    const summary = await screen.findByText("Archived offers in baseline");
+    expect(summary).toBeVisible();
+    expect(screen.getByText("Click to expand")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Restore offer 8" }),
+    ).not.toBeVisible();
+
+    await userEvent.setup().click(summary);
+    expect(
+      screen.getByRole("button", { name: "Restore offer 8" }),
+    ).toBeVisible();
   });
 
   it("renders mockup breadcrumbs and does not duplicate the Fetch trigger", async () => {

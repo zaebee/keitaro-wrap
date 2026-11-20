@@ -422,37 +422,66 @@ export function DraftPanel({
 
       {draft && (
         <div className={styles.offerGroups}>
-          {(["ACTIVE", "ARCHIVED"] as const).map((lifecycle) => {
-            const offers = draft.offers.filter(
-              (offer) => offer.lifecycle === lifecycle,
+          {(() => {
+            const activeOffers = draft.offers.filter(
+              (offer) => offer.lifecycle === "ACTIVE",
+            );
+            const archivedOffers = draft.offers.filter(
+              (offer) => offer.lifecycle === "ARCHIVED",
+            );
+            const renderOfferCards = (offers: typeof activeOffers) => (
+              <ul className={styles.offerCards}>
+                {offers.map((offer) => (
+                  <OfferCard
+                    key={offer.offer_id}
+                    offer={offer}
+                    disabled={commandsDisabled}
+                    baselineShare={draft.baseline_offers.find(
+                      (baseline) => baseline.offer_id === offer.offer_id,
+                    )?.share}
+                    shareInput={shareInputs[offer.offer_id] ?? ""}
+                    shareError={shareErrors[offer.offer_id]}
+                    onAction={onAction}
+                    onShareInput={onShareInput}
+                    onShareSubmit={onShareSubmit}
+                  />
+                ))}
+              </ul>
             );
             return (
-              <div key={lifecycle}>
-                <h3>{lifecycle === "ACTIVE" ? "Active offers" : "Archived offers"}</h3>
-                {offers.length === 0 ? (
-                  <p className={styles.empty}>No {lifecycle.toLowerCase()} offers.</p>
-                ) : (
-                  <ul className={styles.offerCards}>
-                    {offers.map((offer) => (
-                      <OfferCard
-                        key={offer.offer_id}
-                        offer={offer}
-                        disabled={commandsDisabled}
-                        baselineShare={draft.baseline_offers.find(
-                          (baseline) => baseline.offer_id === offer.offer_id,
-                        )?.share}
-                        shareInput={shareInputs[offer.offer_id] ?? ""}
-                        shareError={shareErrors[offer.offer_id]}
-                        onAction={onAction}
-                        onShareInput={onShareInput}
-                        onShareSubmit={onShareSubmit}
-                      />
-                    ))}
-                  </ul>
-                )}
-              </div>
+              <>
+                <div>
+                  <h3>Active offers</h3>
+                  {activeOffers.length === 0 ? (
+                    <p className={styles.empty}>No active offers.</p>
+                  ) : (
+                    renderOfferCards(activeOffers)
+                  )}
+                </div>
+                <div>
+                  <h3>Archived offers</h3>
+                  {archivedOffers.length === 0 ? (
+                    <p className={styles.empty}>No archived offers.</p>
+                  ) : (
+                    <details className={styles.archivedTray}>
+                      <summary className={styles.archivedSummary}>
+                        <span>
+                          Archived offers in baseline{" "}
+                          <span className={styles.archivedCount}>
+                            {archivedOffers.length}
+                          </span>
+                        </span>
+                        <span className={styles.archivedHint}>
+                          Click to expand
+                        </span>
+                      </summary>
+                      {renderOfferCards(archivedOffers)}
+                    </details>
+                  )}
+                </div>
+              </>
             );
-          })}
+          })()}
         </div>
       )}
 
