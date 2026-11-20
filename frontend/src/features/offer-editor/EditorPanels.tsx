@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 
 import type {
@@ -9,6 +9,20 @@ import type {
 } from "../../api/operations";
 import { ErrorSummary } from "../../shared/ui/ErrorSummary";
 import { draftChanges, hasDraftChanges } from "./draftChanges";
+
+function stagedChangeCount(draft: DraftViewResponse | null): number {
+  if (draft === null) {
+    return 0;
+  }
+  const changes = draftChanges(draft);
+  return (
+    changes.additions.length +
+    changes.archives.length +
+    changes.restores.length +
+    changes.pinToggles.length +
+    changes.shareEdits.length
+  );
+}
 import styles from "./OfferEditorPage.module.css";
 
 export type DraftActionRequest =
@@ -57,7 +71,8 @@ export function CommittedPanel({
       className={`${styles.panel} ${styles.committed}`}
     >
       <h2 id="committed-heading">
-        Committed baseline <span className={styles.tag}>read-only</span>
+        Committed baseline{" "}
+        <span className={styles.tag}>read-only</span>
       </h2>
       <p className={styles.hint}>
         Durable wrapper bindings and the last backend-cached remote observation.
@@ -103,6 +118,163 @@ export function CommittedPanel({
             </li>
           ))}
         </ul>
+      )}
+    </section>
+  );
+}
+
+function lifecycleStatus(
+  offer: StagedOfferResponse,
+  shareModified: boolean,
+): ReactNode {
+  if (offer.lifecycle !== "ACTIVE") {
+    return <span className={styles.stateArchived}>Archived</span>;
+  }
+  if (shareModified) {
+    return <span className={styles.stateModified}>Active · Modified</span>;
+  }
+  return <span className={styles.stateSynced}>Active · Synced</span>;
+}
+
+function staleCheckLabel(draft: DraftViewResponse | null): string {
+  if (draft === null) {
+    return "No draft";
+  }
+  return draft.is_stale ? "Drift detected" : "Clean (No Drift)";
+}
+
+export function PolicyCard({
+  draft,
+}: Readonly<{ draft: DraftViewResponse | null }>) {
+  const conflictCount = draft?.conflicts.length ?? 0;
+  const fingerprint = draft?.conflicts_fingerprint ?? "";
+  return (
+    <div className={styles.policyCard}>
+      <span className={styles.policyHeading}>Policy &amp; Validation</span>
+      <div className={styles.policyRow}>
+        <span className={styles.policyLabel}>Stale check:</span>
+        <span
+          className={`${styles.policyValue} ${
+            draft?.is_stale ? styles.policyWarn : styles.policyGood
+          }`}
+        >
+          {staleCheckLabel(draft)}
+        </span>
+      </div>
+      <div className={styles.policyRow}>
+        <span className={styles.policyLabel}>Conflict risk:</span>
+        <span className={styles.policyValue}>
+          {conflictCount > 0 ? `${conflictCount} conflict(s)` : "None detected"}
+        </span>
+      </div>
+      <div className={styles.policyRow}>
+        <span className={styles.policyLabel}>Checksum:</span>
+        <span className={styles.policyChecksum}>
+          {draft === null
+            ? "not available"
+            : `fingerprint: ${fingerprint.slice(0, 8)}…`}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+const SEGMENT_COLORS = ["#2563eb", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899"];
+
+export function AllocationSummary({
+  draft,
+}: Readonly<{ draft: DraftViewResponse | null }>) {
+  const baselineShares = new Map(
+    (draft?.baseline_offers ?? []).map((offer) => [offer.offer_id, offer.share]),
+  );
+  const activeOffers =
+    draft?.offers.filter((offer) => offer.lifecycle === "ACTIVE") ?? [];
+  if (activeOffers.length === 0) {
+    return null;
+  }
+  const stagedTotal = activeOffers.reduce((sum, offer) => sum + offer.share, 0);
+  const modifiedCount = stagedChangeCount(draft);
+  const unallocated = draft?.unallocated ?? 100 - stagedTotal;
+
+  return (
+    <section
+      aria-labelledby="allocation-summary-heading"
+      className={`${styles.panel} ${styles.allocationCard}`}
+    >
+      <div className={styles.allocationHeader}>
+        <h2 id="allocation-summary-heading">
+          Traffic allocation{" "}
+          <span className={styles.allocationSubtitle}>
+            ({draft?.is_dirty ? "Staged distribution" : "Committed distribution"})
+          </span>
+        </h2>
+        <div className={`${styles.allocationTotal} tnum`}>
+          <span className={styles.allocationTotalLabel}>Total:</span>
+          <span className={styles.allocationTotalValue}>{stagedTotal}%</span>
+          <span className={styles.allocationTotalDivider}>/ 100%</span>
+          <span
+            className={`${styles.balanceBadge} ${
+              unallocated === 0 ? styles.balanceBalanced : styles.balanceUnbalanced
+            }`}
+          >
+            {unallocated === 0 ? "Balanced" : `Unallocated: ${unallocated}%`}
+          </span>
+        </div>
+      </div>
+      <div
+        className={styles.allocationBar}
+        role="img"
+        aria-label={`Traffic allocation across ${activeOffers.length} offers: ${stagedTotal}% allocated`}
+      >
+        {activeOffers.map((offer, index) => (
+          <div
+            key={offer.offer_id}
+            className={styles.allocationSegment}
+            style={{
+              width: `${offer.share}%`,
+              background: SEGMENT_COLORS[index % SEGMENT_COLORS.length],
+            }}
+            title={`Offer #${offer.offer_id}: ${offer.share}%`}
+          />
+        ))}
+      </div>
+      <div className={styles.allocationLegend}>
+        {activeOffers.map((offer, index) => {
+          const baseline = baselineShares.get(offer.offer_id);
+          return (
+            <div key={offer.offer_id} className={styles.legendItem}>
+              <span
+                className={styles.legendDot}
+                style={{
+                  background: SEGMENT_COLORS[index % SEGMENT_COLORS.length],
+                }}
+              />
+              <span className={styles.legendName}>#{offer.offer_id}</span>
+              <span className={`${styles.legendShare} tnum`}>
+                {baseline !== undefined && baseline !== offer.share
+                  ? `${baseline}% → ${offer.share}%`
+                  : `${offer.share}%`}
+              </span>
+              <span
+                className={`${styles.legendMode} ${
+                  offer.is_pinned ? styles.legendPinned : styles.legendAuto
+                }`}
+              >
+                {offer.is_pinned ? "Pinned" : "Auto"}
+              </span>
+            </div>
+          );
+        })}
+        <div className={styles.legendUnallocated}>
+          Unallocated:{" "}
+          <span>{unallocated}%</span>
+        </div>
+      </div>
+      {draft?.is_dirty && (
+        <p className={styles.allocationHint}>
+          {modifiedCount} staged modification
+          {modifiedCount === 1 ? "" : "s"} awaiting commit.
+        </p>
       )}
     </section>
   );
@@ -169,7 +341,8 @@ export function DraftPanel({
       className={`${styles.panel} ${styles.draft}`}
     >
       <h2 id="draft-heading">
-        Staged draft <span className={styles.tag}>local, unpublished</span>
+        Staged draft{" "}
+        <span className={styles.tag}>local, unpublished</span>
       </h2>
       {draft === null ? (
         <p className={styles.empty}>
@@ -265,6 +438,9 @@ export function DraftPanel({
                         key={offer.offer_id}
                         offer={offer}
                         disabled={commandsDisabled}
+                        baselineShare={draft.baseline_offers.find(
+                          (baseline) => baseline.offer_id === offer.offer_id,
+                        )?.share}
                         shareInput={shareInputs[offer.offer_id] ?? ""}
                         shareError={shareErrors[offer.offer_id]}
                         onAction={onAction}
@@ -321,6 +497,7 @@ export function DraftPanel({
 type OfferCardProps = Readonly<{
   offer: StagedOfferResponse;
   disabled: boolean;
+  baselineShare?: number;
   shareInput: string;
   shareError?: string;
   onAction: (action: DraftActionRequest) => void;
@@ -331,15 +508,27 @@ type OfferCardProps = Readonly<{
 function OfferCard({
   offer,
   disabled,
+  baselineShare,
   shareInput,
   shareError,
   onAction,
   onShareInput,
   onShareSubmit,
 }: OfferCardProps) {
+  const shareModified =
+    baselineShare !== undefined && baselineShare !== offer.share;
   return (
-    <li className={styles.offerCard}>
-      <h4>Offer #{offer.offer_id}</h4>
+    <li
+      className={`${styles.offerCard} ${
+        offer.lifecycle === "ARCHIVED" ? styles.offerArchived : ""
+      }`}
+    >
+      <h4>
+        Offer #{offer.offer_id}
+        {shareModified && (
+          <span className={styles.modifiedDot} title="Share modified in draft" />
+        )}
+      </h4>
       <dl className={styles.offerFields}>
         <dt>Lifecycle</dt>
         <dd>{offer.lifecycle}</dd>
@@ -348,10 +537,23 @@ function OfferCard({
         <dt>Pin</dt>
         <dd>{offer.is_pinned ? "pinned" : "not pinned"}</dd>
         <dt>Share</dt>
-        <dd>{offer.share}</dd>
+        <dd className="tnum">
+          {shareModified ? (
+            <>
+              <s>{baselineShare}</s> <span className={styles.shareArrow}>→</span>{" "}
+              {offer.share}
+            </>
+          ) : (
+            offer.share
+          )}
+        </dd>
         <dt>Position</dt>
         <dd>{offer.position}</dd>
       </dl>
+      <p className={styles.offerStatus}>
+        {lifecycleStatus(offer, shareModified)}
+        {offer.is_pinned && <span className={styles.pinNote}>Manual lock</span>}
+      </p>
       <div className={styles.inlineActions}>
         {offer.lifecycle === "ACTIVE" ? (
           <button
