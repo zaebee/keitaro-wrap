@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 from app.db.models import (
     RemoteOfferSnapshotModel,
+    StreamOfferBindingModel,
     StreamPublicationModel,
     StreamRefModel,
 )
@@ -114,7 +115,9 @@ def test_push_full_stack_succeeds_and_updates_durable_state(
         assert len(puts) == 1
         assert puts[0].path == f"{KEITARO_PATH}/streams/{TEST_STREAM_ID}"
         assert puts[0].api_key == TEST_API_KEY
-        sent = sorted(json.loads(puts[0].body)["offers"], key=lambda x: x["offer_id"])
+        sent_body = json.loads(puts[0].body)
+        assert set(sent_body) == {"offers"}
+        sent = sorted(sent_body["offers"], key=lambda x: x["offer_id"])
         expected = sorted(EXPECTED_OFFER_ENTRIES, key=lambda x: x["offer_id"])
         assert sent == expected
 
@@ -142,6 +145,17 @@ def test_push_full_stack_succeeds_and_updates_durable_state(
             cached = offer_map(json.loads(cache.offers_json))
             assert cached[TEST_OFFER_ID]["share"] == 30
             assert cached[TEST_OFFER_ID_B]["share"] == 70
+            bindings = {
+                item.offer_id: item
+                for item in session.query(StreamOfferBindingModel).all()
+            }
+            assert set(bindings) == {TEST_OFFER_ID, TEST_OFFER_ID_B}
+            assert bindings[TEST_OFFER_ID].lifecycle == "ACTIVE"
+            assert bindings[TEST_OFFER_ID].is_pinned is True
+            assert bindings[TEST_OFFER_ID].last_remote_share == 30
+            assert bindings[TEST_OFFER_ID_B].lifecycle == "ACTIVE"
+            assert bindings[TEST_OFFER_ID_B].is_pinned is True
+            assert bindings[TEST_OFFER_ID_B].last_remote_share == 70
     finally:
         server.close()
 
@@ -274,10 +288,15 @@ def test_finalize_failure_after_remote_change_is_not_success(
         server.close()
 
 
-def test_pending_guard_blocks_procedure_before_push(
+def test_preflight_guard_refuses_run_with_unresolved_pending(
     monkeypatch: pytest.MonkeyPatch, integration_db: IntegrationDatabase
 ) -> None:
-    """The test procedure refuses to run with an unresolved PENDING operation."""
+    """Procedure-level guard: do not start a test run with PENDING present.
+
+    This checks the acceptance-test preflight helper, not an application-level
+    Push guard; the application has its own resume behavior for matching
+    PENDING operations and is intentionally not exercised here.
+    """
     seed_eligible_draft(integration_db)
     state = FakeKeitaroState(stream_document())
     server = start_fake_keitaro(state)

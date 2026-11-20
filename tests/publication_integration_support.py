@@ -222,7 +222,7 @@ def make_handler(state: FakeKeitaroState) -> type[BaseHTTPRequestHandler]:
             self._send(200, document)
 
         def do_PUT(self) -> None:  # noqa: N802 - stdlib hook name
-            """Apply an offers-only change exactly once and record the request."""
+            """Reject non-offers-only bodies; apply a valid change once."""
             length = int(self.headers.get("Content-Length", "0"))
             body = self.rfile.read(length)
             with state.lock:
@@ -233,6 +233,16 @@ def make_handler(state: FakeKeitaroState) -> type[BaseHTTPRequestHandler]:
                 if state.put_delay:
                     time.sleep(state.put_delay)
                 payload = json.loads(body)
+                unexpected = set(payload) - {"offers"}
+                if unexpected or "offers" not in payload:
+                    self._send(
+                        400,
+                        {
+                            "error": "only the offers field is writable here",
+                            "fields": sorted(unexpected),
+                        },
+                    )
+                    return
                 if state.put_apply:
                     row_ids = {
                         offer["offer_id"]: offer["id"]
