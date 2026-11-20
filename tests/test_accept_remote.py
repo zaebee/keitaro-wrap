@@ -174,7 +174,8 @@ def test_success_uses_one_targeted_read_and_forwards_observation():
     )
 
     assert client.gets == 1
-    assert drafts.writes and len(drafts.writes) == 1
+    assert drafts.writes
+    assert len(drafts.writes) == 1
     written_command, observation, _ = drafts.writes[0]
     assert written_command.expected_version == 1
     assert [offer.share for offer in observation.offers] == [90, 40]
@@ -203,63 +204,88 @@ def test_already_resolved_clean_draft_returns_noop_without_read():
 def test_missing_draft_is_typed_refusal():
     """Absence is never reported as a successful resolution."""
     client = FakeClient()
+    workflow = service(client, FakeDrafts(None))
+    pending = command()
+    attempt = workflow.accept_remote(pending)
     with pytest.raises(ConflictResolutionInputError):
-        asyncio.run(service(client, FakeDrafts(None)).accept_remote(command()))
+        asyncio.run(attempt)
     assert client.gets == 0
 
 
-def test_stale_version_and_changed_fingerprint_prevent_remote_read():
-    """Both concurrency tokens are checked before any Keitaro call."""
+def _stale_view_for_tokens():
+    """Build one stale view with a known version and conflict fingerprint."""
     from tests.api_support import sample_draft_view
 
-    stale_view = sample_draft_view(12)
-    stale_view = replace(
-        stale_view,
+    return replace(
+        sample_draft_view(12),
         is_stale=True,
         version=3,
         conflicts_fingerprint="sha256:current",
     )
+
+
+def test_stale_version_prevents_remote_read():
+    """An outdated version is rejected before any Keitaro call."""
     client = FakeClient()
+    workflow = service(client, FakeDrafts(_stale_view_for_tokens()))
+    pending = command(version=2, fingerprint="sha256:current")
+    attempt = workflow.accept_remote(pending)
     with pytest.raises(DraftVersionConflict):
-        asyncio.run(
-            service(client, FakeDrafts(stale_view)).accept_remote(
-                command(version=2, fingerprint="sha256:current")
-            )
-        )
+        asyncio.run(attempt)
+    assert client.gets == 0
+
+
+def test_changed_fingerprint_prevents_remote_read():
+    """An outdated conflict token is rejected before any Keitaro call."""
+    client = FakeClient()
+    workflow = service(client, FakeDrafts(_stale_view_for_tokens()))
+    pending = command(version=3, fingerprint="sha256:old")
+    attempt = workflow.accept_remote(pending)
     with pytest.raises(ConflictChangedError):
-        asyncio.run(
-            service(client, FakeDrafts(stale_view)).accept_remote(
-                command(version=3, fingerprint="sha256:old")
-            )
-        )
+        asyncio.run(attempt)
     assert client.gets == 0
 
 
 @pytest.mark.parametrize(
-    "document,error",
+    "document,error,expected",
     [
-        (None, KeitaroError(0, "timeout")),
-        ({"unexpected": True}, None),
-        ({"id": 12, "campaign_id": 5, "offers": "bad"}, None),
+        (None, KeitaroError(0, "timeout"), KeitaroError),
+        ({"unexpected": True}, None, ConflictResolutionInputError),
+        (
+            {"id": 12, "campaign_id": 5, "offers": "bad"},
+            None,
+            ConflictResolutionInputError,
+        ),
         (
             {"id": 12, "campaign_id": 5, "offers": [{"offer_id": 5}]},
             None,
+            ConflictResolutionInputError,
         ),
-        ({"id": 12, "campaign_id": 99, "offers": []}, None),
+        (
+            {"id": 12, "campaign_id": 99, "offers": []},
+            None,
+            ConflictResolutionInputError,
+        ),
     ],
 )
-def test_read_and_validation_failures_leave_local_state_unwritten(document, error):
+def test_read_and_validation_failures_leave_local_state_unwritten(
+    document, error, expected
+):
     """No retry, no repository write and no mutation on any failed read."""
     from tests.api_support import sample_draft_view
 
-    view = sample_draft_view(12)
-    view = replace(view, is_stale=True, conflicts_fingerprint="sha256:test")
+    view = replace(
+        sample_draft_view(12),
+        is_stale=True,
+        conflicts_fingerprint="sha256:test",
+    )
     client = FakeClient(document=document, error=error)
     drafts = FakeDrafts(view)
-    with pytest.raises((KeitaroError, ConflictResolutionInputError)):
-        asyncio.run(
-            service(client, drafts).accept_remote(command(fingerprint="sha256:test"))
-        )
+    workflow = service(client, drafts)
+    pending = command(fingerprint="sha256:test")
+    attempt = workflow.accept_remote(pending)
+    with pytest.raises(expected):
+        asyncio.run(attempt)
     assert client.gets == 1
     assert drafts.writes == []
 
@@ -282,9 +308,11 @@ def test_boolean_identity_is_rejected(document):
     )
     client = IdentityClient(document)
     drafts = FakeDrafts(view, campaign=1)
-    command = AcceptRemoteCommand(1, 1, 1, "sha256:test")
+    workflow = service(client, drafts)
+    pending = AcceptRemoteCommand(1, 1, 1, "sha256:test")
+    attempt = workflow.accept_remote(pending)
     with pytest.raises(ConflictResolutionInputError):
-        asyncio.run(service(client, drafts).accept_remote(command))
+        asyncio.run(attempt)
     assert client.gets == 1
     assert drafts.writes == []
 
@@ -292,10 +320,11 @@ def test_boolean_identity_is_rejected(document):
 def test_unknown_stream_is_refused_before_read():
     """A stream outside the campaign never reaches the Keitaro client."""
     client = FakeClient()
+    workflow = service(client, FakeDrafts(None, campaign=None))
+    pending = command()
+    attempt = workflow.accept_remote(pending)
     with pytest.raises(StreamNotFoundError):
-        asyncio.run(
-            service(client, FakeDrafts(None, campaign=None)).accept_remote(command())
-        )
+        asyncio.run(attempt)
     assert client.gets == 0
 
 
@@ -348,12 +377,10 @@ def test_repository_cas_rejects_stale_version(factory):
     """A version mismatch performs no write at all."""
     repository, view = _stale_draft(factory)
     assert view is not None
+    pending = command(version=view.version + 1, fingerprint=view.conflicts_fingerprint)
+    observation = _observation()
     with pytest.raises(DraftVersionConflict):
-        repository.accept_remote(
-            command(version=view.version + 1, fingerprint=view.conflicts_fingerprint),
-            _observation(),
-            CAPTURED_AT,
-        )
+        repository.accept_remote(pending, observation, CAPTURED_AT)
     after = repository.get_view(12)
     assert after == view
 
@@ -364,12 +391,10 @@ def test_repository_cas_rejects_changed_conflicts_after_fetch(factory):
     assert view is not None
     fetch(factory, offers(((5, 95), (8, 40))))
     after_fetch = repository.get_view(12)
+    pending = command(version=view.version, fingerprint=view.conflicts_fingerprint)
+    observation = _observation()
     with pytest.raises(ConflictChangedError):
-        repository.accept_remote(
-            command(version=view.version, fingerprint=view.conflicts_fingerprint),
-            _observation(),
-            CAPTURED_AT,
-        )
+        repository.accept_remote(pending, observation, CAPTURED_AT)
     assert repository.get_view(12) == after_fetch
 
 
@@ -381,12 +406,10 @@ def test_repository_cas_rejects_newer_snapshot(factory):
         snapshot = session.query(RemoteOfferSnapshotModel).one()
         snapshot.captured_at = datetime(2026, 3, 4, 10, 0, 0)
         session.commit()
+    pending = command(version=view.version, fingerprint=view.conflicts_fingerprint)
+    observation = _observation()
     with pytest.raises(ConflictChangedError):
-        repository.accept_remote(
-            command(version=view.version, fingerprint=view.conflicts_fingerprint),
-            _observation(),
-            CAPTURED_AT,
-        )
+        repository.accept_remote(pending, observation, CAPTURED_AT)
     assert repository.get_view(12) == view
 
 
@@ -414,12 +437,10 @@ def test_repository_cas_rejects_unresolved_publication(factory):
         session.commit()
     from app.application.publication import PublicationGateError
 
+    pending = command(version=view.version, fingerprint=view.conflicts_fingerprint)
+    observation = _observation()
     with pytest.raises(PublicationGateError):
-        repository.accept_remote(
-            command(version=view.version, fingerprint=view.conflicts_fingerprint),
-            _observation(),
-            CAPTURED_AT,
-        )
+        repository.accept_remote(pending, observation, CAPTURED_AT)
     assert repository.get_view(12) == view
 
 

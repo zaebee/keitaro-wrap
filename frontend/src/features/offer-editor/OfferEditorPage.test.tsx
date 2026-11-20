@@ -521,6 +521,51 @@ describe("OfferEditorPage", () => {
     expect(postCount).toBe(0);
   });
 
+  it("rejects lock state that becomes unreadable after confirmation opens", async () => {
+    const staleView = draftViewFixture({
+      version: 3,
+      is_stale: true,
+      conflicts: [conflictFixture()],
+      conflicts_fingerprint: "sha256:stale",
+    });
+    let postCount = 0;
+    serveReads(committedFixture(), draftStateFixture(staleView));
+    server.use(
+      http.post(
+        "*/api/campaigns/42/streams/101/draft/accept-remote",
+        () => {
+          postCount += 1;
+          return HttpResponse.json({
+            stream_ref: 101,
+            draft: draftViewFixture(),
+            noop: false,
+            version: 4,
+          });
+        },
+      ),
+    );
+    const user = userEvent.setup();
+    renderApp(EDITOR_PATH);
+    await screen.findByText("Sticky Fetch conflicts");
+
+    await user.click(screen.getByRole("button", { name: "Accept remote" }));
+    expect(
+      screen.getByRole("group", { name: "Confirm accept remote" }),
+    ).toBeInTheDocument();
+
+    window.localStorage.setItem(RECOVERY_LOCK_KEY, "not-json");
+    await user.click(
+      screen.getByRole("button", { name: "Confirm accept remote" }),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("group", { name: "Confirm accept remote" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(postCount).toBe(0);
+  });
+
   it("refuses Accept remote when the recovery lock state is unreadable", async () => {
     const staleView = draftViewFixture({
       version: 3,

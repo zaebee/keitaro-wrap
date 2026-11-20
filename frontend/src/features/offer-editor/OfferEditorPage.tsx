@@ -209,7 +209,7 @@ function Editor({
         );
       }
       return await publicationLock.runExclusive(async (context) => {
-        if (publicationLock.invalid || context.getCurrent() !== null) {
+        if (context.getState().kind !== "none") {
           throw new ApiError(
             409,
             "PUBLICATION_UNRESOLVED",
@@ -261,11 +261,11 @@ function Editor({
   };
 
   const requestAcceptRemote = async () => {
-    if (recoveryRequired || busy || draft === null || publicationLock.invalid) {
+    if (recoveryRequired || busy || draft === null) {
       return;
     }
     const unlocked = await publicationLock.runExclusive(
-      async (context) => context.getCurrent() === null,
+      (context) => context.getState().kind === "none",
     );
     if (!unlocked) {
       return;

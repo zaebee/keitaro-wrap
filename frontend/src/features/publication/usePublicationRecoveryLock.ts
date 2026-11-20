@@ -51,7 +51,7 @@ export type RecoveryLockV2 = {
 
 export type RecoveryLock = LegacyRecoveryLock | RecoveryLockV2;
 
-type LockState =
+export type LockState =
   | { kind: "none" }
   | { kind: "active"; lock: RecoveryLockV2 }
   | { kind: "invalid" };
@@ -99,6 +99,7 @@ export type LockContext = {
   ) => boolean | Promise<boolean>;
   abortReserved: (expected: ReleaseExpectation) => boolean | Promise<boolean>;
   release: (expected: ReleaseExpectation) => boolean | Promise<boolean>;
+  getState: () => LockState;
   getCurrent: () => RecoveryLockV2 | null;
 };
 
@@ -670,7 +671,7 @@ export function usePublicationRecoveryLock() {
   );
 
   const runExclusive = useCallback(
-    async <T,>(fn: (context: LockContext) => Promise<T>): Promise<T> => {
+    async <T,>(fn: (context: LockContext) => T | Promise<T>): Promise<T> => {
       const context: LockContext = {
         updateAffected: updateUnguarded,
         markVerification: markVerificationUnguarded,
@@ -678,6 +679,7 @@ export function usePublicationRecoveryLock() {
         markRetryReady: markRetryReadyUnguarded,
         abortReserved: abortReservedUnguarded,
         release: releaseUnguarded,
+        getState: readState,
         getCurrent: currentLock,
       };
       return await withGuard(() => fn(context));
