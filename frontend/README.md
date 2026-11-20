@@ -57,9 +57,31 @@ no backend or Keitaro request is made. CI uses the pinned Bun version via
 ## API contract source
 
 `src/api/generated/openapi.ts` is generated from the **wrapper runtime OpenAPI**
-(`app.openapi()` via `bun run generate:api`) and currently covers the S8-A–S8-C
-schemas. `docs/openapi.json` in the repository root is the Keitaro Admin API snapshot
-and is not a browser-facing contract.
+(`app.openapi()` via `bun run generate:api`) and covers the wrapper schemas used by
+S8-A–S8-D plus Accept remote v1. `docs/openapi.json` in the repository root is the
+Keitaro Admin API snapshot and is not a browser-facing contract.
+
+## API contract map
+
+The UI is a client of the wrapper API only. It never calls Keitaro directly.
+
+| Endpoint | UI usage |
+|---|---|
+| `GET /health` | Header availability indicator |
+| `POST /campaign-creations`, `GET /campaign-creations/{uuid}`, `POST .../resume` | Campaign creation, durable operation status and explicit Resume |
+| `POST /campaigns/{id}/fetch`, `GET /campaigns/{id}/streams` | Explicit Fetch and cached stream references |
+| `GET .../committed`, `GET .../draft` | Read-only committed/draft panels in the offer editor |
+| `POST .../draft/add`, `/remove`, `/restore`, `/pin`, `/unpin`, `/share`, `/cancel` | Local draft staging and local Cancel |
+| `POST .../draft/accept-remote` | Explicit Accept-remote conflict resolution |
+| `GET .../publication`, `POST .../publication/cancel` | Latest publication status and status-aware publication Cancel |
+| `GET /publications/recoverable`, `POST /publications/recover` | Bounded recovery queue and explicit recovery pass |
+| `POST /campaigns/{id}/push` | **Exists in the runtime API, but the frontend deliberately provides no Push control and never calls it.** `KEITARO_ALLOW_PUBLICATION_WRITES=false` remains the server-side fail-closed gate. These are three separate facts.
+
+Local/trusted-environment boundary: no auth, public deployment, CORS or static-serving
+change is part of this frontend. Contract and no-live-write behavior are covered by
+mocked Playwright tests (`bun run test:e2e`), including the full mocked journey
+creation → workspace/Fetch → editor draft → Fetch-generated conflict → Accept remote
+→ publication status → recovery. No test calls a live Keitaro endpoint.
 
 ## Routes
 

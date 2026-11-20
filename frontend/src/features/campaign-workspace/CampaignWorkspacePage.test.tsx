@@ -107,6 +107,38 @@ describe("CampaignWorkspacePage", () => {
     expect(screen.queryByText("Fetch completed and returned zero streams.")).toBeNull();
   });
 
+  it("focuses the fetch result status after a successful Fetch", async () => {
+    serveStreams([]);
+    server.use(
+      http.post("*/api/campaigns/42/fetch", () =>
+        HttpResponse.json(fetchOutcomeFixture({ stream_count: 0 })),
+      ),
+    );
+    const user = userEvent.setup();
+    renderApp("/campaigns/42");
+
+    await user.click(await screen.findByRole("button", { name: "Fetch streams" }));
+    const status = await screen.findByRole("status");
+    await waitFor(() => expect(document.activeElement).toBe(status));
+    expect(status).toHaveTextContent(/Fetch complete/);
+  });
+
+  it("focuses the shared error summary when Fetch fails", async () => {
+    serveStreams([]);
+    server.use(
+      http.post("*/api/campaigns/42/fetch", () =>
+        errorResponse("KEITARO_UPSTREAM_FAILURE", 502, {}),
+      ),
+    );
+    const user = userEvent.setup();
+    renderApp("/campaigns/42");
+
+    await user.click(await screen.findByRole("button", { name: "Fetch streams" }));
+    const alert = await screen.findByRole("alert");
+    await waitFor(() => expect(document.activeElement).toBe(alert));
+    expect(alert).toHaveTextContent("Fetch failed");
+  });
+
   it("distinguishes a successful zero-stream Fetch from an empty cached GET", async () => {
     serveStreams([]);
     server.use(

@@ -77,6 +77,12 @@ The pure allocation, operation state machine, reconciliation, draft-planning and
 - Push keeps independent per-stream outcomes. A typed `LIVE_WRITES_DISABLED` outcome maps to `503 PUBLICATION_WRITES_DISABLED` with the complete `PushResult`; transport never parses human-readable reasons. Ambiguous outcomes and D25 Cancel refusals remain visible with structured status/reason.
 - All sync repository work remains behind the services' `asyncio.to_thread` boundaries (D14); the lifespan-managed async client is unchanged (D13).
 
+## Frontend (implemented S8-A–S8-E)
+- `frontend/` is a local/trusted SPA (Vite + React + TypeScript, React Router, TanStack Query, CSS Modules). It is a client of the wrapper API and never touches Keitaro, the database or backend internals directly.
+- Screens cover durable campaign creation/recovery, campaign workspace with explicit Fetch, offer editor with versioned local draft commands, Accept-remote conflict resolution, latest publication status, status-aware publication Cancel and the bounded recovery queue. Push is intentionally not exposed by the UI; the endpoint exists in the runtime API and `KEITARO_ALLOW_PUBLICATION_WRITES=false` remains the server fail-closed gate.
+- The frontend renders server projections only: no allocation, eligibility, reconciliation or publication rules are reimplemented in the browser. See `docs/implementation/module-boundaries.md` and the approved S8 specs linked from issue #37 / #59.
+- `frontend/README.md` owns the local setup, generated-contract source and API contract map; `docs/test-plan.md` records S8 unit, contract, E2E, axe and responsive coverage.
+
 ## Cross-cutting
 - Persistence boundary (D14): sync SQLAlchemy operations must not execute directly inside an async request path on the event loop; use FastAPI threadpool or an explicit boundary.
 - HTTP transport: httpx.AsyncClient (D13). Async methods; lifespan-managed; no sync calls in async path.

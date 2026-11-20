@@ -17,6 +17,7 @@ import {
   type RecoveryResultResponse,
 } from "../../api/operations";
 import { queryKeys } from "../../queries/queryClient";
+import { useFocusOnChange } from "../../shared/hooks/useFocusOnChange";
 import { useNarrowViewport } from "../../shared/hooks/useNarrowViewport";
 import { PublicationOperationCard } from "./PublicationOperationCard";
 import { PublicationReadError } from "./PublicationStatusPanel";
@@ -350,7 +351,10 @@ export function RecoveryQueuePage() {
   const lock = usePublicationRecoveryLock();
   const [confirming, setConfirming] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const actionErrorRef = useFocusOnChange<HTMLParagraphElement>(actionError);
   const [verificationError, setVerificationError] = useState<string | null>(null);
+  const verificationErrorRef =
+    useFocusOnChange<HTMLParagraphElement>(verificationError);
   const [verificationMessage, setVerificationMessage] = useState<string | null>(
     null,
   );
@@ -719,7 +723,7 @@ export function RecoveryQueuePage() {
         </output>
       )}
       {verificationError && (
-        <p className={styles.fieldError} role="alert">
+        <p ref={verificationErrorRef} className={styles.fieldError} role="alert">
           {verificationError}
         </p>
       )}
@@ -740,7 +744,11 @@ export function RecoveryQueuePage() {
         </div>
       )}
 
-      {actionError && <p className={styles.fieldError} role="alert">{actionError}</p>}
+      {actionError && (
+        <p ref={actionErrorRef} className={styles.fieldError} role="alert">
+          {actionError}
+        </p>
+      )}
 
       {(!locked || recoveryReady) && !confirming && (
         <div className={styles.inlineActions}>

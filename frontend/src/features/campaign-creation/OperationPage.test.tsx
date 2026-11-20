@@ -1,7 +1,7 @@
 import { act, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   errorResponse,
@@ -14,10 +14,16 @@ import { renderApp } from "../../test/renderApp";
 import { server } from "../../test/server";
 import { OPERATION_KEY, storeAttempt } from "./operationStorage";
 
+const originalMatchMedia = window.matchMedia;
+
 describe("OperationPage", () => {
   beforeEach(() => {
     window.sessionStorage.clear();
     storeAttempt(OPERATION_UUID, INTENT);
+  });
+
+  afterEach(() => {
+    window.matchMedia = originalMatchMedia;
   });
 
   it("keeps the UUID and retries POST with the same UUID on OPERATION_NOT_FOUND", async () => {
@@ -210,6 +216,58 @@ describe("OperationPage", () => {
       screen.getByRole("button", { name: "Resume operation" }),
     ).toBeInTheDocument();
     expect(postCount).toBe(0);
+  });
+
+  it("uses the narrow layout on small viewports", async () => {
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query === "(max-width: 767px)",
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    server.use(
+      http.get(`*/api/campaign-creations/${OPERATION_UUID}`, () =>
+        HttpResponse.json(operationFixture("created")),
+      ),
+    );
+
+    renderApp(`/campaign-creations/${OPERATION_UUID}`);
+    expect(
+      await screen.findByText("Operation status: created"),
+    ).toBeInTheDocument();
+    expect(
+      screen
+        .getByRole("heading", { name: "Campaign creation operation" })
+        .closest("section")?.className,
+    ).toContain("narrow");
+    window.matchMedia = originalMatchMedia;
+  });
+
+  it("supports keyboard activation of the workspace link", async () => {
+    server.use(
+      http.get(`*/api/campaign-creations/${OPERATION_UUID}`, () =>
+        HttpResponse.json(operationFixture("created")),
+      ),
+      http.get("*/api/campaigns/42/streams", () => HttpResponse.json([])),
+      http.get("*/api/health", () => HttpResponse.json({ status: "ok" })),
+    );
+    const user = userEvent.setup();
+    renderApp(`/campaign-creations/${OPERATION_UUID}`);
+
+    const link = await screen.findByRole("link", {
+      name: "Open Campaign Workspace",
+    });
+    link.focus();
+    await user.keyboard("{Enter}");
+
+    expect(
+      await screen.findByRole("heading", { name: "Campaign Workspace" }),
+    ).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/campaigns/42");
   });
 
   it("requires explicit confirmation before a terminal operation is replaced", async () => {
