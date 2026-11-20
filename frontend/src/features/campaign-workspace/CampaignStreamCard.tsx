@@ -1,31 +1,17 @@
 import { Link } from "react-router-dom";
 
-import { ErrorSummary } from "../../shared/ui/ErrorSummary";
 import { PublicationStatusPanel } from "../publication/PublicationStatusPanel";
 import { PushUnavailablePanel } from "../publication/PushUnavailablePanel";
 import {
   AllocationSummary,
-  ConflictPanel,
+  DraftCommandFeedback,
   DraftPanel,
+  LastFetchMeta,
   PolicyCard,
+  StreamSyncBadge,
 } from "../offer-editor/EditorPanels";
-import {
-  describeFailure,
-  failureMessage,
-  hintFor,
-  useStreamDraft,
-} from "../offer-editor/useStreamDraft";
+import { describeFailure, useStreamDraft } from "../offer-editor/useStreamDraft";
 import styles from "./CampaignWorkspacePage.module.css";
-
-function syncLabel(draft: { is_stale: boolean; conflicts: unknown[] } | null) {
-  if (draft === null) {
-    return { label: "No draft", tone: styles.syncMuted };
-  }
-  if (draft.is_stale || draft.conflicts.length > 0) {
-    return { label: "Drift detected", tone: styles.syncWarn };
-  }
-  return { label: "✓ Synced", tone: styles.syncGood };
-}
 
 export function CampaignStreamCard({
   campaignId,
@@ -75,20 +61,11 @@ export function CampaignStreamCard({
     );
   }
 
-  const sync = syncLabel(draft);
-
   return (
     <div className={styles.streamCardBody}>
       <div className={styles.streamCardMetaRow}>
-        <span className={`${styles.syncBadge} ${sync.tone}`}>{sync.label}</span>
-        <span className={styles.lastFetch}>
-          <span className={styles.lastFetchLabel}>Last fetch</span>
-          <span className={`${styles.lastFetchValue} tnum`}>
-            {snapshot
-              ? new Date(snapshot.captured_at).toLocaleString()
-              : "not available"}
-          </span>
-        </span>
+        <StreamSyncBadge draft={draft} />
+        <LastFetchMeta capturedAt={snapshot?.captured_at ?? null} />
         <Link
           className={styles.streamEditorLink}
           to={`/campaigns/${campaignId}/streams/${streamRef}`}
@@ -113,46 +90,17 @@ export function CampaignStreamCard({
 
           {draftQuery.isSuccess && <AllocationSummary draft={draft} />}
 
-          {busy && (
-            <output className={styles.pending}>
-              Saving local draft… Duplicate submissions are disabled.
-            </output>
-          )}
-
-          {announcement && (
-            <p
-              ref={statusRef}
-              className={styles.pending}
-              role="status"
-              aria-live="polite"
-              tabIndex={-1}
-            >
-              {announcement}
-            </p>
-          )}
-
-          {(mutation.isError || acceptRemoteMutation.isError) && (
-            <ErrorSummary
-              heading={
-                recoveryRequired
-                  ? "Recovery required — draft commands locked"
-                  : "Draft command failed"
-              }
-              message={failureMessage(mutationFailure)}
-              code={mutationFailure.code}
-              detail={
-                <>
-                  <p className={styles.hint}>{hintFor(mutationFailure)}</p>
-                  {staleConflicts.length > 0 && (
-                    <ConflictPanel conflicts={staleConflicts} />
-                  )}
-                </>
-              }
-              retryLabel="Read current draft"
-              onRetry={() => void rereadDraft()}
-              retryDisabled={draftQuery.isFetching}
-            />
-          )}
+          <DraftCommandFeedback
+            busy={busy}
+            announcement={announcement}
+            statusRef={statusRef}
+            isError={mutation.isError || acceptRemoteMutation.isError}
+            recoveryRequired={recoveryRequired}
+            failure={mutationFailure}
+            staleConflicts={staleConflicts}
+            onRetry={() => void rereadDraft()}
+            retryDisabled={draftQuery.isFetching}
+          />
 
           {draftQuery.isPending && <output>Loading local draft…</output>}
           {draftQuery.isError && (

@@ -2,7 +2,6 @@ import { Link, useParams } from "react-router-dom";
 
 import type { DraftViewResponse } from "../../api/operations";
 import { useNarrowViewport } from "../../shared/hooks/useNarrowViewport";
-import { ErrorSummary } from "../../shared/ui/ErrorSummary";
 import { PublicationCancelPanel } from "../publication/PublicationCancelPanel";
 import { PublicationStatusPanel } from "../publication/PublicationStatusPanel";
 import { PushUnavailablePanel } from "../publication/PushUnavailablePanel";
@@ -10,20 +9,17 @@ import { parsePositiveId } from "../campaign-workspace/campaignId";
 import {
   AllocationSummary,
   CommittedPanel,
-  ConflictPanel,
+  DraftCommandFeedback,
   DraftPanel,
+  LastFetchMeta,
   PolicyCard,
   ReadErrorPanel,
   ReviewPanel,
+  StreamSyncBadge,
 } from "./EditorPanels";
 import styles from "./OfferEditorPage.module.css";
 import { draftChanges } from "./draftChanges";
-import {
-  describeFailure,
-  failureMessage,
-  hintFor,
-  useStreamDraft,
-} from "./useStreamDraft";
+import { describeFailure, useStreamDraft } from "./useStreamDraft";
 
 function draftChangesCount(draft: DraftViewResponse): number {
   const changes = draftChanges(draft);
@@ -129,36 +125,13 @@ function Editor({
           <span className={`${styles.titleStream} tnum`}>
             Stream #{streamRef}
           </span>
-          {(() => {
-            const synced =
-              draft !== null && !draft.is_stale && draft.conflicts.length === 0;
-            const drifted =
-              draft !== null && (draft.is_stale || draft.conflicts.length > 0);
-            return (
-              <span
-                className={`${styles.syncBadge} ${
-                  synced
-                    ? styles.syncGood
-                    : drifted
-                      ? styles.syncWarn
-                      : styles.syncMuted
-                }`}
-              >
-                {synced ? "✓ Synced" : drifted ? "Drift detected" : "No draft"}
-              </span>
-            );
-          })()}
+          <StreamSyncBadge draft={draft} />
             {draft?.is_dirty && (
               <span className={styles.dirtyBadge}>
                 Draft v{draft.version} (Dirty)
               </span>
             )}
-          <span className={styles.lastFetch}>
-            <span className={styles.lastFetchLabel}>Last fetch</span>
-            <span className={`${styles.lastFetchValue} tnum`}>
-              {snapshot ? new Date(snapshot.captured_at).toLocaleString() : "not available"}
-            </span>
-          </span>
+          <LastFetchMeta capturedAt={snapshot?.captured_at ?? null} />
           </div>
           <p className={styles.hint}>
             This screen edits only the selected stream; streams remain
@@ -189,52 +162,17 @@ function Editor({
 
         {draftQuery.isSuccess && <AllocationSummary draft={draft} />}
 
-        {busy && (
-          <output className={styles.pending}>
-            Saving local draft… Duplicate submissions are disabled.
-          </output>
-        )}
-
-        {announcement && (
-          <p
-            ref={statusRef}
-            className={styles.pending}
-            role="status"
-            aria-live="polite"
-            tabIndex={-1}
-          >
-            {announcement}
-          </p>
-        )}
-
-        {(mutation.isError || acceptRemoteMutation.isError) && (
-          <ErrorSummary
-            heading={
-              recoveryRequired
-                ? "Recovery required — draft commands locked"
-                : "Draft command failed"
-            }
-            message={failureMessage(mutationFailure)}
-            code={mutationFailure.code}
-            detail={
-              <>
-                <p className={styles.hint}>{hintFor(mutationFailure)}</p>
-                {recoveryRequired && (
-                  <p className={styles.hint}>
-                    The lock is released only by a successful GET re-read. A failed
-                    re-read keeps every draft command disabled.
-                  </p>
-                )}
-                {staleConflicts.length > 0 && (
-                  <ConflictPanel conflicts={staleConflicts} />
-                )}
-              </>
-            }
-            retryLabel="Read current draft"
-            onRetry={() => void rereadDraft()}
-            retryDisabled={draftQuery.isFetching}
-          />
-        )}
+        <DraftCommandFeedback
+          busy={busy}
+          announcement={announcement}
+          statusRef={statusRef}
+          isError={mutation.isError || acceptRemoteMutation.isError}
+          recoveryRequired={recoveryRequired}
+          failure={mutationFailure}
+          staleConflicts={staleConflicts}
+          onRetry={() => void rereadDraft()}
+          retryDisabled={draftQuery.isFetching}
+        />
 
         <section aria-labelledby="committed-section-heading" className={styles.section}>
           <h2 id="committed-section-heading">Committed state</h2>
