@@ -342,11 +342,13 @@ test("full mocked journey covers Fetch → conflict → Accept remote → recove
   await page.getByRole("link", { name: "Open Campaign Workspace" }).click();
 
   await expect(
-    page.getByRole("heading", { name: "Campaign Workspace" }),
+    page.getByRole("heading", { name: /Campaign #42/ }),
   ).toBeVisible();
   await page.locator("#main").getByRole("button", { name: "Fetch streams" }).click();
   await expect(
-    page.getByRole("list", { name: "Cached stream references" }).getByText("Offer flow"),
+    page
+      .getByRole("list", { name: "Cached stream references" })
+      .getByText(/Offer flow/),
   ).toBeVisible();
   await page.getByRole("link", { name: /Open editor for stream 101/ }).click();
 
