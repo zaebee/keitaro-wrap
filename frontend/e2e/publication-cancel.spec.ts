@@ -46,7 +46,7 @@ test("publication cancel has a separate confirmation and no Push control", async
     page.getByRole("heading", { name: "Publication Cancel" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Cancel local draft" }),
+    page.getByRole("button", { name: "Discard Draft" }),
   ).toBeDisabled();
   await expect(
     page.getByRole("button", { name: "Cancel publication" }),

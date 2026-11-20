@@ -394,11 +394,36 @@ function Editor({
           <span className={`${styles.titleStream} tnum`}>
             Stream #{streamRef}
           </span>
+          {(() => {
+            const synced =
+              draft !== null && !draft.is_stale && draft.conflicts.length === 0;
+            const drifted =
+              draft !== null && (draft.is_stale || draft.conflicts.length > 0);
+            return (
+              <span
+                className={`${styles.syncBadge} ${
+                  synced
+                    ? styles.syncGood
+                    : drifted
+                      ? styles.syncWarn
+                      : styles.syncMuted
+                }`}
+              >
+                {synced ? "✓ Synced" : drifted ? "Drift detected" : "No draft"}
+              </span>
+            );
+          })()}
             {draft?.is_dirty && (
               <span className={styles.dirtyBadge}>
                 Draft v{draft.version} (Dirty)
               </span>
             )}
+          <span className={styles.lastFetch}>
+            <span className={styles.lastFetchLabel}>Last fetch</span>
+            <span className={`${styles.lastFetchValue} tnum`}>
+              {snapshot ? new Date(snapshot.captured_at).toLocaleString() : "not available"}
+            </span>
+          </span>
           </div>
           <p className={styles.hint}>
             This screen edits only the selected stream; streams remain
