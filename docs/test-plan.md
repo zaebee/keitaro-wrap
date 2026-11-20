@@ -37,6 +37,14 @@
 - Publication safety: per-stream partial success, typed `LIVE_WRITES_DISABLED` → `503` with the full `PushResult`, allowlisted public publication fields, D25 Cancel matrix, degraded recovery.
 - D14 route-level assertion that synchronous repository work runs off the event-loop thread; no live Keitaro mutation in any API test.
 
+## Offline publication integration acceptance suite (issue #69)
+
+- `tests/test_publication_integration.py` + `tests/publication_integration_support.py` drive the real HTTP route, composition root, `PublicationService`, real `KeitaroClient` and real SQLite repositories against a deterministic loopback-only fake Keitaro. No external network, real campaign/stream/offer IDs or real credentials are used; the fake server and test database are process-local and ephemeral.
+- Happy path: seed one cached stream, remote snapshot, binding and eligible dirty draft; `POST /campaigns/{id}/push`; verify the actual outbound PUT method/path/body/count and dummy API key; fake Keitaro applies the offers-only change; an independent fresh GET confirms the intended shares; the HTTP response carries `succeeded` + `operation_id`; SQLite shows one `SUCCEEDED` operation, updated bindings/snapshot, no draft row, a `draft_version_counter` that keeps the high-water mark of the used version (it is not rolled back when the draft row is deleted), and no unresolved operation.
+- Failure paths: gate disabled rejects before any remote PUT or operation; PUT accepted but read-back mismatch leaves `AMBIGUOUS` without local success; PUT timeout after possible delivery produces exactly one PUT and `AMBIGUOUS`; a second Push at `AMBIGUOUS` is blocked without mutation; a local finalize failure after remote change never reports `SUCCEEDED` and never repeats the PUT; the test procedure refuses to start with a PENDING/unresolved row; all 15 non-offer documented writable fields survive the offers-only PUT.
+- CI runs this suite automatically: `make check` invokes `pytest`, which discovers `tests/test_publication_integration.py` under `testpaths = ["tests"]`.
+- Boundaries: this offline suite cannot prove the behavior of a specific real Keitaro version under application Push, real target-instance field preservation, real runtime gate isolation/effective gate value, proxy capture and credential redaction, or the live restoration lifecycle. Those gaps remain live-only in issue #69 and require separate owner approval.
+
 ## Executed for S8 frontend (issues #41, #43, #47, #49–#56, #58, #59)
 - Frontend unit/component tests use Vitest + Testing Library + MSW against the generated wrapper contract; no test calls live Keitaro or a real backend.
 - Campaign creation tests cover URL/sessionStorage precedence, UUID persistence before POST, replay vs new attempt, terminal/non-terminal gating, explicit Resume, ambiguous status and keyboard/narrow smoke.
@@ -90,7 +98,7 @@
 
 ## Pending specification (do not encode as expected outcomes)
 - Duplicate-offer handling in later slices (Fetch rejection is resolved by issue #29).
-- Live verification that offers-only PUT preserves non-offer stream fields; real writes remain fail-closed until then.
+- Live verification that offers-only PUT preserves non-offer stream fields on a specific real Keitaro version; the offline fake-server suite does not substitute for it (see issue #69).
 
 ## Integration tests (optional, with test instance + .env)
 - Create campaign end-to-end.
