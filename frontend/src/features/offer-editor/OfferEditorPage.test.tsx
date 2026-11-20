@@ -1242,4 +1242,26 @@ describe("OfferEditorPage", () => {
     expect(await screen.findByText("Succeeded")).toBeInTheDocument();
     expect(publicationGets).toBe(2);
   });
+
+  it("renders mockup breadcrumbs and does not duplicate the Fetch trigger", async () => {
+    serveReads();
+    renderApp(EDITOR_PATH);
+
+    const nav = await screen.findByRole("navigation", { name: "Breadcrumb" });
+    expect(
+      within(nav).getByRole("link", { name: "Campaigns" }),
+    ).toHaveAttribute("href", "/campaigns/open");
+    expect(
+      within(nav).getByRole("link", { name: "Campaign 42 workspace" }),
+    ).toHaveAttribute("href", "/campaigns/42");
+    expect(within(nav).getByText("Stream #101")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+
+    const main = screen.getByRole("main");
+    expect(
+      within(main).queryByRole("button", { name: "Fetch streams" }),
+    ).toBeNull();
+  });
 });

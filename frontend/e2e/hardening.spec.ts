@@ -359,7 +359,7 @@ test("full mocked journey covers Fetch → conflict → Accept remote → recove
   expect((currentDraft as DraftView | null)?.is_stale).toBe(false);
 
   offers = changedOffers;
-  await page.getByRole("link", { name: "Back to Campaign Workspace" }).click();
+  await page.getByRole("link", { name: "Campaign 42 workspace" }).click();
   await page.locator("#main").getByRole("button", { name: "Fetch streams" }).click();
   await expect(page.getByText("Conflicted drafts")).toBeVisible();
   expect((currentDraft as DraftView | null)?.is_stale).toBe(true);
