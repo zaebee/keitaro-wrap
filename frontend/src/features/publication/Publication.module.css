@@ -57,7 +57,7 @@
 }
 
 .syncLockNote strong {
-  color: var(--color-info);
+  color: var(--color-text);
 }
 
 .operationList {
