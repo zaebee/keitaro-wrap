@@ -387,7 +387,25 @@ test("full mocked journey covers Fetch → conflict → Accept remote → recove
     ),
   ).toBe(false);
   expect(acceptedDraft.version).toBe(2);
-  await expect(page.getByText("2", { exact: true }).first()).toBeVisible();
+
+  const draftPanel = page.getByRole("region", { name: /Staged draft/ });
+  const draftMeta = draftPanel.locator("dl").first();
+  const definition = (label: string) =>
+    draftMeta
+      .locator("dt", { hasText: new RegExp(`^${label}$`) })
+      .locator("xpath=following-sibling::dd[1]");
+  await expect(definition("Version")).toHaveText("2");
+  await expect(definition("State")).toHaveText("clean");
+  await expect(definition("Stale")).toHaveText("no");
+  await expect(page.getByRole("heading", { name: "Offer #9" })).toHaveCount(0);
+  const acceptedOffer7 = page
+    .getByRole("heading", { name: "Offer #7" })
+    .locator("xpath=ancestor::li[1]");
+  const acceptedOffer8 = page
+    .getByRole("heading", { name: "Offer #8" })
+    .locator("xpath=ancestor::li[1]");
+  await expect(acceptedOffer7).toContainText("90");
+  await expect(acceptedOffer8).toContainText("40");
   await expect(page.getByRole("button", { name: "Add offer" })).toBeEnabled();
 
   await page.getByRole("link", { name: "inspect the recoverable queue" }).click();
@@ -427,7 +445,16 @@ test("axe-core passes on routes and consequential states", async ({ page }) => {
   });
   await page.route(
     "**/api/campaigns/42/streams/101/publication/cancel",
-    (route) => route.fulfill({ json: cancelResult }),
+    (route) => {
+      cancelResult = {
+        stream_ref: STREAM_REF,
+        status: "abandoned",
+        reason: "ABANDONED",
+        draft_discarded: false,
+      };
+      api.state.publication = { ...publicationOperation, status: "abandoned" };
+      return route.fulfill({ json: cancelResult });
+    },
   );
 
   const routes = [
@@ -477,16 +504,10 @@ test("axe-core passes on routes and consequential states", async ({ page }) => {
   await clearBrowserState(page);
   api.state.draft = null;
   api.state.publication = { ...publicationOperation, status: "pending" };
-  cancelResult = {
-    stream_ref: STREAM_REF,
-    status: "abandoned",
-    reason: "ABANDONED",
-    draft_discarded: false,
-  };
+  cancelResult = null;
   await page.goto("/campaigns/42/streams/101");
   await page.getByRole("button", { name: "Cancel publication" }).click();
   await page.getByRole("button", { name: "Confirm publication cancel" }).click();
-  api.state.publication = { ...publicationOperation, status: "abandoned" };
   await expect(
     page.getByText(/Authoritative status and queue reads passed/),
   ).toBeVisible();
@@ -512,12 +533,31 @@ test("mobile and tablet viewports keep safe actions reachable", async ({
   );
 
   const checks = [
-    { route: "/campaigns/new", action: /Create campaign/ },
-    { route: `/campaign-creations/${UUID}`, action: "Open Campaign Workspace" },
-    { route: "/campaigns/open", action: "Campaign ID" },
-    { route: "/campaigns/42", action: "Fetch streams" },
-    { route: "/campaigns/42/streams/101", action: "Add offer" },
-    { route: "/recovery", action: "Run recovery" },
+    {
+      route: "/campaigns/new",
+      control: () => page.getByRole("button", { name: "Create campaign" }),
+    },
+    {
+      route: `/campaign-creations/${UUID}`,
+      control: () =>
+        page.getByRole("link", { name: "Open Campaign Workspace" }),
+    },
+    {
+      route: "/campaigns/open",
+      control: () => page.getByRole("button", { name: "Open campaign" }),
+    },
+    {
+      route: "/campaigns/42",
+      control: () => page.getByRole("button", { name: "Fetch streams" }),
+    },
+    {
+      route: "/campaigns/42/streams/101",
+      control: () => page.getByRole("button", { name: "Add offer" }),
+    },
+    {
+      route: "/recovery",
+      control: () => page.getByRole("button", { name: "Run recovery" }),
+    },
   ];
 
   for (const viewport of [
@@ -529,7 +569,9 @@ test("mobile and tablet viewports keep safe actions reachable", async ({
       await clearBrowserState(page);
       api.state.draft = null;
       await page.goto(check.route);
-      await expect(page.getByText(check.action, { exact: false }).first()).toBeVisible();
+      const control = check.control();
+      await expect(control).toBeVisible();
+      await expect(control).toBeEnabled();
       const overflow = await page.evaluate(
         () => document.documentElement.scrollWidth - window.innerWidth,
       );
