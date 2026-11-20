@@ -139,7 +139,7 @@ test("manual add uses the draft endpoint and never calls Fetch", async ({
   await page.getByLabel("Add offer by ID").fill("9");
   await page.getByRole("button", { name: "Add offer" }).click();
 
-  await expect(page.getByRole("heading", { name: "Offer #9" })).toBeVisible();
+  await expect(page.getByRole("row", { name: /Offer #9/ })).toBeVisible();
   await expect(page.getByText("Addition: Offer #9")).toBeVisible();
   expect(addBody).toEqual({ expected_version: 1, offer_id: 9 });
   expect(fetchCalls).toBe(0);

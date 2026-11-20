@@ -391,9 +391,7 @@ describe("OfferEditorPage", () => {
     );
 
     await waitFor(() => expect(body).toEqual({ expected_version: 1, offer_id: 8, share: 35 }));
-    const offer8 = screen
-      .getByRole("heading", { name: "Offer #8" })
-      .closest("li") as HTMLElement;
+    const offer8 = screen.getByRole("row", { name: /Offer #8/ });
     expect(within(offer8).getByText("pinned")).toBeInTheDocument();
     expect(within(offer8).getByText("35")).toBeInTheDocument();
     expect(screen.getByText(/Requested share: Offer #8/)).toHaveTextContent("→ 35");

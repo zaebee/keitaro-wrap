@@ -123,8 +123,7 @@
   margin: 0;
 }
 
-.addForm,
-.shareForm {
+.addForm {
   align-items: center;
   background: var(--color-surface-muted);
   border: 1px solid var(--color-border);
@@ -136,15 +135,13 @@
   padding: var(--space-2) var(--space-3);
 }
 
-.addForm label,
-.shareForm label {
+.addForm label {
   color: var(--color-text-muted);
   font-size: 12px;
   font-weight: 600;
 }
 
-.addForm input,
-.shareForm input {
+.addForm input {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
@@ -155,14 +152,44 @@
   width: 120px;
 }
 
-.addForm input:focus,
+.shareForm {
+  align-items: center;
+  display: flex;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}
+
+.shareForm input {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  height: 26px;
+  padding: 0 var(--space-1);
+  width: 56px;
+}
+
 .shareForm input:focus {
   border-color: var(--color-primary);
   outline: 1px solid var(--color-primary);
 }
 
-.addForm input[aria-invalid="true"],
 .shareForm input[aria-invalid="true"] {
+  border-color: var(--color-danger);
+}
+
+.shareForm .fieldError {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.addForm input:focus {
+  border-color: var(--color-primary);
+  outline: 1px solid var(--color-primary);
+}
+
+.addForm input[aria-invalid="true"] {
   border-color: var(--color-danger);
 }
 
@@ -244,37 +271,61 @@ button:disabled {
   color: var(--color-text-muted);
 }
 
-.offerCards {
-  display: grid;
-  gap: var(--space-3);
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  list-style: none;
-  margin: var(--space-2) 0;
-  padding: 0;
-}
-
-.offerCard {
+.offerTable {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
+  border-collapse: collapse;
   border-radius: var(--radius-control);
-  box-shadow: var(--shadow-subtle);
-  padding: var(--space-3);
+  font-size: 13px;
+  margin: var(--space-2) 0;
+  width: 100%;
 }
 
-.offerCard h4 {
+.offerTable thead th {
+  background: var(--color-surface-muted);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.offerTable tbody th,
+.offerTable tbody td {
+  border-bottom: 1px solid var(--color-border);
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  vertical-align: top;
+}
+
+.offerIdCell {
   align-items: center;
   display: flex;
+  flex-wrap: wrap;
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
   gap: var(--space-2);
-  margin: 0 0 var(--space-2);
+  white-space: nowrap;
+}
+
+.offerStateCell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.offerLifecycle {
+  font-size: 11px;
 }
 
 .offerArchived {
   background: var(--color-surface-muted);
 }
 
-.offerArchived h4 {
+.offerArchived .offerIdValue {
   color: var(--color-text-muted);
   text-decoration: line-through;
 }
@@ -287,39 +338,10 @@ button:disabled {
   width: 8px;
 }
 
-.offerFields {
-  display: grid;
-  grid-template-columns: 90px minmax(0, 1fr);
-  gap: var(--space-1) var(--space-2);
-  margin: 0 0 var(--space-2);
-}
-
-.offerFields dt {
-  color: var(--color-text-muted);
-  font-size: 12px;
-}
-
-.offerFields dd {
-  font-variant-numeric: tabular-nums;
-  margin: 0;
-}
-
-.offerFields dd s {
-  color: var(--color-text-muted);
-}
 
 .shareArrow {
   color: var(--color-accent-amber);
   font-weight: 700;
-}
-
-.offerStatus {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  font-size: 11px;
-  gap: var(--space-2);
-  margin: 0 0 var(--space-2);
 }
 
 .stateModified {
@@ -837,14 +859,6 @@ button:disabled {
 
   .draftMeta {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .offerFields {
-    grid-template-columns: 1fr;
-  }
-
-  .offerFields dd {
-    margin-bottom: var(--space-2);
   }
 
   .dirtyBanner {
