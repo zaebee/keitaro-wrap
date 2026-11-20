@@ -1,9 +1,13 @@
+/* Visual language follows the "Keitaro Wrap — Single-Screen Offer Editor"
+   mockup: white cards on a slate canvas, 1px slate borders, uppercase
+   tracked section titles, monospace numerics, blue/emerald/amber accents. */
+
 .card {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-subtle);
-  padding: var(--space-8);
+  padding: var(--space-6);
 }
 
 .narrow {
@@ -11,10 +15,16 @@
 }
 
 .identity {
-  font-size: 18px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
   margin-top: 0;
+}
+
+h1 {
+  font-size: 16px;
+  letter-spacing: -0.01em;
+  margin: 0 0 var(--space-1);
 }
 
 .hint {
@@ -24,18 +34,33 @@
 
 .section {
   border-top: 1px solid var(--color-border);
-  margin-top: var(--space-8);
+  margin-top: var(--space-6);
   padding-top: var(--space-4);
 }
 
 .section > h2,
 .panel h2 {
-  font-size: 16px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin: 0 0 var(--space-3);
+}
+
+.panel h3 {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin: var(--space-4) 0 var(--space-2);
 }
 
 .panel {
+  background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
+  box-shadow: var(--shadow-subtle);
   padding: var(--space-4);
 }
 
@@ -45,22 +70,26 @@
 }
 
 .draft {
-  border-left: 4px solid var(--color-warning);
+  border-left: 4px solid var(--color-accent-amber);
 }
 
 .tag {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
+  background: var(--color-surface-muted);
   color: var(--color-text-muted);
-  font-size: 11px;
-  font-weight: 400;
+  font-size: 10px;
+  font-weight: 600;
   padding: 2px var(--space-2);
+  vertical-align: middle;
   white-space: nowrap;
 }
 
 .empty {
-  background: var(--color-surface);
+  background: var(--color-surface-muted);
   border-radius: var(--radius-control);
+  color: var(--color-text-muted);
+  font-size: 12px;
   padding: var(--space-3);
 }
 
@@ -74,6 +103,7 @@
 .offerList li,
 .reviewList li {
   border-bottom: 1px solid var(--color-border);
+  font-size: 12px;
   padding: var(--space-2) 0;
 }
 
@@ -81,40 +111,61 @@
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: var(--space-2) var(--space-3);
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
   margin: var(--space-3) 0;
+  padding: var(--space-3);
 }
 
 .draftMeta dt {
   color: var(--color-text-muted);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .draftMeta dd {
-  font-weight: 600;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
   margin: 0;
 }
 
 .addForm,
 .shareForm {
   align-items: center;
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
   margin: var(--space-4) 0;
+  padding: var(--space-2) var(--space-3);
 }
 
 .addForm label,
 .shareForm label {
+  color: var(--color-text-muted);
+  font-size: 12px;
   font-weight: 600;
 }
 
 .addForm input,
 .shareForm input {
+  background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
-  height: var(--control-height);
-  padding: 0 var(--space-3);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  height: 28px;
+  padding: 0 var(--space-2);
   width: 120px;
+}
+
+.addForm input:focus,
+.shareForm input:focus {
+  border-color: var(--color-primary);
+  outline: 1px solid var(--color-primary);
 }
 
 .addForm input[aria-invalid="true"],
@@ -123,13 +174,21 @@
 }
 
 button {
+  background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
-  background: var(--color-surface);
+  box-shadow: var(--shadow-subtle);
   color: var(--color-text);
   cursor: pointer;
-  min-height: var(--control-height);
-  padding: 0 var(--space-3);
+  font-size: 12px;
+  font-weight: 500;
+  min-height: 28px;
+  padding: 2px var(--space-3);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+button:hover:not(:disabled) {
+  background: var(--color-surface-muted);
 }
 
 button:disabled {
@@ -167,18 +226,41 @@ button:disabled {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
+  box-shadow: var(--shadow-subtle);
   padding: var(--space-3);
 }
 
 .offerCard h4 {
+  align-items: center;
+  display: flex;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  gap: var(--space-2);
   margin: 0 0 var(--space-2);
+}
+
+.offerArchived {
+  background: var(--color-surface-muted);
+}
+
+.offerArchived h4 {
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+}
+
+.modifiedDot {
+  background: var(--color-accent-amber);
+  border-radius: 50%;
+  display: inline-block;
+  height: 8px;
+  width: 8px;
 }
 
 .offerFields {
   display: grid;
   grid-template-columns: 90px minmax(0, 1fr);
   gap: var(--space-1) var(--space-2);
-  margin: 0 0 var(--space-3);
+  margin: 0 0 var(--space-2);
 }
 
 .offerFields dt {
@@ -189,6 +271,62 @@ button:disabled {
 .offerFields dd {
   font-variant-numeric: tabular-nums;
   margin: 0;
+}
+
+.offerFields dd s {
+  color: var(--color-text-muted);
+}
+
+.shareArrow {
+  color: var(--color-accent-amber);
+  font-weight: 700;
+}
+
+.offerStatus {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 11px;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+}
+
+.stateModified {
+  color: var(--color-warning);
+  font-weight: 600;
+}
+
+.stateModified::before {
+  background: var(--color-accent-amber);
+  border-radius: 50%;
+  content: "";
+  display: inline-block;
+  height: 7px;
+  margin-right: 4px;
+  width: 7px;
+}
+
+.stateSynced {
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.stateSynced::before {
+  background: var(--color-accent-emerald);
+  border-radius: 50%;
+  content: "";
+  display: inline-block;
+  height: 7px;
+  margin-right: 4px;
+  width: 7px;
+}
+
+.pinNote {
+  background: var(--color-surface-muted);
+  border-radius: 4px;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  padding: 1px var(--space-2);
 }
 
 .inlineActions {
@@ -226,10 +364,11 @@ button:disabled {
 
 .conflictPanel,
 .errorPanel {
-  border: 1px solid var(--color-danger);
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
   border-radius: var(--radius-control);
   margin: var(--space-4) 0;
-  padding: var(--space-4);
+  padding: var(--space-3);
 }
 
 .conflictPanel h3,
@@ -264,6 +403,194 @@ button:disabled {
   color: var(--color-primary);
 }
 
+/* Staged-draft banner (mockup: amber alert with policy pill) */
+.dirtyBanner {
+  align-items: center;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-subtle);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  justify-content: space-between;
+  margin: var(--space-4) 0;
+  padding: var(--space-3);
+}
+
+.dirtyBannerTitle {
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.dirtyBannerHint {
+  color: #b45309;
+  font-size: 11px;
+  margin: 2px 0 0;
+}
+
+.dirtyPolicy {
+  background: #fde68a;
+  border-radius: 4px;
+  color: #92400e;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px var(--space-2);
+  white-space: nowrap;
+}
+
+/* Traffic allocation card (mockup: segmented bar + legend) */
+.allocationCard {
+  margin: var(--space-4) 0;
+}
+
+.allocationHeader {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+
+.allocationHeader h2 {
+  margin: 0;
+}
+
+.allocationSubtitle {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  margin-left: var(--space-2);
+  text-transform: none;
+}
+
+.allocationTotal {
+  align-items: center;
+  display: flex;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  gap: var(--space-1);
+}
+
+.allocationTotalLabel {
+  color: var(--color-text-muted);
+}
+
+.allocationTotalValue {
+  color: var(--color-text);
+  font-weight: 700;
+}
+
+.allocationTotalDivider {
+  color: var(--color-text-muted);
+}
+
+.balanceBadge {
+  border-radius: 4px;
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 600;
+  margin-left: var(--space-1);
+  padding: 2px var(--space-2);
+}
+
+.balanceBalanced {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.balanceUnbalanced {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.allocationBar {
+  background: var(--color-surface-muted);
+  border-radius: 999px;
+  display: flex;
+  height: 12px;
+  overflow: hidden;
+}
+
+.allocationSegment {
+  height: 100%;
+  min-width: 0;
+  transition: width 0.3s ease;
+}
+
+.allocationLegend {
+  align-items: center;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: var(--space-2) var(--space-4);
+  justify-content: space-between;
+  margin-top: var(--space-3);
+  padding-top: var(--space-2);
+}
+
+.legendItem {
+  align-items: center;
+  display: flex;
+  gap: var(--space-2);
+}
+
+.legendDot {
+  border-radius: 50%;
+  display: inline-block;
+  height: 10px;
+  width: 10px;
+}
+
+.legendName {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.legendShare {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.legendMode {
+  border-radius: 4px;
+  font-size: 10px;
+  padding: 1px var(--space-1);
+}
+
+.legendPinned {
+  background: #eff6ff;
+  color: var(--color-primary);
+}
+
+.legendAuto {
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+}
+
+.legendUnallocated {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.legendUnallocated span {
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+.allocationHint {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  margin: var(--space-2) 0 0;
+}
+
 @media (max-width: 767px) {
   .card {
     padding: var(--space-4);
@@ -279,5 +606,10 @@ button:disabled {
 
   .offerFields dd {
     margin-bottom: var(--space-2);
+  }
+
+  .dirtyBanner {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

@@ -27,6 +27,7 @@ import { PushUnavailablePanel } from "../publication/PushUnavailablePanel";
 import { usePublicationRecoveryLock } from "../publication/usePublicationRecoveryLock";
 import { parsePositiveId } from "../campaign-workspace/campaignId";
 import {
+  AllocationSummary,
   CommittedPanel,
   ConflictPanel,
   DraftPanel,
@@ -35,6 +36,19 @@ import {
   type DraftActionRequest,
 } from "./EditorPanels";
 import styles from "./OfferEditorPage.module.css";
+import { draftChanges } from "./draftChanges";
+import type { DraftViewResponse } from "../../api/operations";
+
+function draftChangesCount(draft: DraftViewResponse): number {
+  const changes = draftChanges(draft);
+  return (
+    changes.additions.length +
+    changes.archives.length +
+    changes.restores.length +
+    changes.pinToggles.length +
+    changes.shareEdits.length
+  );
+}
 
 type Failure = { message: string; code: string | null; status: number | null };
 
@@ -363,6 +377,25 @@ function Editor({
         unavailable, and offers only a local publication Cancel.
       </p>
       <Link to={`/campaigns/${campaignId}`}>Back to Campaign Workspace</Link>
+
+      {draft?.is_dirty && (
+        <div className={styles.dirtyBanner} data-purpose="conflict-alert">
+          <div>
+            <p className={styles.dirtyBannerTitle}>
+              Draft active on version {draft.version}.{" "}
+              {draftChangesCount(draft)} local staged mutation
+              {draftChangesCount(draft) === 1 ? "" : "s"} awaiting commit.
+            </p>
+            <p className={styles.dirtyBannerHint}>
+              Remote baseline remains pinned. Manual edits automatically toggle
+              offer mode to Pinned.
+            </p>
+          </div>
+          <span className={styles.dirtyPolicy}>Policy: EXACT_100_ENFORCED</span>
+        </div>
+      )}
+
+      {draftQuery.isSuccess && <AllocationSummary draft={draft} />}
 
       {busy && (
         <output className={styles.pending}>
