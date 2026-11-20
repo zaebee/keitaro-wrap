@@ -116,6 +116,15 @@ async function expectConfirmationClosed() {
   );
 }
 
+async function openOfferMenu(
+  user: ReturnType<typeof userEvent.setup>,
+  offerId: number,
+) {
+  await user.click(
+    screen.getByRole("button", { name: `More actions for offer ${offerId}` }),
+  );
+}
+
 function draftRegion(): HTMLElement {
   return screen.getByRole("heading", { name: /Staged draft/ }).closest(
     "section",
@@ -338,6 +347,7 @@ describe("OfferEditorPage", () => {
       if (action === "restore") {
         await user.click(screen.getByText("Archived offers in baseline"));
       }
+      await openOfferMenu(user, expected.body.offer_id);
       await user.click(screen.getByRole("button", { name: button }));
 
       await waitFor(() => expect(actualAction).toBe(expected.action));
@@ -392,7 +402,7 @@ describe("OfferEditorPage", () => {
 
     await waitFor(() => expect(body).toEqual({ expected_version: 1, offer_id: 8, share: 35 }));
     const offer8 = screen.getByRole("row", { name: /Offer #8/ });
-    expect(within(offer8).getByText("pinned")).toBeInTheDocument();
+    expect(within(offer8).getByText("Pinned")).toBeInTheDocument();
     expect(within(offer8).getByText("35")).toBeInTheDocument();
     expect(screen.getByText(/Requested share: Offer #8/)).toHaveTextContent("→ 35");
   });
@@ -410,14 +420,15 @@ describe("OfferEditorPage", () => {
     const user = userEvent.setup();
     renderApp(EDITOR_PATH);
     await screen.findByRole("button", { name: "Add offer" });
-    const pinButton = screen.getByRole("button", { name: "Pin offer 8" });
+    await openOfferMenu(user, 8);
+    await user.click(screen.getByRole("button", { name: "Pin offer 8" }));
 
-    await user.click(pinButton);
     expect(
       screen.getByText("Saving local draft… Duplicate submissions are disabled."),
     ).toBeInTheDocument();
-    expect(pinButton).toBeDisabled();
-    await user.click(pinButton);
+    expect(
+      screen.getByRole("button", { name: "More actions for offer 8" }),
+    ).toBeDisabled();
 
     expect(postCount).toBe(1);
     await waitFor(() =>
@@ -449,7 +460,8 @@ describe("OfferEditorPage", () => {
     renderApp(EDITOR_PATH);
     await screen.findByRole("button", { name: "Add offer" });
 
-    await user.click(screen.getByRole("button", { name: "Pin offer 8" }));
+    await openOfferMenu(user, 8);
+        await user.click(screen.getByRole("button", { name: "Pin offer 8" }));
 
     expect(
       await screen.findByText("Recovery required — draft commands locked"),
@@ -542,9 +554,11 @@ describe("OfferEditorPage", () => {
     renderApp(EDITOR_PATH);
     await screen.findByText("Sticky Fetch conflicts");
     expect(screen.getByText(/remote share changed/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Remove offer 8" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "More actions for offer 8" }),
+    ).toBeDisabled();
     expect(screen.getByRole("button", { name: "Add offer" })).toBeDisabled();
-    const cancelButton = screen.getByRole("button", { name: "Cancel local draft" });
+    const cancelButton = screen.getByRole("button", { name: "Discard Draft" });
     expect(cancelButton).toBeEnabled();
 
     await user.click(cancelButton);
@@ -579,7 +593,8 @@ describe("OfferEditorPage", () => {
     renderApp(EDITOR_PATH);
     await screen.findByRole("button", { name: "Add offer" });
 
-    await user.click(screen.getByRole("button", { name: "Pin offer 8" }));
+    await openOfferMenu(user, 8);
+        await user.click(screen.getByRole("button", { name: "Pin offer 8" }));
 
     expect(
       await screen.findByText(/The draft command outcome is unknown/),
@@ -790,7 +805,8 @@ describe("OfferEditorPage", () => {
       renderApp(EDITOR_PATH);
       await screen.findByRole("button", { name: "Add offer" });
 
-      await user.click(screen.getByRole("button", { name: "Pin offer 8" }));
+      await openOfferMenu(user, 8);
+        await user.click(screen.getByRole("button", { name: "Pin offer 8" }));
 
       const root = screen.getByRole("region", { name: "Offer Editor" });
       expect(
@@ -799,10 +815,10 @@ describe("OfferEditorPage", () => {
       expect(root).toHaveAttribute("data-recovery-lock", "active");
       expect(screen.getByRole("button", { name: "Add offer" })).toBeDisabled();
       expect(
-        screen.getByRole("button", { name: "Cancel local draft" }),
+        screen.getByRole("button", { name: "Discard Draft" }),
       ).toBeDisabled();
       expect(
-        screen.getByRole("button", { name: "Remove offer 8" }),
+        screen.getByRole("button", { name: "More actions for offer 8" }),
       ).toBeDisabled();
       expect(
         screen.getByRole("button", { name: "Read current draft" }),
@@ -832,12 +848,12 @@ describe("OfferEditorPage", () => {
         expect(await screen.findByText("Sticky Fetch conflicts")).toBeInTheDocument();
         expect(screen.getByRole("button", { name: "Add offer" })).toBeDisabled();
         expect(
-          screen.getByRole("button", { name: "Cancel local draft" }),
+          screen.getByRole("button", { name: "Discard Draft" }),
         ).toBeEnabled();
       } else {
         expect(screen.getByRole("button", { name: "Add offer" })).toBeEnabled();
         expect(
-          screen.getByRole("button", { name: "Cancel local draft" }),
+          screen.getByRole("button", { name: "Discard Draft" }),
         ).toBeEnabled();
       }
     },
@@ -860,6 +876,7 @@ describe("OfferEditorPage", () => {
       action: "remove",
       draft: draftViewFixture(),
       trigger: async (user) => {
+        await openOfferMenu(user, 8);
         await user.click(screen.getByRole("button", { name: "Remove offer 8" }));
       },
     },
@@ -874,6 +891,7 @@ describe("OfferEditorPage", () => {
       }),
       trigger: async (user) => {
         await user.click(screen.getByText("Archived offers in baseline"));
+        await openOfferMenu(user, 8);
         await user.click(screen.getByRole("button", { name: "Restore offer 8" }));
       },
     },
@@ -881,6 +899,7 @@ describe("OfferEditorPage", () => {
       action: "pin",
       draft: draftViewFixture(),
       trigger: async (user) => {
+        await openOfferMenu(user, 8);
         await user.click(screen.getByRole("button", { name: "Pin offer 8" }));
       },
     },
@@ -888,6 +907,7 @@ describe("OfferEditorPage", () => {
       action: "unpin",
       draft: draftViewFixture(),
       trigger: async (user) => {
+        await openOfferMenu(user, 7);
         await user.click(screen.getByRole("button", { name: "Unpin offer 7" }));
       },
     },
@@ -907,7 +927,7 @@ describe("OfferEditorPage", () => {
       draft: draftViewFixture(),
       trigger: async (user) => {
         await user.click(
-          screen.getByRole("button", { name: "Cancel local draft" }),
+          screen.getByRole("button", { name: "Discard Draft" }),
         );
         await user.click(
           screen.getByRole("button", { name: "Confirm local cancel" }),
@@ -982,7 +1002,7 @@ describe("OfferEditorPage", () => {
       );
       expect(screen.getByRole("button", { name: "Add offer" })).toBeEnabled();
       expect(
-        screen.getByRole("button", { name: "Cancel local draft" }),
+        screen.getByRole("button", { name: "Discard Draft" }),
       ).toBeEnabled();
       expect(postCount).toBe(1);
     },
@@ -1047,9 +1067,11 @@ describe("OfferEditorPage", () => {
       await screen.findByRole("heading", { name: "Fetch required" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add offer" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Remove offer 8" })).toBeDisabled();
     expect(
-      screen.getByRole("button", { name: "Cancel local draft" }),
+      screen.getByRole("button", { name: "More actions for offer 8" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Discard Draft" }),
     ).toBeEnabled();
   });
 
@@ -1263,11 +1285,9 @@ describe("OfferEditorPage", () => {
     const summary = await screen.findByText("Archived offers in baseline");
     expect(summary).toBeVisible();
     expect(screen.getByText("Click to expand")).toBeVisible();
-    expect(
-      screen.getByRole("button", { name: "Restore offer 8" }),
-    ).not.toBeVisible();
-
-    await userEvent.setup().click(summary);
+    const user = userEvent.setup();
+    await user.click(summary);
+    await openOfferMenu(user, 8);
     expect(
       screen.getByRole("button", { name: "Restore offer 8" }),
     ).toBeVisible();

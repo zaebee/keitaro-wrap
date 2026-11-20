@@ -311,11 +311,6 @@ button:disabled {
   white-space: nowrap;
 }
 
-.offerStateCell {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
 
 .offerLifecycle {
   font-size: 11px;
@@ -378,13 +373,6 @@ button:disabled {
   color: var(--color-text-muted);
 }
 
-.pinNote {
-  background: var(--color-surface-muted);
-  border-radius: 4px;
-  color: var(--color-text-muted);
-  font-size: 10px;
-  padding: 1px var(--space-2);
-}
 
 .inlineActions {
   display: flex;
@@ -877,4 +865,206 @@ button:disabled {
     padding-top: var(--space-3);
     position: static;
   }
+}
+
+.srOnly {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+.offersHeader {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.offersHeader h3 {
+  font-size: 15px;
+  margin: 0;
+}
+
+.offersHeader .addForm {
+  margin: 0;
+}
+
+.archivedHeading {
+  font-size: 15px;
+  margin: var(--space-4) 0 var(--space-1);
+}
+
+.shareInputWrap {
+  align-items: center;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  display: inline-flex;
+}
+
+.shareInputWrap input {
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-control);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  height: 26px;
+  padding: 0 var(--space-1);
+  text-align: right;
+  width: 44px;
+}
+
+.shareInputWrap input:focus {
+  outline: 1px solid var(--color-primary);
+}
+
+.shareInputWrap input[aria-invalid="true"] {
+  outline: 1px solid var(--color-danger);
+}
+
+.shareSuffix {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  padding-right: var(--space-1);
+}
+
+.allocationMode {
+  align-items: center;
+  display: inline-flex;
+  font-weight: 600;
+  gap: var(--space-1);
+  white-space: nowrap;
+}
+
+.allocationPinned {
+  color: var(--color-primary);
+}
+
+.allocationAuto {
+  color: var(--color-text-muted);
+}
+
+.modeIcon {
+  flex: none;
+}
+
+.offerStatusCell {
+  align-items: center;
+  display: inline-flex;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.statusDot {
+  border-radius: 50%;
+  display: inline-block;
+  height: 8px;
+  width: 8px;
+}
+
+.statusDotActive {
+  background: var(--color-accent-emerald);
+}
+
+.statusDotArchived {
+  background: var(--color-text-muted);
+}
+
+.kebabButton {
+  align-items: center;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: var(--radius-control);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  height: 28px;
+  justify-content: center;
+  width: 28px;
+}
+
+.kebabButton:hover:not(:disabled) {
+  background: var(--color-surface-muted);
+  border-color: var(--color-border);
+}
+
+.inlineActions {
+  position: relative;
+}
+
+.actionMenu {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-subtle);
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  padding: var(--space-1);
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 10;
+}
+
+.actionMenu button {
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.actionMenu button:hover:not(:disabled) {
+  background: var(--color-surface-muted);
+}
+
+.syncBadge {
+  align-items: center;
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 600;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+}
+
+.syncGood {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.syncWarn {
+  background: #fef3c7;
+  color: #854d0e;
+}
+
+.syncMuted {
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+}
+
+.lastFetch {
+  display: inline-flex;
+  flex-direction: column;
+  margin-left: auto;
+  text-align: right;
+}
+
+.lastFetchLabel {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.lastFetchValue {
+  font-size: 13px;
+  font-weight: 600;
 }
