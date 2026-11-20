@@ -1,4 +1,4 @@
-import { cleanup, screen, waitFor } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -56,12 +56,12 @@ describe("CampaignWorkspacePage", () => {
     expect(
       await screen.findByRole("heading", { name: "Cached stream references" }),
     ).toBeInTheDocument();
-    expect(await screen.findByText("Main stream")).toBeInTheDocument();
+    expect(await within(screen.getByRole("main")).findByText("Main stream")).toBeInTheDocument();
     expect(screen.getByText("101")).toBeInTheDocument();
     expect(screen.getByText("regular")).toBeInTheDocument();
     expect(screen.getByText("landings")).toBeInTheDocument();
     expect(screen.getByText("Primary stream")).toBeInTheDocument();
-    expect(screen.getByText("Second stream")).toBeInTheDocument();
+    expect(within(screen.getByRole("main")).getByText("Second stream")).toBeInTheDocument();
     expect(screen.getByText("retargeting")).toBeInTheDocument();
     expect(screen.getByText("offers")).toBeInTheDocument();
     expect(screen.getByText("Comments")).toBeInTheDocument();
@@ -117,7 +117,7 @@ describe("CampaignWorkspacePage", () => {
     const user = userEvent.setup();
     renderApp("/campaigns/42");
 
-    await user.click(await screen.findByRole("button", { name: "Fetch streams" }));
+    await user.click(await within(screen.getByRole("main")).findByRole("button", { name: "Fetch streams" }));
     const status = await screen.findByRole("status");
     await waitFor(() => expect(document.activeElement).toBe(status));
     expect(status).toHaveTextContent(/Fetch complete/);
@@ -133,7 +133,7 @@ describe("CampaignWorkspacePage", () => {
     const user = userEvent.setup();
     renderApp("/campaigns/42");
 
-    await user.click(await screen.findByRole("button", { name: "Fetch streams" }));
+    await user.click(await within(screen.getByRole("main")).findByRole("button", { name: "Fetch streams" }));
     const alert = await screen.findByRole("alert");
     await waitFor(() => expect(document.activeElement).toBe(alert));
     expect(alert).toHaveTextContent("Fetch failed");
@@ -149,7 +149,7 @@ describe("CampaignWorkspacePage", () => {
     const user = userEvent.setup();
     renderApp("/campaigns/42");
 
-    await user.click(await screen.findByRole("button", { name: "Fetch streams" }));
+    await user.click(await within(screen.getByRole("main")).findByRole("button", { name: "Fetch streams" }));
 
     expect(
       await screen.findByText("Fetch completed and returned zero streams."),
@@ -178,9 +178,9 @@ describe("CampaignWorkspacePage", () => {
     const user = userEvent.setup();
     renderApp("/campaigns/42");
 
-    await screen.findByText("Before Fetch");
+    await within(screen.getByRole("main")).findByText("Before Fetch");
     expect(getCount).toBe(1);
-    const fetchButton = screen.getByRole("button", { name: "Fetch streams" });
+    const fetchButton = within(screen.getByRole("main")).getByRole("button", { name: "Fetch streams" });
     await user.click(fetchButton);
 
     expect(fetchButton).toBeDisabled();
@@ -195,7 +195,7 @@ describe("CampaignWorkspacePage", () => {
     expect(screen.getByText("Bindings created")).toBeInTheDocument();
     expect(screen.getByText("Conflicted drafts")).toBeInTheDocument();
     await waitFor(() => expect(getCount).toBeGreaterThan(1));
-    expect(await screen.findByText("After Fetch")).toBeInTheDocument();
+    expect(await within(screen.getByRole("main")).findByText("After Fetch")).toBeInTheDocument();
   });
 
   it("retries a failed cached read without invoking Fetch", async () => {
@@ -230,7 +230,7 @@ describe("CampaignWorkspacePage", () => {
       screen.getByRole("button", { name: "Retry cached list read" }),
     );
 
-    expect(await screen.findByText("Main stream")).toBeInTheDocument();
+    expect(await within(screen.getByRole("main")).findByText("Main stream")).toBeInTheDocument();
     expect(getCount).toBe(2);
     expect(postCount).toBe(0);
   });
@@ -256,8 +256,8 @@ describe("CampaignWorkspacePage", () => {
     const user = userEvent.setup();
     renderApp("/campaigns/42");
 
-    await screen.findByText("Main stream");
-    await user.click(screen.getByRole("button", { name: "Fetch streams" }));
+    await within(screen.getByRole("main")).findByText("Main stream");
+    await user.click(within(screen.getByRole("main")).getByRole("button", { name: "Fetch streams" }));
 
     expect(await screen.findByText("Fetch failed")).toBeInTheDocument();
     expect(
@@ -298,7 +298,7 @@ describe("CampaignWorkspacePage", () => {
     await user.click(
       screen.getByRole("button", { name: "Retry cached list read" }),
     );
-    expect(await screen.findByText("Main stream")).toBeInTheDocument();
+    expect(await within(screen.getByRole("main")).findByText("Main stream")).toBeInTheDocument();
     expect(getCount).toBe(2);
   });
 
@@ -337,7 +337,7 @@ describe("CampaignWorkspacePage", () => {
       ).toBeInTheDocument();
       expect(screen.getByText(/No API request was made/)).toBeInTheDocument();
       expect(
-        screen.queryByRole("button", { name: "Fetch streams" }),
+        within(screen.getByRole("main")).queryByRole("button", { name: "Fetch streams" }),
       ).toBeNull();
     },
   );

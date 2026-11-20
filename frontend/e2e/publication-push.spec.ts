@@ -12,6 +12,20 @@ async function mockEditor(page: Page, pushRequests: () => void) {
   await page.route("**/api/campaigns/42/streams/101/committed", (route) =>
     route.fulfill({ json: { stream_ref: 101, bindings: [], snapshot: null } }),
   );
+  await page.route("**/api/campaigns/42/streams", (route) =>
+    route.fulfill({
+      json: [
+        {
+          stream_ref: 101,
+          campaign_id: 42,
+          type: "regular",
+          name: "Main stream",
+          schema: "landings",
+          comments: null,
+        },
+      ],
+    }),
+  );
   await page.route("**/api/campaigns/42/streams/101/draft", (route) =>
     route.fulfill({ json: { stream_ref: 101, draft: null } }),
   );
