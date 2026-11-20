@@ -14,14 +14,7 @@
   padding: var(--space-4);
 }
 
-.identity {
-  color: var(--color-text-muted);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  margin-top: 0;
-}
-
-h1 {
+.topBar h1 {
   font-size: 16px;
   letter-spacing: -0.01em;
   margin: 0 0 var(--space-1);
@@ -319,6 +312,10 @@ button:disabled {
   height: 7px;
   margin-right: 4px;
   width: 7px;
+}
+
+.stateArchived {
+  color: var(--color-text-muted);
 }
 
 .pinNote {

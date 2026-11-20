@@ -36,27 +36,18 @@ import {
   type DraftActionRequest,
 } from "./EditorPanels";
 import styles from "./OfferEditorPage.module.css";
+import { draftChanges } from "./draftChanges";
 import type { DraftViewResponse } from "../../api/operations";
 
 function draftChangesCount(draft: DraftViewResponse): number {
-  const baselineById = new Map(
-    draft.baseline_offers.map((offer) => [offer.offer_id, offer]),
+  const changes = draftChanges(draft);
+  return (
+    changes.additions.length +
+    changes.archives.length +
+    changes.restores.length +
+    changes.pinToggles.length +
+    changes.shareEdits.length
   );
-  let count = 0;
-  for (const offer of draft.offers) {
-    const baseline = baselineById.get(offer.offer_id);
-    if (baseline === undefined) {
-      count += 1;
-      continue;
-    }
-    if (baseline.share !== offer.share) {
-      count += 1;
-    }
-    if (offer.lifecycle === "ARCHIVED") {
-      count += 1;
-    }
-  }
-  return count;
 }
 
 type Failure = { message: string; code: string | null; status: number | null };
@@ -392,153 +383,153 @@ function Editor({
           <span className={`${styles.titleStream} tnum`}>
             Stream #{streamRef}
           </span>
-          {draft?.is_dirty && (
-            <span className={styles.dirtyBadge}>
-              Draft v{draft.version} (Dirty)
-            </span>
-          )}
-        </div>
-        <p className={styles.hint}>
-          This screen edits only the selected stream; streams remain
-          independent. Committed baseline and staged draft are separate server
-          views. The publication section shows read-only status, explains why
-          Push is unavailable, and offers only a local publication Cancel.
-        </p>
-      </header>
-
-      <div className={styles.columns}>
-        <div className={styles.mainColumn}>
-      {draft?.is_dirty && (
-        <div className={styles.dirtyBanner} data-purpose="conflict-alert">
-          <div>
-            <p className={styles.dirtyBannerTitle}>
-              Draft active on version {draft.version}.{" "}
-              {draftChangesCount(draft)} local staged mutation
-              {draftChangesCount(draft) === 1 ? "" : "s"} awaiting commit.
-            </p>
-            <p className={styles.dirtyBannerHint}>
-              Remote baseline remains pinned. Manual edits automatically toggle
-              offer mode to Pinned.
-            </p>
+            {draft?.is_dirty && (
+              <span className={styles.dirtyBadge}>
+                Draft v{draft.version} (Dirty)
+              </span>
+            )}
           </div>
-          <span className={styles.dirtyPolicy}>Policy: EXACT_100_ENFORCED</span>
-        </div>
-      )}
+          <p className={styles.hint}>
+            This screen edits only the selected stream; streams remain
+            independent. Committed baseline and staged draft are separate server
+            views. The publication section shows read-only status, explains why
+            Push is unavailable, and offers only a local publication Cancel.
+          </p>
+        </header>
 
-      {draftQuery.isSuccess && <AllocationSummary draft={draft} />}
-
-      {busy && (
-        <output className={styles.pending}>
-          Saving local draft… Duplicate submissions are disabled.
-        </output>
-      )}
-
-      {announcement && (
-        <p
-          ref={statusRef}
-          className={styles.pending}
-          role="status"
-          aria-live="polite"
-          tabIndex={-1}
-        >
-          {announcement}
-        </p>
-      )}
-
-      {(mutation.isError || acceptRemoteMutation.isError) && (
-        <ErrorSummary
-          heading={
-            recoveryRequired
-              ? "Recovery required — draft commands locked"
-              : "Draft command failed"
-          }
-          message={failureMessage(mutationFailure)}
-          code={mutationFailure.code}
-          detail={
-            <>
-              <p className={styles.hint}>{hintFor(mutationFailure)}</p>
-              {recoveryRequired && (
-                <p className={styles.hint}>
-                  The lock is released only by a successful GET re-read. A failed
-                  re-read keeps every draft command disabled.
-                </p>
-              )}
-              {staleConflicts.length > 0 && (
-                <ConflictPanel conflicts={staleConflicts} />
-              )}
-            </>
-          }
-          retryLabel="Read current draft"
-          onRetry={() => void rereadDraft()}
-          retryDisabled={draftQuery.isFetching}
-        />
-      )}
-
-      <section aria-labelledby="committed-section-heading" className={styles.section}>
-        <h2 id="committed-section-heading">Committed state</h2>
-        {committedQuery.isPending && (
-          <output>Loading committed stream state…</output>
+        <div className={styles.columns}>
+          <div className={styles.mainColumn}>
+        {draft?.is_dirty && (
+          <div className={styles.dirtyBanner} data-purpose="conflict-alert">
+            <div>
+              <p className={styles.dirtyBannerTitle}>
+                Draft active on version {draft.version}.{" "}
+                {draftChangesCount(draft)} local staged mutation
+                {draftChangesCount(draft) === 1 ? "" : "s"} awaiting commit.
+              </p>
+              <p className={styles.dirtyBannerHint}>
+                Remote baseline remains pinned. Manual edits automatically toggle
+                offer mode to Pinned.
+              </p>
+            </div>
+            <span className={styles.dirtyPolicy}>Policy: EXACT_100_ENFORCED</span>
+          </div>
         )}
-        {committedQuery.isError && (
-          <ReadErrorPanel
-            heading="Committed state unavailable"
-            message={describeFailure(committedQuery.error).message}
-            code={describeFailure(committedQuery.error).code}
-            retryLabel="Retry committed read"
-            onRetry={() => committedQuery.refetch()}
-            retryDisabled={committedQuery.isFetching}
-          />
-        )}
-        {committedQuery.isSuccess && <CommittedPanel state={committedQuery.data} />}
-      </section>
 
-      <section aria-labelledby="draft-section-heading" className={styles.section}>
-        <h2 id="draft-section-heading">Draft state</h2>
-        {draftQuery.isPending && <output>Loading local draft…</output>}
-        {draftQuery.isError && (
-          <ReadErrorPanel
-            heading="Draft state unavailable"
-            message={describeFailure(draftQuery.error).message}
-            code={describeFailure(draftQuery.error).code}
-            retryLabel="Retry draft read"
-            onRetry={() => draftQuery.refetch()}
+        {draftQuery.isSuccess && <AllocationSummary draft={draft} />}
+
+        {busy && (
+          <output className={styles.pending}>
+            Saving local draft… Duplicate submissions are disabled.
+          </output>
+        )}
+
+        {announcement && (
+          <p
+            ref={statusRef}
+            className={styles.pending}
+            role="status"
+            aria-live="polite"
+            tabIndex={-1}
+          >
+            {announcement}
+          </p>
+        )}
+
+        {(mutation.isError || acceptRemoteMutation.isError) && (
+          <ErrorSummary
+            heading={
+              recoveryRequired
+                ? "Recovery required — draft commands locked"
+                : "Draft command failed"
+            }
+            message={failureMessage(mutationFailure)}
+            code={mutationFailure.code}
+            detail={
+              <>
+                <p className={styles.hint}>{hintFor(mutationFailure)}</p>
+                {recoveryRequired && (
+                  <p className={styles.hint}>
+                    The lock is released only by a successful GET re-read. A failed
+                    re-read keeps every draft command disabled.
+                  </p>
+                )}
+                {staleConflicts.length > 0 && (
+                  <ConflictPanel conflicts={staleConflicts} />
+                )}
+              </>
+            }
+            retryLabel="Read current draft"
+            onRetry={() => void rereadDraft()}
             retryDisabled={draftQuery.isFetching}
           />
         )}
-        {draftQuery.isSuccess && (
-          <DraftPanel
-            draft={draft}
-            busy={busy}
-            recoveryRequired={recoveryRequired}
-            baselineReady={baselineReady}
-            workspacePath={`/campaigns/${campaignId}`}
-            newOfferId={newOfferId}
-            addError={addError}
-            shareInputs={shareInputs}
-            shareErrors={shareErrors}
-            confirmingCancel={confirmingCancel}
-            acceptingConflict={acceptingConflict}
-            onNewOfferInput={(value) => {
-              setNewOfferId(value);
-              setAddError(null);
-            }}
-            onAction={handleAction}
-            onShareInput={(offerId, value) =>
-              setShareInputs((previous) => ({ ...previous, [offerId]: value }))
-            }
-            onShareSubmit={submitShare}
-            onConfirmCancel={() => {
-              if (!recoveryRequired && draft !== null) {
-                mutation.mutate({ kind: "cancel" });
+
+        <section aria-labelledby="committed-section-heading" className={styles.section}>
+          <h2 id="committed-section-heading">Committed state</h2>
+          {committedQuery.isPending && (
+            <output>Loading committed stream state…</output>
+          )}
+          {committedQuery.isError && (
+            <ReadErrorPanel
+              heading="Committed state unavailable"
+              message={describeFailure(committedQuery.error).message}
+              code={describeFailure(committedQuery.error).code}
+              retryLabel="Retry committed read"
+              onRetry={() => committedQuery.refetch()}
+              retryDisabled={committedQuery.isFetching}
+            />
+          )}
+          {committedQuery.isSuccess && <CommittedPanel state={committedQuery.data} />}
+        </section>
+
+        <section aria-labelledby="draft-section-heading" className={styles.section}>
+          <h2 id="draft-section-heading">Draft state</h2>
+          {draftQuery.isPending && <output>Loading local draft…</output>}
+          {draftQuery.isError && (
+            <ReadErrorPanel
+              heading="Draft state unavailable"
+              message={describeFailure(draftQuery.error).message}
+              code={describeFailure(draftQuery.error).code}
+              retryLabel="Retry draft read"
+              onRetry={() => draftQuery.refetch()}
+              retryDisabled={draftQuery.isFetching}
+            />
+          )}
+          {draftQuery.isSuccess && (
+            <DraftPanel
+              draft={draft}
+              busy={busy}
+              recoveryRequired={recoveryRequired}
+              baselineReady={baselineReady}
+              workspacePath={`/campaigns/${campaignId}`}
+              newOfferId={newOfferId}
+              addError={addError}
+              shareInputs={shareInputs}
+              shareErrors={shareErrors}
+              confirmingCancel={confirmingCancel}
+              acceptingConflict={acceptingConflict}
+              onNewOfferInput={(value) => {
+                setNewOfferId(value);
+                setAddError(null);
+              }}
+              onAction={handleAction}
+              onShareInput={(offerId, value) =>
+                setShareInputs((previous) => ({ ...previous, [offerId]: value }))
               }
-            }}
-            onKeepDraft={() => setConfirmingCancel(false)}
-            onAcceptRemote={() => void requestAcceptRemote()}
-            onConfirmAcceptRemote={() => acceptRemoteMutation.mutate()}
-            onKeepConflict={() => setAcceptingConflict(false)}
-          />
-        )}
-      </section>
+              onShareSubmit={submitShare}
+              onConfirmCancel={() => {
+                if (!recoveryRequired && draft !== null) {
+                  mutation.mutate({ kind: "cancel" });
+                }
+              }}
+              onKeepDraft={() => setConfirmingCancel(false)}
+              onAcceptRemote={() => void requestAcceptRemote()}
+              onConfirmAcceptRemote={() => acceptRemoteMutation.mutate()}
+              onKeepConflict={() => setAcceptingConflict(false)}
+            />
+          )}
+        </section>
         </div>
 
         <aside className={styles.inspector} aria-label="Backend inspector">
@@ -574,7 +565,7 @@ function Editor({
               <span className={styles.policyChecksum}>
                 {draft === null
                   ? "not available"
-                  : `SHA256:${(draft.conflicts_fingerprint ?? "").slice(0, 8)}…`}
+                  : `fingerprint: ${(draft.conflicts_fingerprint ?? "").slice(0, 8)}…`}
               </span>
             </div>
           </div>

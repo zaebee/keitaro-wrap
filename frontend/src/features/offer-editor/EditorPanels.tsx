@@ -9,6 +9,20 @@ import type {
 } from "../../api/operations";
 import { ErrorSummary } from "../../shared/ui/ErrorSummary";
 import { draftChanges, hasDraftChanges } from "./draftChanges";
+
+function stagedChangeCount(draft: DraftViewResponse | null): number {
+  if (draft === null) {
+    return 0;
+  }
+  const changes = draftChanges(draft);
+  return (
+    changes.additions.length +
+    changes.archives.length +
+    changes.restores.length +
+    changes.pinToggles.length +
+    changes.shareEdits.length
+  );
+}
 import styles from "./OfferEditorPage.module.css";
 
 export type DraftActionRequest =
@@ -122,9 +136,7 @@ export function AllocationSummary({
     return null;
   }
   const stagedTotal = activeOffers.reduce((sum, offer) => sum + offer.share, 0);
-  const modifiedCount = activeOffers.filter(
-    (offer) => baselineShares.get(offer.offer_id) !== offer.share,
-  ).length;
+  const modifiedCount = stagedChangeCount(draft);
   const unallocated = draft?.unallocated ?? 100 - stagedTotal;
 
   return (
@@ -480,12 +492,14 @@ function OfferCard({
         <dd>{offer.position}</dd>
       </dl>
       <p className={styles.offerStatus}>
-        {shareModified ? (
-          <span className={styles.stateModified}>Active · Modified</span>
-        ) : (
-          offer.lifecycle === "ACTIVE" && (
+        {offer.lifecycle === "ACTIVE" ? (
+          shareModified ? (
+            <span className={styles.stateModified}>Active · Modified</span>
+          ) : (
             <span className={styles.stateSynced}>Active · Synced</span>
           )
+        ) : (
+          <span className={styles.stateArchived}>Archived</span>
         )}
         {offer.is_pinned && <span className={styles.pinNote}>Manual lock</span>}
       </p>
