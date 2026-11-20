@@ -5,7 +5,10 @@ const CAMPAIGN_ID = 42;
 const STREAM_REF = 101;
 const UUID = "11111111-2222-4333-8444-555555555555";
 
-const offer = (offerId: number, share: number) => ({
+type RemoteOffer = { offer_id: number; share: number; state: string; position: number };
+type DraftView = Record<string, unknown>;
+
+const offer = (offerId: number, share: number): RemoteOffer => ({
   offer_id: offerId,
   share,
   state: "active",
@@ -29,12 +32,65 @@ const publicationOperation = {
   campaign_id: CAMPAIGN_ID,
   stream_ref: STREAM_REF,
   status: "in_progress",
-  draft_version: 2,
+  draft_version: 1,
   effective_entries: [],
   attempt_count: 1,
 };
 
-function draftView(overrides: Record<string, unknown> = {}) {
+const stagedOffer = {
+  offer_id: 9,
+  lifecycle: "ACTIVE",
+  is_pinned: false,
+  share: 0,
+  state: null,
+  position: 2,
+};
+
+function stagedView(offers: RemoteOffer[] = originalOffers): DraftView {
+  return draftView({
+    offers: [
+      ...offers.map((item) => ({
+        ...item,
+        lifecycle: "ACTIVE",
+        is_pinned: false,
+      })),
+      stagedOffer,
+    ],
+    baseline_offers: offers,
+    is_dirty: true,
+    staged_changes: { additions: [9] },
+  });
+}
+
+function staleView(offers: RemoteOffer[] = changedOffers): DraftView {
+  return draftView({
+    offers: [
+      ...offers.map((item) => ({
+        ...item,
+        lifecycle: "ACTIVE",
+        is_pinned: false,
+      })),
+      stagedOffer,
+    ],
+    baseline_offers: originalOffers,
+    is_dirty: true,
+    is_stale: true,
+    staged_changes: { additions: [9] },
+    conflicts: [
+      {
+        stream_ref: STREAM_REF,
+        offer_id: 7,
+        field: "share",
+        expected: 60,
+        observed: 90,
+        reason: "remote_share_changed",
+      },
+    ],
+    conflicts_fingerprint: "sha256:conflict",
+  });
+}
+
+function draftView(overrides: Record<string, unknown> = {}): DraftView {
   return {
     stream_ref: STREAM_REF,
     offers: originalOffers.map((item) => ({
@@ -71,6 +127,63 @@ async function expectNoCriticalAxe(page: Page) {
   ).toEqual([]);
 }
 
+async function clearBrowserState(page: Page) {
+  await page.goto("/");
+  await page.evaluate(() => {
+    sessionStorage.clear();
+    localStorage.clear();
+  });
+}
+
+type ReadOnlyState = {
+  streams: unknown[];
+  offers: RemoteOffer[];
+  draft: DraftView | null;
+  publication: unknown | null;
+  queue: unknown[];
+};
+
+async function mockReadOnlyApi(
+  page: Page,
+  initial: Partial<ReadOnlyState> = {},
+) {
+  const state: ReadOnlyState = {
+    streams: initial.streams ?? [streamRef],
+    offers: initial.offers ?? originalOffers,
+    draft: initial.draft ?? null,
+    publication: initial.publication ?? null,
+    queue: initial.queue ?? [],
+  };
+  await mockHealth(page);
+  await page.route("**/api/campaigns/42/streams", (route) =>
+    route.fulfill({ json: state.streams }),
+  );
+  await page.route("**/api/campaigns/42/streams/101/committed", (route) =>
+    route.fulfill({
+      json: {
+        stream_ref: STREAM_REF,
+        bindings: state.offers.map((item) => ({
+          offer_id: item.offer_id,
+          lifecycle: "ACTIVE",
+          is_pinned: false,
+          last_remote_share: item.share,
+        })),
+        snapshot: { offers: state.offers, captured_at: "2026-11-20T03:00:00" },
+      },
+    }),
+  );
+  await page.route("**/api/campaigns/42/streams/101/draft", (route) =>
+    route.fulfill({ json: { stream_ref: STREAM_REF, draft: state.draft } }),
+  );
+  await page.route("**/api/campaigns/42/streams/101/publication", (route) =>
+    route.fulfill({ json: { stream_ref: STREAM_REF, operation: state.publication } }),
+  );
+  await page.route("**/api/publications/recoverable*", (route) =>
+    route.fulfill({ json: state.queue }),
+  );
+  return { state };
+}
+
 test("full mocked journey covers Fetch → conflict → Accept remote → recovery", async ({
   page,
 }) => {
@@ -83,9 +196,10 @@ test("full mocked journey covers Fetch → conflict → Accept remote → recove
   });
 
   let operationReads = 0;
+  let fetchCount = 0;
   let streams: unknown[] = [];
   let offers = originalOffers;
-  let currentDraft: unknown = null;
+  let currentDraft: DraftView | null = null;
   let stagedBody: unknown = null;
   let acceptedBody: unknown = null;
   let queue: unknown[] = [publicationOperation];
@@ -119,8 +233,11 @@ test("full mocked journey covers Fetch → conflict → Accept remote → recove
     });
   });
   await page.route("**/api/campaigns/42/fetch", (route) => {
-    const conflict = offers !== originalOffers ? 1 : 0;
+    fetchCount += 1;
     streams = [streamRef];
+    if (fetchCount >= 2) {
+      currentDraft = staleView(offers);
+    }
     return route.fulfill({
       json: {
         campaign_id: CAMPAIGN_ID,
@@ -129,8 +246,8 @@ test("full mocked journey covers Fetch → conflict → Accept remote → recove
         created_bindings: 2,
         archived_bindings: 0,
         reactivated_bindings: 0,
-        share_updates: conflict,
-        conflicted_drafts: conflict,
+        share_updates: fetchCount >= 2 ? 1 : 0,
+        conflicted_drafts: fetchCount >= 2 ? 1 : 0,
       },
     });
   });
@@ -156,26 +273,10 @@ test("full mocked journey covers Fetch → conflict → Accept remote → recove
   );
   await page.route("**/api/campaigns/42/streams/101/draft/add", async (route) => {
     stagedBody = await route.request().postDataJSON();
-    currentDraft = draftView({
-      offers: [
-        ...originalOffers.map((item) => ({
-          ...item,
-          lifecycle: "ACTIVE",
-          is_pinned: false,
-        })),
-        {
-          offer_id: 9,
-          lifecycle: "ACTIVE",
-          is_pinned: false,
-          share: 0,
-          state: null,
-          position: 2,
-        },
-      ],
-      is_dirty: true,
-      staged_changes: { additions: [9] },
+    currentDraft = stagedView(offers);
+    return route.fulfill({
+      json: { view: currentDraft, created: true, noop: false },
     });
-    return route.fulfill({ json: { view: currentDraft, created: true, noop: false } });
   });
   await page.route(
     "**/api/campaigns/42/streams/101/draft/accept-remote",
@@ -191,7 +292,12 @@ test("full mocked journey covers Fetch → conflict → Accept remote → recove
         version: 2,
       });
       return route.fulfill({
-        json: { stream_ref: STREAM_REF, draft: currentDraft, noop: false, version: 2 },
+        json: {
+          stream_ref: STREAM_REF,
+          draft: currentDraft,
+          noop: false,
+          version: 2,
+        },
       });
     },
   );
@@ -243,48 +349,18 @@ test("full mocked journey covers Fetch → conflict → Accept remote → recove
   await page.getByRole("link", { name: /Open editor for stream 101/ }).click();
 
   await expect(page.getByRole("heading", { name: "Offer Editor" })).toBeVisible();
+  await expect(page.getByText("Sticky Fetch conflicts")).toHaveCount(0);
   await page.getByLabel("Add offer by ID").fill("9");
   await page.getByRole("button", { name: "Add offer" }).click();
   await expect(page.getByRole("heading", { name: "Offer #9" })).toBeVisible();
   expect(stagedBody).toEqual({ expected_version: 0, offer_id: 9 });
+  expect((currentDraft as DraftView | null)?.is_stale).toBe(false);
 
   offers = changedOffers;
-  currentDraft = draftView({
-    offers: [
-      ...changedOffers.map((item) => ({
-        ...item,
-        lifecycle: "ACTIVE",
-        is_pinned: false,
-      })),
-      {
-        offer_id: 9,
-        lifecycle: "ACTIVE",
-        is_pinned: false,
-        share: 0,
-        state: null,
-        position: 2,
-      },
-    ],
-    baseline_offers: originalOffers,
-    is_dirty: true,
-    is_stale: true,
-    staged_changes: { additions: [9] },
-    conflicts: [
-      {
-        stream_ref: STREAM_REF,
-        offer_id: 7,
-        field: "share",
-        expected: 60,
-        observed: 90,
-        reason: "remote_share_changed",
-      },
-    ],
-    conflicts_fingerprint: "sha256:conflict",
-  });
-
   await page.getByRole("link", { name: "Back to Campaign Workspace" }).click();
   await page.getByRole("button", { name: "Fetch streams" }).click();
   await expect(page.getByText("Conflicted drafts")).toBeVisible();
+  expect((currentDraft as DraftView | null)?.is_stale).toBe(true);
   await page.getByRole("link", { name: /Open editor for stream 101/ }).click();
 
   await expect(page.getByText("Sticky Fetch conflicts")).toBeVisible();
@@ -300,6 +376,17 @@ test("full mocked journey covers Fetch → conflict → Accept remote → recove
     expected_version: 1,
     expected_conflicts_fingerprint: "sha256:conflict",
   });
+  const acceptedDraft = currentDraft as unknown as DraftView;
+  expect(acceptedDraft.is_dirty).toBe(false);
+  expect(acceptedDraft.is_stale).toBe(false);
+  expect(acceptedDraft.staged_changes).toEqual({});
+  expect(acceptedDraft.baseline_offers).toEqual(changedOffers);
+  expect(
+    (acceptedDraft.offers as Array<{ offer_id: number }>).some(
+      (item) => item.offer_id === 9,
+    ),
+  ).toBe(false);
+  expect(acceptedDraft.version).toBe(2);
   await expect(page.getByText("2", { exact: true }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Add offer" })).toBeEnabled();
 
@@ -315,13 +402,18 @@ test("full mocked journey covers Fetch → conflict → Accept remote → recove
     page.getByText(/No unresolved operations in the current bounded read/),
   ).toBeVisible();
 
-  expect(page.getByRole("button", { name: /Push/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Push/ })).toHaveCount(0);
   expect(external).toEqual([]);
 });
 
-test("axe-core passes on all primary routes and states", async ({ page }) => {
+test("axe-core passes on routes and consequential states", async ({ page }) => {
   let operationReads = 0;
-  await mockHealth(page);
+  const api = await mockReadOnlyApi(page, {
+    publication: null,
+    queue: [publicationOperation],
+  });
+
+  let cancelResult: unknown = null;
   await page.route("**/api/campaign-creations/*", (route) => {
     operationReads += 1;
     return route.fulfill({
@@ -333,26 +425,9 @@ test("axe-core passes on all primary routes and states", async ({ page }) => {
       },
     });
   });
-  await page.route("**/api/campaigns/42/streams", (route) =>
-    route.fulfill({ json: [streamRef] }),
-  );
-  await page.route("**/api/campaigns/42/streams/101/committed", (route) =>
-    route.fulfill({
-      json: {
-        stream_ref: STREAM_REF,
-        bindings: [],
-        snapshot: { offers: originalOffers, captured_at: "2026-11-20T03:00:00" },
-      },
-    }),
-  );
-  await page.route("**/api/campaigns/42/streams/101/draft", (route) =>
-    route.fulfill({ json: { stream_ref: STREAM_REF, draft: null } }),
-  );
-  await page.route("**/api/campaigns/42/streams/101/publication", (route) =>
-    route.fulfill({ json: { stream_ref: STREAM_REF, operation: null } }),
-  );
-  await page.route("**/api/publications/recoverable*", (route) =>
-    route.fulfill({ json: [publicationOperation] }),
+  await page.route(
+    "**/api/campaigns/42/streams/101/publication/cancel",
+    (route) => route.fulfill({ json: cancelResult }),
   );
 
   const routes = [
@@ -369,50 +444,96 @@ test("axe-core passes on all primary routes and states", async ({ page }) => {
     await expectNoCriticalAxe(page);
   }
   expect(operationReads).toBeGreaterThan(0);
+
+  api.state.draft = staleView();
+  await page.goto("/campaigns/42/streams/101");
+  await expect(page.getByText("Sticky Fetch conflicts")).toBeVisible();
+  await expectNoCriticalAxe(page);
+
+  await page.getByRole("button", { name: "Accept remote" }).click();
+  await expect(
+    page.getByRole("group", { name: "Confirm accept remote" }),
+  ).toBeVisible();
+  await expectNoCriticalAxe(page);
+
+  await clearBrowserState(page);
+  api.state.draft = null;
+  api.state.publication = { ...publicationOperation, status: "pending" };
+  api.state.queue = [];
+  await page.goto("/campaigns/42/streams/101");
+  await page.getByRole("button", { name: "Cancel publication" }).click();
+  await expect(
+    page.getByRole("group", { name: "Confirm publication cancel" }),
+  ).toBeVisible();
+  await expectNoCriticalAxe(page);
+
+  api.state.draft = { ...draftView(), version: "invalid" };
+  await page.getByRole("button", { name: "Confirm publication cancel" }).click();
+  await expect(
+    page.getByText(/A fresh valid publication status/),
+  ).toBeVisible();
+  await expectNoCriticalAxe(page);
+
+  await clearBrowserState(page);
+  api.state.draft = null;
+  api.state.publication = { ...publicationOperation, status: "pending" };
+  cancelResult = {
+    stream_ref: STREAM_REF,
+    status: "abandoned",
+    reason: "ABANDONED",
+    draft_discarded: false,
+  };
+  await page.goto("/campaigns/42/streams/101");
+  await page.getByRole("button", { name: "Cancel publication" }).click();
+  await page.getByRole("button", { name: "Confirm publication cancel" }).click();
+  api.state.publication = { ...publicationOperation, status: "abandoned" };
+  await expect(
+    page.getByText(/Authoritative status and queue reads passed/),
+  ).toBeVisible();
+  await expectNoCriticalAxe(page);
 });
 
 test("mobile and tablet viewports keep safe actions reachable", async ({
   page,
 }) => {
-  await mockHealth(page);
-  await page.route("**/api/campaigns/42/streams", (route) =>
-    route.fulfill({ json: [streamRef] }),
-  );
-  await page.route("**/api/campaigns/42/streams/101/committed", (route) =>
+  const api = await mockReadOnlyApi(page, {
+    queue: [publicationOperation],
+    publication: { ...publicationOperation, status: "pending" },
+  });
+  await page.route("**/api/campaign-creations/*", (route) =>
     route.fulfill({
       json: {
-        stream_ref: STREAM_REF,
-        bindings: [],
-        snapshot: { offers: originalOffers, captured_at: "2026-11-20T03:00:00" },
+        operation_uuid: UUID,
+        alias: "slug-responsive",
+        status: "created",
+        campaign_id: CAMPAIGN_ID,
       },
     }),
   );
-  await page.route("**/api/campaigns/42/streams/101/draft", (route) =>
-    route.fulfill({ json: { stream_ref: STREAM_REF, draft: null } }),
-  );
-  await page.route("**/api/campaigns/42/streams/101/publication", (route) =>
-    route.fulfill({ json: { stream_ref: STREAM_REF, operation: null } }),
-  );
-  await page.route("**/api/publications/recoverable*", (route) =>
-    route.fulfill({ json: [] }),
-  );
+
+  const checks = [
+    { route: "/campaigns/new", action: /Create campaign/ },
+    { route: `/campaign-creations/${UUID}`, action: "Open Campaign Workspace" },
+    { route: "/campaigns/open", action: "Campaign ID" },
+    { route: "/campaigns/42", action: "Fetch streams" },
+    { route: "/campaigns/42/streams/101", action: "Add offer" },
+    { route: "/recovery", action: "Run recovery" },
+  ];
 
   for (const viewport of [
     { width: 390, height: 844 },
     { width: 1024, height: 768 },
   ]) {
     await page.setViewportSize(viewport);
-    await page.goto("/campaigns/42");
-    await expect(
-      page.getByRole("button", { name: "Fetch streams" }),
-    ).toBeVisible();
-    await page.getByRole("link", { name: /Open editor for stream 101/ }).click();
-    await expect(page.getByRole("heading", { name: "Offer Editor" })).toBeVisible();
-    await expect(page.getByText("Push unavailable")).toBeVisible();
-
-    const overflow = await page.evaluate(
-      () => document.documentElement.scrollWidth - window.innerWidth,
-    );
-    expect(overflow).toBeLessThanOrEqual(2);
+    for (const check of checks) {
+      await clearBrowserState(page);
+      api.state.draft = null;
+      await page.goto(check.route);
+      await expect(page.getByText(check.action, { exact: false }).first()).toBeVisible();
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - window.innerWidth,
+      );
+      expect(overflow).toBeLessThanOrEqual(2);
+    }
   }
 });
