@@ -10,26 +10,19 @@
   padding: var(--space-4);
 }
 
-.campaignId {
-  font-size: 18px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  margin-top: 0;
-}
-
 .hint {
   color: var(--color-text-muted);
   font-size: 12px;
 }
 
-.actions {
+.campaignActions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-3);
   margin: var(--space-6) 0;
 }
 
-.actions button {
+.campaignActions button {
   height: var(--control-height);
   padding: 0 var(--space-4);
   border: 1px solid var(--color-border);
@@ -40,7 +33,7 @@
   cursor: pointer;
 }
 
-.actions button:disabled {
+.campaignActions button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
@@ -129,56 +122,20 @@
   padding: 0;
 }
 
-.streamItem {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-control);
-  padding: var(--space-4);
-}
-
-.streamHeader {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-3);
-  margin-bottom: var(--space-2);
-}
-
-.streamItem h3 {
-  font-size: 16px;
-  margin: 0;
-}
-
-.streamHeader a {
-  color: var(--color-primary);
-  white-space: nowrap;
-}
-
-.streamFields {
-  display: grid;
-  grid-template-columns: 120px minmax(0, 1fr);
-  gap: var(--space-1) var(--space-3);
-  margin: 0;
-}
-
-.streamFields dt {
-  color: var(--color-text-muted);
-}
-
-.streamFields dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
 @media (max-width: 767px) {
   .card {
     padding: var(--space-4);
   }
 
-  .actions {
+  .streamColumns {
+    grid-template-columns: 1fr;
+  }
+
+  .campaignActions {
     flex-direction: column;
   }
 
-  .actions button,
+  .campaignActions button,
   .errorPanel button {
     width: 100%;
   }
@@ -187,11 +144,203 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .streamFields {
-    grid-template-columns: 1fr;
-  }
+}
 
-  .streamFields dd {
-    margin-bottom: var(--space-2);
-  }
+.campaignHeader {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  justify-content: space-between;
+}
+
+.campaignIconTile {
+  align-items: center;
+  background: #e8efff;
+  border-radius: 14px;
+  color: var(--color-primary);
+  display: inline-flex;
+  height: 56px;
+  justify-content: center;
+  width: 56px;
+}
+
+.campaignIcon {
+  flex: none;
+}
+
+.campaignIdentity {
+  flex: 1 1 320px;
+}
+
+.campaignIdentity h1 {
+  font-size: 26px;
+  margin: 0;
+}
+
+.campaignSubtitle {
+  color: var(--color-text-muted);
+  margin: var(--space-1) 0 0;
+  max-width: 520px;
+}
+
+.campaignActions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.streamCard {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+
+.streamCardToggle {
+  align-items: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  gap: var(--space-3);
+  justify-content: space-between;
+  padding: var(--space-4);
+  text-align: left;
+  width: 100%;
+}
+
+.streamCardToggle:hover {
+  background: var(--color-surface-muted);
+}
+
+.streamCardTitle {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.streamCardName {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.streamCardMeta {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.streamChevron {
+  color: var(--color-text-muted);
+  display: inline-block;
+  font-size: 14px;
+  transition: transform 0.15s ease;
+}
+
+.streamChevronOpen {
+  transform: rotate(180deg);
+}
+
+.streamCardBody {
+  border-top: 1px solid var(--color-border);
+  padding: var(--space-4);
+}
+
+.streamCardMetaRow {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  justify-content: flex-end;
+  margin-bottom: var(--space-3);
+}
+
+.syncBadge {
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px var(--space-2);
+}
+
+.syncGood {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.syncWarn {
+  background: #fef3c7;
+  color: #854d0e;
+}
+
+.syncMuted {
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+}
+
+.lastFetch {
+  display: inline-flex;
+  flex-direction: column;
+  text-align: right;
+}
+
+.lastFetchLabel {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.lastFetchValue {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.streamEditorLink {
+  color: var(--color-primary);
+  white-space: nowrap;
+}
+
+.streamColumns {
+  align-items: start;
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr);
+}
+
+.streamMain {
+  min-width: 0;
+}
+
+.streamSide {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.streamSideSection {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-3);
+}
+
+.streamSideSection h3 {
+  font-size: 15px;
+  margin: 0 0 var(--space-2);
+}
+
+.dirtyBanner {
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: var(--radius-control);
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+}
+
+.dirtyBannerTitle {
+  font-weight: 600;
+  margin: 0;
+}
+
+.dirtyBannerHint {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  margin: var(--space-1) 0 0;
 }

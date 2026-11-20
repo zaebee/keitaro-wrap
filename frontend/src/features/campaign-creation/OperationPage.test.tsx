@@ -265,7 +265,7 @@ describe("OperationPage", () => {
     await user.keyboard("{Enter}");
 
     expect(
-      await screen.findByRole("heading", { name: "Campaign Workspace" }),
+      await screen.findByRole("heading", { name: /Campaign #42/ }),
     ).toBeInTheDocument();
     expect(window.location.pathname).toBe("/campaigns/42");
   });
