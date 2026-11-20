@@ -344,8 +344,10 @@ test("full mocked journey covers Fetch → conflict → Accept remote → recove
   await expect(
     page.getByRole("heading", { name: "Campaign Workspace" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Fetch streams" }).click();
-  await expect(page.getByText("Offer flow")).toBeVisible();
+  await page.locator("#main").getByRole("button", { name: "Fetch streams" }).click();
+  await expect(
+    page.getByRole("list", { name: "Cached stream references" }).getByText("Offer flow"),
+  ).toBeVisible();
   await page.getByRole("link", { name: /Open editor for stream 101/ }).click();
 
   await expect(page.getByRole("heading", { name: "Offer Editor" })).toBeVisible();
@@ -358,7 +360,7 @@ test("full mocked journey covers Fetch → conflict → Accept remote → recove
 
   offers = changedOffers;
   await page.getByRole("link", { name: "Back to Campaign Workspace" }).click();
-  await page.getByRole("button", { name: "Fetch streams" }).click();
+  await page.locator("#main").getByRole("button", { name: "Fetch streams" }).click();
   await expect(page.getByText("Conflicted drafts")).toBeVisible();
   expect((currentDraft as DraftView | null)?.is_stale).toBe(true);
   await page.getByRole("link", { name: /Open editor for stream 101/ }).click();
@@ -548,7 +550,7 @@ test("mobile and tablet viewports keep safe actions reachable", async ({
     },
     {
       route: "/campaigns/42",
-      control: () => page.getByRole("button", { name: "Fetch streams" }),
+      control: () => page.locator("#main").getByRole("button", { name: "Fetch streams" }),
     },
     {
       route: "/campaigns/42/streams/101",

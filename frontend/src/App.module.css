@@ -1,7 +1,7 @@
 .shell {
   min-height: 100vh;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
 }
 
 .skipLink {
@@ -18,57 +18,17 @@
   left: var(--space-2);
 }
 
-.header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-6);
-  padding: var(--space-4) var(--space-6);
-  background: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.brand {
-  font-weight: 600;
-  font-size: 16px;
-  color: var(--color-text);
-  text-decoration: none;
-}
-
-.health {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--color-text-muted);
-}
-
-.healthError {
-  color: var(--color-danger);
-}
-
 .main {
   flex: 1;
+  min-width: 0;
   width: min(100%, 960px);
   margin: 0 auto;
   padding: var(--space-8) var(--space-6);
 }
 
-.footer {
-  padding: var(--space-4) var(--space-6);
-  border-top: 1px solid var(--color-border);
-  color: var(--color-text-muted);
-  font-size: 12px;
-  background: var(--color-surface);
-}
-
 @media (max-width: 767px) {
-  .header {
-    flex-wrap: wrap;
-    gap: var(--space-2);
-    padding: var(--space-4);
-  }
-
-  .health {
-    margin-left: 0;
-    width: 100%;
+  .shell {
+    flex-direction: column;
   }
 
   .main {

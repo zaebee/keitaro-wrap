@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
+import { mockStreams } from "./streams";
 
 const operation = {
   operation_uuid: "operation-1",
@@ -18,6 +19,7 @@ async function mockEditor(page: Page, status = "pending") {
   await page.route("**/api/campaigns/42/streams/101/committed", (route) =>
     route.fulfill({ json: { stream_ref: 101, bindings: [], snapshot: null } }),
   );
+  await mockStreams(page);
   await page.route("**/api/campaigns/42/streams/101/draft", (route) =>
     route.fulfill({ json: { stream_ref: 101, draft: null } }),
   );

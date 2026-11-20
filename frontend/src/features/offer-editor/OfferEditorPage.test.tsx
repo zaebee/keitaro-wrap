@@ -953,7 +953,7 @@ describe("OfferEditorPage", () => {
         screen.getByText(/The server returned 5xx after the draft command/),
       ).toBeInTheDocument();
 
-      const enabledButtons = screen
+      const enabledButtons = within(screen.getByRole("main"))
         .getAllByRole("button")
         .filter((button) => !(button as HTMLButtonElement).disabled)
         .map((button) => button.textContent);
