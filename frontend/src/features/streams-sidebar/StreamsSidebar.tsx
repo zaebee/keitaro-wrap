@@ -13,6 +13,41 @@ import { parsePositiveId } from "../campaign-workspace/campaignId";
 import { queryKeys } from "../../queries/queryClient";
 import styles from "./StreamsSidebar.module.css";
 
+type StreamState = "staged" | "synced" | "idle";
+
+function streamState(
+  staged: boolean,
+  synced: boolean,
+): StreamState {
+  if (staged) {
+    return "staged";
+  }
+  if (synced) {
+    return "synced";
+  }
+  return "idle";
+}
+
+function streamStateLabel(state: StreamState): string {
+  if (state === "staged") {
+    return "has staged changes";
+  }
+  if (state === "synced") {
+    return "synced";
+  }
+  return "no staged changes";
+}
+
+function dotClassName(state: StreamState): string {
+  if (state === "staged") {
+    return `${styles.dot} ${styles.dotStaged}`;
+  }
+  if (state === "synced") {
+    return `${styles.dot} ${styles.dotSynced}`;
+  }
+  return styles.dot;
+}
+
 function formatSyncTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString();
 }
@@ -35,7 +70,7 @@ function StreamNavItem({
 
   const staged = draft.data?.draft ?? null;
   const synced = committed.data?.snapshot != null;
-  const state = staged ? "staged" : synced ? "synced" : "idle";
+  const state = streamState(staged !== null, synced);
 
   return (
     <li className={styles.streamItem}>
@@ -45,21 +80,14 @@ function StreamNavItem({
           `${styles.streamLink} ${isActive ? styles.streamLinkActive : ""}`
         }
       >
-        <span
-          className={`${styles.dot} ${state === "staged" ? styles.dotStaged : ""} ${state === "synced" ? styles.dotSynced : ""}`}
-          aria-hidden="true"
-        />
+        <span className={dotClassName(state)} aria-hidden="true" />
         <span className={styles.streamName}>{name}</span>
         <span className={styles.streamMeta}>
           {staged && (
             <span className={styles.chip}>v{staged.version} staged</span>
           )}
           <span className={styles.visuallyHidden} data-stream-state={state}>
-            {state === "staged"
-              ? "has staged changes"
-              : state === "synced"
-                ? "synced"
-                : "no staged changes"}
+            {streamStateLabel(state)}
           </span>
         </span>
       </NavLink>
@@ -92,11 +120,36 @@ function CampaignSidebar({
     },
   });
 
-  const syncLine = lastSyncedAt !== null
-    ? `Last sync: ${formatSyncTime(lastSyncedAt)}`
-    : streams.dataUpdatedAt > 0
-      ? `Last sync: ${formatSyncTime(streams.dataUpdatedAt)}`
-      : "Not synced in this session";
+  let syncLine = "Not synced in this session";
+  if (lastSyncedAt !== null) {
+    syncLine = `Last sync: ${formatSyncTime(lastSyncedAt)}`;
+  } else if (streams.dataUpdatedAt > 0) {
+    syncLine = `Last sync: ${formatSyncTime(streams.dataUpdatedAt)}`;
+  }
+
+  let streamsContent: JSX.Element;
+  if (streams.isError) {
+    streamsContent = <p className={styles.streamsHint}>Streams unavailable</p>;
+  } else if (streams.data && streams.data.length > 0) {
+    streamsContent = (
+      <ul className={styles.streamList}>
+        {streams.data.map((stream) => (
+          <StreamNavItem
+            key={stream.stream_ref}
+            campaignId={campaignId}
+            streamRef={stream.stream_ref}
+            name={stream.name}
+          />
+        ))}
+      </ul>
+    );
+  } else if (streams.isSuccess) {
+    streamsContent = (
+      <p className={styles.streamsHint}>No streams yet. Run Fetch.</p>
+    );
+  } else {
+    streamsContent = <p className={styles.streamsHint}>Loading streams…</p>;
+  }
 
   return (
     <section className={styles.campaignBlock} aria-label="Campaign">
@@ -118,24 +171,7 @@ function CampaignSidebar({
         </p>
       </div>
       <nav aria-label="Streams" className={styles.streamsNav}>
-        {streams.isError ? (
-          <p className={styles.streamsHint}>Streams unavailable</p>
-        ) : streams.data && streams.data.length > 0 ? (
-          <ul className={styles.streamList}>
-            {streams.data.map((stream) => (
-              <StreamNavItem
-                key={stream.stream_ref}
-                campaignId={campaignId}
-                streamRef={stream.stream_ref}
-                name={stream.name}
-              />
-            ))}
-          </ul>
-        ) : streams.isSuccess ? (
-          <p className={styles.streamsHint}>No streams yet. Run Fetch.</p>
-        ) : (
-          <p className={styles.streamsHint}>Loading streams…</p>
-        )}
+        {streamsContent}
       </nav>
     </section>
   );
@@ -161,6 +197,7 @@ function SidebarFooter() {
       </p>
       <p className={styles.statusLine}>
         <span className={styles.envChip}>{environment}</span>
+        {" "}
         Keitaro core: unknown
       </p>
     </footer>
