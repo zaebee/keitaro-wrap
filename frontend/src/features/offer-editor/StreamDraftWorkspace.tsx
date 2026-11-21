@@ -96,13 +96,13 @@ function DraftBanner({
 }: Readonly<{ draft: NonNullable<StreamDraftState["draft"]> }>) {
   const summary = summarizeDraftChanges(draft);
   return (
-    <div className={styles.dirtyBanner} data-purpose="conflict-alert" role="status">
+    <output className={styles.dirtyBanner} data-purpose="conflict-alert">
       <p className={styles.dirtyBannerTitle}>
         Draft v{draft.version} · {summary.totalChanges} staged change
         {summary.totalChanges === 1 ? "" : "s"}
       </p>
       <span className={styles.dirtyPolicy}>Exact 100 enforced</span>
-    </div>
+    </output>
   );
 }
 
