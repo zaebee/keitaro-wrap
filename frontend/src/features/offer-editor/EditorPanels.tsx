@@ -760,7 +760,50 @@ function useOfferRowMenu() {
   };
 }
 
-function OfferRow({ // NOSONAR
+function AllocationModeControl({
+  offer,
+  disabled,
+  onAction,
+}: Readonly<{
+  offer: StagedOfferResponse;
+  disabled: boolean;
+  onAction: (action: DraftActionRequest) => void;
+}>) {
+  if (offer.lifecycle === "ACTIVE") {
+    return (
+      <button
+        type="button"
+        className={`${styles.allocationModeBtn} ${
+          offer.is_pinned ? styles.allocationPinned : styles.allocationAuto
+        }`}
+        aria-pressed={offer.is_pinned}
+        disabled={disabled}
+        onClick={() =>
+          onAction({
+            kind: offer.is_pinned ? "unpin" : "pin",
+            offerId: offer.offer_id,
+          })
+        }
+        title={
+          offer.is_pinned
+            ? `Pinned at ${offer.share}% — click to unlock for automatic balancing`
+            : `Auto-balanced (${offer.share}%) — click to pin share`
+        }
+      >
+        {offer.is_pinned ? <LockIcon /> : <AutoIcon />}
+        <span>{offer.is_pinned ? "Pinned" : "Auto"}</span>
+      </button>
+    );
+  }
+  return (
+    <span className={`${styles.allocationMode} ${styles.allocationAuto}`}>
+      {offer.is_pinned ? <LockIcon /> : <AutoIcon />}
+      <span>{offer.is_pinned ? "Pinned" : "Auto"}</span>
+    </span>
+  );
+}
+
+function OfferRow({
   offer,
   disabled,
   baselineShare,
@@ -925,35 +968,11 @@ function OfferRow({ // NOSONAR
         </div>
       </td>
       <td>
-        {offer.lifecycle === "ACTIVE" ? (
-          <button
-            type="button"
-            className={`${styles.allocationModeBtn} ${
-              offer.is_pinned ? styles.allocationPinned : styles.allocationAuto
-            }`}
-            aria-pressed={offer.is_pinned}
-            disabled={disabled}
-            onClick={() =>
-              onAction({
-                kind: offer.is_pinned ? "unpin" : "pin",
-                offerId: offer.offer_id,
-              })
-            }
-            title={
-              offer.is_pinned
-                ? `Pinned at ${offer.share}% — click to unlock for automatic balancing`
-                : `Auto-balanced (${offer.share}%) — click to pin share`
-            }
-          >
-            {offer.is_pinned ? <LockIcon /> : <AutoIcon />}
-            <span>{offer.is_pinned ? "Pinned" : "Auto"}</span>
-          </button>
-        ) : (
-          <span className={`${styles.allocationMode} ${styles.allocationAuto}`}>
-            {offer.is_pinned ? <LockIcon /> : <AutoIcon />}
-            <span>{offer.is_pinned ? "Pinned" : "Auto"}</span>
-          </span>
-        )}
+        <AllocationModeControl
+          offer={offer}
+          disabled={disabled}
+          onAction={onAction}
+        />
       </td>
       <td>
         <span className={styles.offerStatusCell}>
