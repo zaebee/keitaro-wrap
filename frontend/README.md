@@ -35,6 +35,12 @@ Start the backend separately from the repository root:
 uv run uvicorn app.main:app --reload
 ```
 
+Or run both backend and frontend together from the repository root:
+
+```bash
+make up
+```
+
 The dev proxy rewrites `/api/...` to the FastAPI root, so no CORS change is needed.
 Override the target with `VITE_API_PROXY_TARGET` if the backend runs elsewhere.
 
