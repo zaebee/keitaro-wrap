@@ -199,6 +199,26 @@ export interface RecoveryResultResponse {
   deadline_reached: boolean;
 }
 
+export interface PushStreamOutcomeResponse {
+  stream_ref: number;
+  status: (PublicationStatus | null);
+  operation_id: (number | null);
+  reason: (string | null);
+  reason_code: (string | null);
+}
+
+export interface PushResultResponse {
+  campaign_id: number;
+  outcomes: PushStreamOutcomeResponse[];
+}
+
+export interface CampaignSummaryResponse {
+  id: number;
+  name: string;
+  alias: (string | null);
+  state: (string | null);
+}
+
 export interface HTTPValidationError {
   detail?: ValidationError[];
 }

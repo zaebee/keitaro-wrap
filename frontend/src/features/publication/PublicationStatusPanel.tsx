@@ -34,6 +34,54 @@ export function PublicationReadError({
   );
 }
 
+function StatusSummaryBanner({
+  status,
+}: Readonly<{ status: NonNullable<PublicationStateResponse["operation"]>["status"] }>) {
+  const labelMap: Record<string, string> = {
+    succeeded: "Succeeded",
+    pending: "Pending",
+    in_progress: "In progress",
+    failed: "Failed",
+    ambiguous: "Ambiguous",
+    abandoned: "Abandoned",
+  };
+  const label = labelMap[status] ?? status;
+  const isOk = status === "succeeded";
+  const isErr = status === "failed" || status === "ambiguous";
+
+  return (
+    <div className={styles.pubSummaryRow}>
+      <span
+        className={`${styles.pubStatusCircle} ${
+          isOk
+            ? styles.pubCircleOk
+            : isErr
+              ? styles.pubCircleErr
+              : styles.pubCirclePending
+        }`}
+        aria-hidden="true"
+      >
+        {isOk ? "✓" : isErr ? "!" : "…"}
+      </span>
+      <div className={styles.pubSummaryText}>
+        <span className={styles.pubSummaryLabel}>Latest publication:</span>
+        <span
+          className={`${styles.pubSummaryState} ${
+            isOk
+              ? styles.pubTextOk
+              : isErr
+                ? styles.pubTextErr
+                : styles.pubTextPending
+          }`}
+          data-status={status}
+        >
+          {label}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export function PublicationStatusPanel({
   state,
   expectedCampaignId,
@@ -96,8 +144,9 @@ export function PublicationStatusPanel({
 
   return (
     <div>
+      <StatusSummaryBanner status={state.operation.status} />
       <ul className={styles.operationList}>
-        <PublicationOperationCard operation={state.operation} />
+        <PublicationOperationCard operation={state.operation} hideStatusBadge />
       </ul>
       <p className={styles.hint}>
         This is the latest backend status for this stream at read time. It is a

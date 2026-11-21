@@ -23,6 +23,7 @@ type MockResponse = ReturnType<typeof HttpResponse.json>;
 
 type Counters = {
   push: () => number;
+  lastPushBody: () => unknown;
   recovery: () => number;
   cancel: () => number;
   draftAdd: () => number;
@@ -33,8 +34,10 @@ function serveEditor(
     HttpResponse.json(publicationStateFixture()),
   draft = draftStateFixture(draftViewFixture()),
   cancelResponse: () => MockResponse = () => HttpResponse.json({}),
+  pushResponse?: () => MockResponse,
 ): Counters {
   let push = 0;
+  let lastPushBody: unknown = null;
   let recovery = 0;
   let cancel = 0;
   let draftAdd = 0;
@@ -47,9 +50,22 @@ function serveEditor(
     ),
     http.get(PUBLICATION_PATH, () => state()),
     http.get(QUEUE_PATH, () => HttpResponse.json([])),
-    http.post("*/api/campaigns/42/push", () => {
+    http.post("*/api/campaigns/42/push", async ({ request }) => {
       push += 1;
-      return HttpResponse.json({});
+      lastPushBody = await request.json();
+      if (pushResponse) {
+        return pushResponse();
+      }
+      return HttpResponse.json({
+        outcomes: [
+          {
+            stream_ref: 101,
+            operation_uuid: "op-push-1",
+            status: "succeeded",
+            reason: null,
+          },
+        ],
+      });
     }),
     http.post("*/api/publications/recover", () => {
       recovery += 1;
@@ -66,6 +82,7 @@ function serveEditor(
   );
   return {
     push: () => push,
+    lastPushBody: () => lastPushBody,
     recovery: () => recovery,
     cancel: () => cancel,
     draftAdd: () => draftAdd,
@@ -73,10 +90,12 @@ function serveEditor(
 }
 
 function pushPanel() {
-  return screen.getByRole("region", { name: "Push unavailable" });
+  return screen.getByRole("region", {
+    name: /Push status|Ready to push to Keitaro|Publishing to Keitaro/,
+  });
 }
 
-describe("S8-D4 Push unavailable presentation", () => {
+describe("Push to Keitaro presentation and action", () => {
   beforeEach(() => {
     window.localStorage.clear();
   });
@@ -86,18 +105,16 @@ describe("S8-D4 Push unavailable presentation", () => {
     window.localStorage.clear();
   });
 
-  it("shows a static explanation with no Push control or requests", async () => {
-    const counters = serveEditor();
+  it("disables Push when draft has no staged changes and explains readiness", async () => {
+    const counters = serveEditor(
+      () => HttpResponse.json(publicationStateFixture()),
+      draftStateFixture(draftViewFixture({ is_dirty: false })),
+    );
     renderApp(EDITOR_PATH);
 
     const panel = pushPanel();
-    await within(panel).findByText("Push unavailable");
-    expect(panel).toHaveAttribute("data-push-state", "disabled");
-    expect(
-      within(panel).getByText(
-        "Push is shown only as a disabled control: live Keitaro writes are off in this environment and this interface never calls the publish endpoint. Refreshing, retrying, or navigating will not enable publication.",
-      ),
-    ).toBeInTheDocument();
+    await within(panel).findByText("Push status");
+    expect(panel).toHaveAttribute("data-push-state", "blocked");
     expect(
       within(panel).getByRole("link", { name: "inspect the recoverable queue" }),
     ).toHaveAttribute("href", "/recovery");
@@ -107,10 +124,79 @@ describe("S8-D4 Push unavailable presentation", () => {
     expect(counters.push()).toBe(0);
     expect(counters.recovery()).toBe(0);
     expect(counters.cancel()).toBe(0);
-    expect(counters.draftAdd()).toBe(0);
   });
 
-  it("keeps the read-only link keyboard accessible without invoking Push", async () => {
+  it("enables Push when dirty draft sums to 100% and dispatches POST /push", async () => {
+    const dirtyDraft = draftViewFixture({
+      version: 2,
+      is_dirty: true,
+      unallocated: 0,
+      staged_changes: { share_edits: { 8: 40 } },
+    });
+    const counters = serveEditor(
+      () => HttpResponse.json(publicationStateFixture()),
+      draftStateFixture(dirtyDraft),
+    );
+    const user = userEvent.setup();
+    renderApp(EDITOR_PATH);
+
+    const pushButton = await screen.findByRole("button", {
+      name: "Push to Keitaro",
+    });
+    await waitFor(() => expect(pushButton).toBeEnabled());
+    const panel = pushPanel();
+    expect(panel).toHaveAttribute("data-push-state", "enabled");
+
+    await user.click(pushButton);
+
+    await waitFor(() => expect(counters.push()).toBe(1));
+    expect(counters.lastPushBody()).toEqual({ stream_refs: [101] });
+    expect(
+      await screen.findByText(/Pushed stream #101 to Keitaro/),
+    ).toBeInTheDocument();
+  });
+
+  it("surfaces a readable failure when Push fails or returns ambiguous", async () => {
+    const dirtyDraft = draftViewFixture({
+      version: 2,
+      is_dirty: true,
+      unallocated: 0,
+      staged_changes: { share_edits: { 8: 40 } },
+    });
+    serveEditor(
+      () => HttpResponse.json(publicationStateFixture()),
+      draftStateFixture(dirtyDraft),
+      undefined,
+      () =>
+        HttpResponse.json({
+          outcomes: [
+            {
+              stream_ref: 101,
+              operation_uuid: "op-ambig-1",
+              status: "ambiguous",
+              reason: "Keitaro read-back timed out after PUT",
+            },
+          ],
+        }),
+    );
+    const user = userEvent.setup();
+    renderApp(EDITOR_PATH);
+
+    const pushButton = await screen.findByRole("button", {
+      name: "Push to Keitaro",
+    });
+    await waitFor(() => expect(pushButton).toBeEnabled());
+    await user.click(pushButton);
+
+    expect(
+      await screen.findByText("Push to Keitaro did not complete"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Keitaro read-back timed out after PUT"),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the recovery link keyboard accessible without invoking Push", async () => {
     const counters = serveEditor();
     const user = userEvent.setup();
     renderApp(EDITOR_PATH);
