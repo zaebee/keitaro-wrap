@@ -52,8 +52,7 @@ export function OpenCampaignPage() {
       >
         <h1 id="open-campaign-heading">Open campaign</h1>
         <p className={styles.lead}>
-          Enter a known Keitaro Campaign ID to inspect its cached stream
-          references, edit offer weights, and push updates to Keitaro.
+          Enter a Keitaro Campaign ID to open its streams.
         </p>
 
         {error && <ErrorSummary heading="Invalid campaign ID" message={error} />}
