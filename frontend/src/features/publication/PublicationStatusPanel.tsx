@@ -34,6 +34,27 @@ export function PublicationReadError({
   );
 }
 
+
+function publicationStatusDescription(
+  status: NonNullable<PublicationStateResponse["operation"]>["status"],
+): string {
+  switch (status) {
+    case "succeeded":
+      return "Publication completed on Keitaro. Local cancellation cannot roll it back.";
+    case "ambiguous":
+    case "in_progress":
+      return "Verification or recovery is required before further publication actions.";
+    case "pending":
+      return "Cancellation may be available if the backend permits it for this stream.";
+    case "failed":
+      return "Publication failed. Check backend evidence to determine whether cancellation is allowed.";
+    case "abandoned":
+      return "Publication was abandoned. No further action is available.";
+    default:
+      return "Publication state requires review.";
+  }
+}
+
 function StatusSummaryBanner({
   status,
 }: Readonly<{ status: NonNullable<PublicationStateResponse["operation"]>["status"] }>) {
@@ -152,6 +173,9 @@ export function PublicationStatusPanel({
   return (
     <div>
       <StatusSummaryBanner status={state.operation.status} />
+      <p className={styles.statusDescription}>
+        {publicationStatusDescription(state.operation.status)}
+      </p>
       <ul className={styles.operationList}>
         <PublicationOperationCard operation={state.operation} hideStatusBadge />
       </ul>
