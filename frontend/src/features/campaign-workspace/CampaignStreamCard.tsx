@@ -1,6 +1,16 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 
-import { LastFetchMeta, StreamSyncBadge } from "../offer-editor/EditorPanels";
+import {
+  LastFetchMeta,
+  StreamSyncBadge,
+} from "../offer-editor/EditorPanels";
+import {
+  StreamActionBar,
+  StreamDraftHeader,
+  StreamDraftSection,
+  StreamStatusSide,
+} from "../offer-editor/StreamDraftWorkspace";
 import { useStreamDraft } from "../offer-editor/useStreamDraft";
 import styles from "./CampaignWorkspacePage.module.css";
 
@@ -8,14 +18,15 @@ export function CampaignStreamCard({
   campaignId,
   streamRef,
 }: Readonly<{ campaignId: number; streamRef: number }>) {
+  const [diffOpen, setDiffOpen] = useState(false);
   const streamDraft = useStreamDraft(campaignId, streamRef);
   const { draft, snapshot, streamMissing } = streamDraft;
 
   if (streamMissing) {
     return (
       <p className={styles.empty}>
-        Campaign {campaignId} does not have stream {streamRef}. No draft
-        command was sent.
+        Campaign {campaignId} does not have stream {streamRef}. No draft command
+        was sent.
       </p>
     );
   }
@@ -42,10 +53,23 @@ export function CampaignStreamCard({
           </Link>
         </div>
       </div>
-      <p className={styles.streamCardHint}>
-        Open the full editor to stage offer weights, pins, additions and
-        removals for this stream.
-      </p>
+
+      <div className={styles.streamColumns}>
+        <div className={styles.streamMain}>
+          <StreamDraftHeader state={streamDraft} />
+          <StreamDraftSection
+            state={streamDraft}
+            workspacePath={`/campaigns/${campaignId}`}
+            diffOpen={diffOpen}
+          />
+        </div>
+        <StreamStatusSide
+          state={streamDraft}
+          diffOpen={diffOpen}
+          onToggleDiff={() => setDiffOpen((open) => !open)}
+        />
+      </div>
+      <StreamActionBar state={streamDraft} />
     </div>
   );
 }

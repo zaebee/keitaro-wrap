@@ -1,9 +1,7 @@
-import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Link, NavLink, useLocation, useParams } from "react-router-dom";
 
 import {
-  fetchCampaignStreams,
   getCampaignStreams,
   getCommittedState,
   getDraftState,
@@ -175,8 +173,6 @@ function StreamNavItem({
 }
 
 function CampaignSidebar({ campaignId }: Readonly<{ campaignId: number }>) {
-  const queryClient = useQueryClient();
-  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
 
   const streams = useQuery({
     queryKey: queryKeys.campaignStreams(campaignId),
@@ -184,23 +180,8 @@ function CampaignSidebar({ campaignId }: Readonly<{ campaignId: number }>) {
     retry: false,
   });
 
-  const refresh = useMutation({
-    mutationFn: () => fetchCampaignStreams(campaignId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.campaignStreams(campaignId),
-      });
-      queryClient.invalidateQueries({ queryKey: ["committed", campaignId] });
-      queryClient.invalidateQueries({ queryKey: ["draft", campaignId] });
-      queryClient.invalidateQueries({ queryKey: ["publication", campaignId] });
-      setLastSyncedAt(Date.now());
-    },
-  });
-
   let syncLine = "Not synced in this session";
-  if (lastSyncedAt !== null) {
-    syncLine = `Last sync: ${formatSyncTime(lastSyncedAt)}`;
-  } else if (streams.dataUpdatedAt > 0) {
+  if (streams.dataUpdatedAt > 0) {
     syncLine = `Last sync: ${formatSyncTime(streams.dataUpdatedAt)}`;
   }
 
@@ -234,17 +215,7 @@ function CampaignSidebar({ campaignId }: Readonly<{ campaignId: number }>) {
         <h2 className={styles.campaignTitle}>Campaign {campaignId}</h2>
       </div>
       <div className={styles.campaignActions}>
-        <button
-          type="button"
-          className={styles.refreshButton}
-          onClick={() => refresh.mutate()}
-          disabled={refresh.isPending}
-        >
-          {refresh.isPending ? "Fetching…" : "Fetch streams"}
-        </button>
-        <p className={styles.syncLine}>
-          {refresh.isError ? "Fetch failed; streams unchanged" : syncLine}
-        </p>
+        <p className={styles.syncLine}>{syncLine}</p>
       </div>
       <nav aria-label="Streams" className={styles.streamsNav}>
         {streamsContent}

@@ -1,5 +1,4 @@
-import { cleanup, screen, waitFor, within } from "@testing-library/react";
-import { userEvent } from "@testing-library/user-event";
+import { cleanup, screen, within } from "@testing-library/react";
 import { HttpResponse, http } from "msw";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -72,32 +71,9 @@ describe("StreamsSidebar", () => {
     expect(within(nav).queryByText(/staged/)).toBeNull();
   });
 
-  it("refreshes streams with a fetch and reports the sync", async () => {
-    const user = userEvent.setup();
-    let fetchCalls = 0;
+  it("reports the last sync time from cached stream data", async () => {
     serveStreams([streamFixture({ stream_ref: 101, name: "Main stream" })]);
-    server.use(
-      http.post("*/api/campaigns/42/fetch", () => {
-        fetchCalls += 1;
-        return HttpResponse.json({
-          campaign_id: 42,
-          stream_count: 1,
-          reconciled_stream_count: 1,
-          created_bindings: 0,
-          archived_bindings: 0,
-          reactivated_bindings: 0,
-          share_updates: 0,
-          conflicted_drafts: 0,
-        });
-      }),
-    );
     renderApp("/campaigns/42");
-
-    const refreshButton = await sidebar().findByRole("button", {
-      name: "Fetch streams",
-    });
-    await user.click(refreshButton);
-    await waitFor(() => expect(fetchCalls).toBe(1));
     expect(await sidebar().findByText(/Last sync:/)).toBeInTheDocument();
   });
 
