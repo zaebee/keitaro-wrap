@@ -43,10 +43,6 @@ function dotClassName(state: StreamState): string {
   return styles.dot;
 }
 
-function formatSyncTime(timestamp: number): string {
-  return new Date(timestamp).toLocaleTimeString();
-}
-
 function BrandMark() {
   return (
     <span className={styles.brandMark} aria-hidden="true">
@@ -180,10 +176,6 @@ function CampaignSidebar({ campaignId }: Readonly<{ campaignId: number }>) {
     retry: false,
   });
 
-  let syncLine = "Not synced in this session";
-  if (streams.dataUpdatedAt > 0) {
-    syncLine = `Last sync: ${formatSyncTime(streams.dataUpdatedAt)}`;
-  }
 
   let streamsContent: JSX.Element;
   if (streams.isError) {
@@ -215,7 +207,6 @@ function CampaignSidebar({ campaignId }: Readonly<{ campaignId: number }>) {
         <h2 className={styles.campaignTitle}>Campaign {campaignId}</h2>
       </div>
       <div className={styles.campaignActions}>
-        <p className={styles.syncLine}>{syncLine}</p>
       </div>
       <nav aria-label="Streams" className={styles.streamsNav}>
         {streamsContent}

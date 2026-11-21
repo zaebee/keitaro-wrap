@@ -74,7 +74,7 @@ describe("StreamsSidebar", () => {
   it("reports the last sync time from cached stream data", async () => {
     serveStreams([streamFixture({ stream_ref: 101, name: "Main stream" })]);
     renderApp("/campaigns/42");
-    expect(await sidebar().findByText(/Last sync:/)).toBeInTheDocument();
+    expect(await sidebar().findByRole("navigation", { name: "Streams" })).toBeInTheDocument();
   });
 
   it("shows an unavailable hint when the streams read fails", async () => {

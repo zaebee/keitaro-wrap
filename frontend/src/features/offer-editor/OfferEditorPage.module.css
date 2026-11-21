@@ -5,8 +5,8 @@
 .pageShell {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
-  padding-bottom: var(--space-6);
+  gap: var(--space-3);
+  padding-bottom: var(--space-4);
 }
 
 .card {
@@ -50,7 +50,7 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-subtle);
-  padding: var(--space-4) var(--space-6);
+  padding: var(--space-3) var(--space-5);
 }
 
 .editorHero h1 {
@@ -69,8 +69,8 @@
 .section {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
-  margin-top: var(--space-4);
+  gap: var(--space-3);
+  margin-top: var(--space-3);
   min-width: 0;
 }
 
@@ -96,7 +96,7 @@
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-subtle);
   min-width: 0;
-  padding: var(--space-4) var(--space-5);
+  padding: var(--space-3) var(--space-4);
 }
 
 .committed {
@@ -867,7 +867,7 @@ button:disabled {
 .columns {
   align-items: start;
   display: grid;
-  gap: var(--space-5);
+  gap: var(--space-4);
   grid-template-columns: minmax(0, 1fr) 300px;
 }
 
@@ -878,7 +878,7 @@ button:disabled {
 .inspector {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-3);
   min-width: 0;
   position: sticky;
   top: var(--space-4);
@@ -1024,7 +1024,7 @@ button:disabled {
   gap: var(--space-2) var(--space-4);
   justify-content: space-between;
   margin-top: var(--space-4);
-  padding: 14px 20px;
+  padding: 12px 18px;
 }
 
 .stagedSummary {

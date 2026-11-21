@@ -513,11 +513,10 @@ export function DraftPanel({
                     </tr>
                   </thead>
                   <tbody>
-                    {offers.map((offer, idx) => (
+                    {offers.map((offer) => (
                       <OfferRow
                         key={offer.offer_id}
                         offer={offer}
-                        colorIndex={idx}
                         disabled={commandsDisabled}
                         baselineShare={effectiveOffersView.baseline_offers.find(
                           (baseline) => baseline.offer_id === offer.offer_id,
@@ -570,36 +569,6 @@ export function DraftPanel({
         </div>
       )}
     </section>
-  );
-}
-
-const THUMB_PALETTES = [
-  ["#e0f2fe", "#0284c7", "#38bdf8"],
-  ["#dcfce7", "#15803d", "#4ade80"],
-  ["#fef3c7", "#b45309", "#fbbf24"],
-  ["#ede9fe", "#6d28d9", "#a78bfa"],
-  ["#fce7f3", "#be185d", "#f472b6"],
-] as const;
-
-function OfferThumbnail({ index }: Readonly<{ index: number }>) {
-  const [bg, fg, accent] = THUMB_PALETTES[index % THUMB_PALETTES.length];
-  return (
-    <span className={styles.offerThumb} aria-hidden="true" style={{ background: bg }}>
-      <svg fill="none" height="28" viewBox="0 0 42 28" width="42">
-        <rect fill={bg} height="28" rx="6" width="42" />
-        <circle cx="31" cy="9" fill={accent} opacity="0.7" r="4" />
-        <path
-          d="M2 24l11-10 7 6 7-5 13 9H2z"
-          fill={fg}
-          opacity="0.22"
-        />
-        <path
-          d="M2 26l14-9 8 5 6-4 10 8H2z"
-          fill={fg}
-          opacity="0.38"
-        />
-      </svg>
-    </span>
   );
 }
 
@@ -705,7 +674,6 @@ function ChevronDownIcon({ className }: Readonly<{ className?: string }>) {
 
 type OfferRowProps = Readonly<{
   offer: StagedOfferResponse;
-  colorIndex: number;
   disabled: boolean;
   baselineShare?: number;
   shareInput: string;
@@ -794,7 +762,6 @@ function useOfferRowMenu() {
 
 function OfferRow({ // NOSONAR
   offer,
-  colorIndex,
   disabled,
   baselineShare,
   shareInput,
@@ -851,7 +818,6 @@ function OfferRow({ // NOSONAR
   return (
     <tr className={offer.lifecycle === "ARCHIVED" ? styles.offerArchived : ""}>
       <th scope="row" className={styles.offerIdCell}>
-        <OfferThumbnail index={colorIndex} />
         <div className={styles.offerIdentityText}>
           <span className={styles.offerTitleRow}>
             <span className={`${styles.offerIdValue} tnum`}>
