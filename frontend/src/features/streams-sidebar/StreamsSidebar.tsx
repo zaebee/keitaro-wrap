@@ -160,8 +160,10 @@ function StreamNavItem({
         <span className={dotClassName(state)} aria-hidden="true" />
         <span className={styles.streamName}>{name}</span>
         <span className={styles.streamMeta}>
-          {hasStaged && staged && (
-            <span className={styles.chip}>v{staged.version} staged</span>
+          {hasStaged && (
+            <span className={styles.chip} title={staged ? `Draft version ${staged.version}` : undefined}>
+              staged
+            </span>
           )}
           <span className={styles.visuallyHidden} data-stream-state={state}>
             {streamStateLabel(state)}
@@ -230,7 +232,6 @@ function CampaignSidebar({ campaignId }: Readonly<{ campaignId: number }>) {
     <section className={styles.campaignBlock} aria-label="Campaign">
       <div className={styles.campaignHeader}>
         <h2 className={styles.campaignTitle}>Campaign {campaignId}</h2>
-        <span className={styles.activeBadge}>Active</span>
       </div>
       <div className={styles.campaignActions}>
         <button

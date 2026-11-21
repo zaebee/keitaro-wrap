@@ -44,7 +44,7 @@ describe("StreamsSidebar", () => {
       name: /Main stream/,
     });
     expect(active).toHaveAttribute("aria-current", "page");
-    expect(await within(nav).findByText("v1 staged")).toBeInTheDocument();
+    expect(await within(nav).findByText("staged")).toBeInTheDocument();
     expect(
       within(nav).getByRole("link", { name: /Backup stream/ }),
     ).not.toHaveAttribute("aria-current", "page");
