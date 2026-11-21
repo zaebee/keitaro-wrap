@@ -9,7 +9,6 @@ import {
   AllocationSummary,
   DraftCommandFeedback,
   DraftPanel,
-  PolicyCard,
   ReadErrorPanel,
   ReviewPanel,
 } from "./EditorPanels";
@@ -97,20 +96,13 @@ function DraftBanner({
 }: Readonly<{ draft: NonNullable<StreamDraftState["draft"]> }>) {
   const summary = summarizeDraftChanges(draft);
   return (
-    <div className={styles.dirtyBanner} data-purpose="conflict-alert">
-      <div>
-        <p className={styles.dirtyBannerTitle}>
-          Draft active on version {draft.version}. {summary.totalChanges}{" "}
-          local staged mutation
-          {summary.totalChanges === 1 ? "" : "s"} awaiting commit.
-        </p>
-        <p className={styles.dirtyBannerHint}>
-          Remote baseline remains pinned. Manual edits automatically toggle offer
-          mode to Pinned.
-        </p>
-      </div>
-      <span className={styles.dirtyPolicy}>Policy: EXACT_100_ENFORCED</span>
-    </div>
+    <output className={styles.dirtyBanner} data-purpose="conflict-alert">
+      <p className={styles.dirtyBannerTitle}>
+        Draft v{draft.version} · {summary.totalChanges} staged change
+        {summary.totalChanges === 1 ? "" : "s"}
+      </p>
+      <span className={styles.dirtyPolicy}>Exact 100 enforced</span>
+    </output>
   );
 }
 
@@ -386,8 +378,8 @@ export function StreamStatusSide({
         )}
       </section>
 
-      <section aria-label="Draft Status" className={styles.inspectorCard}>
-        <h2 className={styles.inspectorCardHeading}>Draft Status</h2>
+      <section aria-label="Draft and checks" className={styles.inspectorCard}>
+        <h2 className={styles.inspectorCardHeading}>Draft & Checks</h2>
         <div className={styles.draftStatusRow}>
           <span
             className={`${styles.draftStatusDot} ${
@@ -402,26 +394,43 @@ export function StreamStatusSide({
             </p>
           </div>
         </div>
+        <dl className={styles.checksList}>
+          <div className={styles.checkRow}>
+            <dt>Stale check</dt>
+            <dd className={draft?.is_stale ? styles.checkWarn : styles.checkGood}>
+              {draft?.is_stale ? "Drift detected" : "Up to date"}
+            </dd>
+          </div>
+          <div className={styles.checkRow}>
+            <dt>Conflicts</dt>
+            <dd>{draft?.conflicts.length ? `${draft.conflicts.length} conflict(s)` : "None"}</dd>
+          </div>
+        </dl>
         {onToggleDiff && (
           <button
             type="button"
             className={styles.viewDiffButton}
             onClick={onToggleDiff}
-            disabled={recoveryRequired}
+            disabled={recoveryRequired || !dirty}
             aria-expanded={diffOpen}
+            title={dirty ? undefined : "No staged changes to review"}
           >
             <DiffIcon />
             <span>{diffOpen ? "Hide Diff" : "View Diff"}</span>
           </button>
         )}
+        <details className={styles.techDetails}>
+          <summary>Technical details</summary>
+          <p className={styles.techDetailLine}>
+            fingerprint: {draft?.conflicts_fingerprint ?? "not available"}
+          </p>
+        </details>
       </section>
 
       <PushStatusPanel
         readiness={pushReadiness}
         pushing={pushMutation.isPending}
       />
-
-      <PolicyCard draft={draft} />
     </aside>
   );
 }
