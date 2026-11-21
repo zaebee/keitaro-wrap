@@ -283,13 +283,19 @@ button:disabled {
   color: var(--color-text-muted);
 }
 
+.tableScroll {
+  margin: var(--space-2) 0;
+  overflow-x: auto;
+}
+
 .offerTable {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-collapse: collapse;
   border-radius: var(--radius-control);
   font-size: 13px;
-  margin: var(--space-2) 0;
+  margin: 0;
+  min-width: 720px;
   width: 100%;
 }
 
@@ -993,18 +999,26 @@ button:disabled {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
-  color: var(--color-text-muted);
+  color: #334155;
   cursor: pointer;
   display: inline-flex;
-  height: 28px;
+  height: 30px;
   justify-content: center;
-  width: 28px;
+  padding: 0;
+  width: 30px;
 }
 
 .kebabButton:hover:not(:disabled) {
-  background: var(--color-surface-muted);
-  border-color: var(--color-border);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
 }
+
+.kebabButton:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+
 
 .inlineActions {
   position: relative;

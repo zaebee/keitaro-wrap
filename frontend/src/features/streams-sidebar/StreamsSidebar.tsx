@@ -81,7 +81,9 @@ function StreamNavItem({
         }
       >
         <span className={dotClassName(state)} aria-hidden="true" />
-        <span className={styles.streamName}>{name}</span>
+        <span className={styles.streamName} title={name}>
+          {name}
+        </span>
         <span className={styles.streamMeta}>
           {staged && (
             <span className={styles.chip}>v{staged.version} staged</span>
@@ -212,7 +214,10 @@ export function StreamsSidebar() {
     <aside className={styles.sidebar} aria-label="App sidebar">
       <div className={styles.brandBlock}>
         <Link className={styles.brand} to="/campaigns/new">
-          Keitaro Wrap
+          <span className={styles.brandMark} aria-hidden="true">
+            K
+          </span>
+          <span className={styles.brandName}>Keitaro Wrap</span>
         </Link>
         <p className={styles.wordmark}>OFFER DISPATCH</p>
         <nav aria-label="Primary" className={styles.primaryNav}>

@@ -232,8 +232,7 @@
 
 .streamChevron {
   color: var(--color-text-muted);
-  display: inline-block;
-  font-size: 14px;
+  flex: none;
   transition: transform 0.15s ease;
 }
 

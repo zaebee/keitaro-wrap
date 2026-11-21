@@ -76,12 +76,20 @@ function StreamToggle({
           {comments ? ` · ${comments}` : ""}
         </span>
       </span>
-      <span
-        className={`${styles.streamChevron} ${open ? styles.streamChevronOpen : ""}`}
+      <svg
         aria-hidden="true"
+        className={`${styles.streamChevron} ${open ? styles.streamChevronOpen : ""}`}
+        fill="none"
+        height="18"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2"
+        viewBox="0 0 24 24"
+        width="18"
       >
-        ▾
-      </span>
+        <path d="M6 9l6 6 6-6" />
+      </svg>
     </button>
   );
 }

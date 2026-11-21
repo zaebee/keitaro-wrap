@@ -509,6 +509,7 @@ export function DraftPanel({
               (offer) => offer.lifecycle === "ARCHIVED",
             );
             const renderOfferTable = (offers: typeof activeOffers) => (
+              <div className={styles.tableScroll}>
               <table className={styles.offerTable}>
                 <thead>
                   <tr>
@@ -537,6 +538,7 @@ export function DraftPanel({
                   ))}
                 </tbody>
               </table>
+              </div>
             );
             return (
               <>
@@ -631,13 +633,13 @@ function KebabIcon() {
     <svg
       aria-hidden="true"
       fill="currentColor"
-      height="16"
+      height="20"
       viewBox="0 0 24 24"
-      width="16"
+      width="20"
     >
-      <circle cx="12" cy="5" r="2" />
-      <circle cx="12" cy="12" r="2" />
-      <circle cx="12" cy="19" r="2" />
+      <circle cx="12" cy="4.5" r="2.6" />
+      <circle cx="12" cy="12" r="2.6" />
+      <circle cx="12" cy="19.5" r="2.6" />
     </svg>
   );
 }
