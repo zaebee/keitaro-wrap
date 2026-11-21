@@ -61,6 +61,8 @@ const WRAPPER_SCHEMAS = [
   "PublicationStateResponse",
   "CancelResultResponse",
   "RecoveryResultResponse",
+  "PushResultResponse",
+  "PushStreamOutcomeResponse",
   "HTTPValidationError",
   "ValidationError",
 ];

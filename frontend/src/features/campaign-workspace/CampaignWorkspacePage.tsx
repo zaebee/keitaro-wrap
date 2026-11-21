@@ -5,6 +5,7 @@ import { Link, useParams } from "react-router-dom";
 import { ApiError } from "../../api/client";
 import {
   fetchCampaignStreams,
+  getCampaignInfo,
   getCampaignStreams,
   type FetchOutcomeResponse,
   type StreamRefResponse,
@@ -39,12 +40,32 @@ function CampaignIcon() {
       stroke="currentColor"
       strokeLinecap="round"
       strokeLinejoin="round"
-      strokeWidth="1.8"
+      strokeWidth="1.9"
       viewBox="0 0 24 24"
       width="26"
     >
       <path d="M3 11v2a1 1 0 0 0 1 1h2l14 6V4L6 10H4a1 1 0 0 0-1 1z" />
       <path d="M7 14v4a2 2 0 0 0 4 0v-3" />
+    </svg>
+  );
+}
+
+function RefreshIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="none"
+      height="15"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      viewBox="0 0 24 24"
+      width="15"
+    >
+      <path d="M23 4v6h-6" />
+      <path d="M1 20v-6h6" />
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
     </svg>
   );
 }
@@ -68,28 +89,36 @@ function StreamToggle({
       onClick={onToggle}
     >
       <span className={styles.streamCardTitle}>
-        <span className={`tnum ${styles.streamCardName}`}>
-          {stream.name} · {stream.type} #{stream.stream_ref}
+        <span className={styles.streamCardHeadingRow}>
+          <span className={`tnum ${styles.streamCardName}`}>
+            {stream.name} · {stream.type} #{stream.stream_ref}
+          </span>
+          <span className={`${styles.streamRefChip} tnum`}>
+            #{stream.stream_ref}
+          </span>
         </span>
         <span className={styles.streamCardMeta}>
           {stream.schema}
           {comments ? ` · ${comments}` : ""}
         </span>
       </span>
-      <svg
-        aria-hidden="true"
+      <span
         className={`${styles.streamChevron} ${open ? styles.streamChevronOpen : ""}`}
-        fill="none"
-        height="18"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="2"
-        viewBox="0 0 24 24"
-        width="18"
+        aria-hidden="true"
       >
-        <path d="M6 9l6 6 6-6" />
-      </svg>
+        <svg
+          fill="none"
+          height="16"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="2"
+          viewBox="0 0 24 24"
+          width="16"
+        >
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </span>
     </button>
   );
 }
@@ -103,6 +132,14 @@ function Workspace({ campaignId }: Readonly<{ campaignId: number }>) {
   const [announcement, setAnnouncement] = useState<string | null>(null);
   const [openStream, setOpenStream] = useState<number | "none" | null>(null);
   const statusRef = useFocusOnChange<HTMLParagraphElement>(announcement);
+
+  const campaignQuery = useQuery({
+    queryKey: queryKeys.campaign(campaignId),
+    queryFn: () => getCampaignInfo(campaignId),
+    enabled: true,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
 
   const streamsQuery = useQuery({
     queryKey: queryKeys.campaignStreams(campaignId),
@@ -122,6 +159,9 @@ function Workspace({ campaignId }: Readonly<{ campaignId: number }>) {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.campaignStreams(campaignId),
       });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.campaign(campaignId),
+      });
     },
   });
 
@@ -130,32 +170,73 @@ function Workspace({ campaignId }: Readonly<{ campaignId: number }>) {
   const listFailure = describeFailure(streamsQuery.error);
   const finishedWithZeroStreams = fetchOutcome?.stream_count === 0;
 
-  const defaultStreamRef = streams[0]?.stream_ref ?? null;
+  const defaultStreamRef =
+    (streams.find((stream) => stream.schema !== "redirect") ?? streams[0])
+      ?.stream_ref ?? null;
   const expandedRef =
     openStream === "none" ? null : (openStream ?? defaultStreamRef);
+
+  const remoteName = campaignQuery.data?.name?.trim();
+  const hasDistinctName = Boolean(
+    remoteName && !remoteName.includes(`#${campaignId}`),
+  );
 
   return (
     <section
       aria-labelledby="workspace-heading"
       aria-busy={fetchMutation.isPending || streamsQuery.isFetching}
-      className={`${styles.card} ${narrow ? styles.narrow : ""}`}
+      className={`${styles.workspaceShell} ${narrow ? styles.narrow : ""}`}
     >
+      <div className={styles.topUtilityBar}>
+        <nav aria-label="Breadcrumb" className={styles.breadcrumbs}>
+          <Link className={styles.crumbLink} to="/campaigns/open">
+            Campaigns
+          </Link>
+          <span className={styles.crumbSep} aria-hidden="true">
+            ›
+          </span>
+          <span className={`${styles.crumbCurrent} tnum`} aria-current="page">
+            Campaign #{campaignId}
+          </span>
+        </nav>
+        <span className={styles.userAvatar} aria-hidden="true" title="Keitaro Wrap operator">
+          KW
+        </span>
+      </div>
+
       <header className={styles.campaignHeader}>
         <span className={styles.campaignIconTile}>
           <CampaignIcon />
         </span>
         <div className={styles.campaignIdentity}>
-          <h1 id="workspace-heading">
-            Campaign <span className="tnum">#{campaignId}</span>
-          </h1>
+          <div className={styles.campaignTitleRow}>
+            <h1 id="workspace-heading">
+              {hasDistinctName ? (
+                <>
+                  {remoteName}{" "}
+                  <span className={styles.srOnly}>Campaign #{campaignId}</span>
+                </>
+              ) : (
+                <>
+                  Campaign <span className="tnum">#{campaignId}</span>
+                </>
+              )}
+            </h1>
+            {streams.length > 0 && (
+              <span className={styles.syncedHeaderPill}>✓ Synced</span>
+            )}
+          </div>
           <p className={styles.campaignSubtitle}>
-            Streams are read from the local cache. Fetch is an explicit remote
-            read followed by local reconciliation; it is not a publication.
+            <span className="tnum">Campaign #{campaignId}</span>
+            {campaignQuery.data?.state ? ` · ${campaignQuery.data.state}` : ""}
+            {" · "}
+            Explicit Fetch &amp; staged stream workspace
           </p>
         </div>
         <div className={styles.campaignActions}>
           <button
             type="button"
+            className={styles.refreshBtn}
             onClick={() => streamsQuery.refetch()}
             disabled={streamsQuery.isFetching}
           >
@@ -164,7 +245,7 @@ function Workspace({ campaignId }: Readonly<{ campaignId: number }>) {
               : "Refresh cached streams"}
           </button>
           <button
-            className={styles.primary}
+            className={styles.fetchBtn}
             type="button"
             onClick={() => {
               setAnnouncement(null);
@@ -172,7 +253,10 @@ function Workspace({ campaignId }: Readonly<{ campaignId: number }>) {
             }}
             disabled={fetchMutation.isPending}
           >
-            {fetchMutation.isPending ? "Fetching streams…" : "Fetch streams"}
+            <RefreshIcon />
+            <span>
+              {fetchMutation.isPending ? "Fetching streams…" : "Fetch streams"}
+            </span>
           </button>
         </div>
       </header>
@@ -220,7 +304,12 @@ function Workspace({ campaignId }: Readonly<{ campaignId: number }>) {
       {fetchOutcome && <FetchSummary outcome={fetchOutcome} />}
 
       <section aria-labelledby="streams-heading" className={styles.streams}>
-        <h2 id="streams-heading">Streams</h2>
+        <div className={styles.streamsHeader}>
+          <h2 id="streams-heading">Streams</h2>
+          <span className={`${styles.streamCountPill} tnum`}>
+            {streams.length} cached
+          </span>
+        </div>
         {streamsQuery.isPending && (
           <output>Loading cached stream references…</output>
         )}
@@ -264,11 +353,6 @@ function Workspace({ campaignId }: Readonly<{ campaignId: number }>) {
           </ul>
         )}
       </section>
-
-      <p className={styles.hint}>
-        Local / trusted environment only. No campaign list or remote cache
-        timestamp is exposed by the current API.
-      </p>
     </section>
   );
 }

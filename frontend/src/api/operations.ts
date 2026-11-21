@@ -13,6 +13,7 @@ import type {
   OfferDraftRequest,
   PublicPublicationResponse,
   PublicationStateResponse,
+  PushResultResponse,
   RecoveryResultResponse,
   RemoveDraftRequest,
   RestoreDraftRequest,
@@ -29,6 +30,8 @@ export type {
   PublicationStateResponse,
   PublicationStatus,
   PublicPublicationResponse,
+  PushResultResponse,
+  PushStreamOutcomeResponse,
   RecoveryResultResponse,
   StagedOfferResponse,
 } from "./generated/openapi";
@@ -57,8 +60,38 @@ export type CreateCampaignOutcome = {
   location: string | null;
 };
 
-export async function getHealth(): Promise<{ status: string }> {
-  const result = await apiRequest<{ status: string }>("/health");
+export type HealthResponse = {
+  status: string;
+  mode?: "live" | "sandbox";
+  writes_enabled?: boolean;
+};
+
+export async function getHealth(): Promise<HealthResponse> {
+  const result = await apiRequest<HealthResponse>("/health");
+  return result.data;
+}
+
+export type CampaignSummaryResponse = {
+  id: number;
+  name: string | null;
+  alias?: string | null;
+  state?: string | null;
+  group_id?: number | null;
+};
+
+export async function listCampaigns(limit = 100): Promise<CampaignSummaryResponse[]> {
+  const result = await apiRequest<CampaignSummaryResponse[]>(
+    `/campaigns?limit=${encodeURIComponent(String(limit))}`,
+  );
+  return result.data;
+}
+
+export async function getCampaignInfo(
+  campaignId: number,
+): Promise<CampaignSummaryResponse> {
+  const result = await apiRequest<CampaignSummaryResponse>(
+    `/campaigns/${encodeURIComponent(String(campaignId))}`,
+  );
   return result.data;
 }
 
@@ -255,6 +288,20 @@ export async function runRecoveryPass(): Promise<RecoveryResultResponse> {
   const result = await apiRequest<RecoveryResultResponse>(
     "/publications/recover",
     { method: "POST" },
+  );
+  return result.data;
+}
+
+export async function pushCampaignStreams(
+  campaignId: number,
+  streamRefs: number[] = [],
+): Promise<PushResultResponse> {
+  const result = await apiRequest<PushResultResponse>(
+    `/campaigns/${encodeURIComponent(String(campaignId))}/push`,
+    {
+      method: "POST",
+      body: JSON.stringify({ stream_refs: streamRefs }),
+    },
   );
   return result.data;
 }

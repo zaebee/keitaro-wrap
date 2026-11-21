@@ -1,12 +1,15 @@
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 
+import { getCampaignInfo } from "../../api/operations";
+import { queryKeys } from "../../queries/queryClient";
 import { useNarrowViewport } from "../../shared/hooks/useNarrowViewport";
 import { parsePositiveId } from "../campaign-workspace/campaignId";
 import {
   CommittedPanel,
   LastFetchMeta,
   ReadErrorPanel,
-  ReviewPanel,
   StreamSyncBadge,
 } from "./EditorPanels";
 import {
@@ -23,7 +26,15 @@ function Editor({
   streamRef,
 }: Readonly<{ campaignId: number; streamRef: number }>) {
   const narrow = useNarrowViewport();
+  const [diffOpen, setDiffOpen] = useState(true);
   const streamDraft = useStreamDraft(campaignId, streamRef);
+  const campaignQuery = useQuery({
+    queryKey: queryKeys.campaign(campaignId),
+    queryFn: () => getCampaignInfo(campaignId),
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+
   const {
     draft,
     busy,
@@ -48,6 +59,8 @@ function Editor({
     );
   }
 
+  const campaignTitle = campaignQuery.data?.name?.trim() || `Campaign #${campaignId}`;
+
   return (
     <section
       aria-labelledby="editor-heading"
@@ -57,10 +70,10 @@ function Editor({
         draftQuery.isFetching ||
         publicationQuery.isFetching
       }
-      className={`${styles.card} ${narrow ? styles.narrow : ""}`}
+      className={`${styles.pageShell} ${narrow ? styles.narrow : ""}`}
       data-recovery-lock={recoveryRequired ? "active" : "inactive"}
     >
-      <header className={styles.topBar}>
+      <div className={styles.topUtilityBar}>
         <nav aria-label="Breadcrumb" className={styles.breadcrumbs}>
           <Link className={styles.crumbLink} to="/campaigns/open">
             Campaigns
@@ -73,7 +86,7 @@ function Editor({
             to={`/campaigns/${campaignId}`}
             aria-label={`Campaign ${campaignId} workspace`}
           >
-            <span className="tnum">Campaign #{campaignId}</span>
+            <span className="tnum">{campaignTitle}</span>
           </Link>
           <span className={styles.crumbSep} aria-hidden="true">
             ›
@@ -82,64 +95,70 @@ function Editor({
             Stream #{streamRef}
           </span>
         </nav>
+        <span className={styles.userAvatar} aria-hidden="true" title="Keitaro Wrap operator">
+          KW
+        </span>
+      </div>
+
+      <header className={styles.editorHero}>
         <div className={styles.titleRow}>
           <h1 id="editor-heading">Offer Editor</h1>
           <span className={`${styles.titleStream} tnum`}>
-            Stream #{streamRef}
+            #{streamRef}
           </span>
-          <StreamSyncBadge draft={draft} />
-            {draft?.is_dirty && (
-              <span className={styles.dirtyBadge}>
-                Draft v{draft.version} (Dirty)
-              </span>
-            )}
+          <StreamSyncBadge draft={draft} baselineReady={streamDraft.baselineReady} />
+          {draft?.is_dirty && (
+            <span className={styles.dirtyBadge}>
+              Draft changes · v{draft.version}
+            </span>
+          )}
           <LastFetchMeta capturedAt={snapshot?.captured_at ?? null} />
-          </div>
-          <p className={styles.hint}>
-            This screen edits only the selected stream; streams remain
-            independent. Committed baseline and staged draft are separate server
-            views. The publication section shows read-only status, explains why
-            Push is unavailable, and offers only a local publication Cancel.
-          </p>
-        </header>
+        </div>
+        <p className={styles.hint}>
+          Stage offer weights, pins, additions, and removals for this stream.
+          Committed baseline remains untouched until you push changes to Keitaro.
+        </p>
+      </header>
 
-        <div className={styles.columns}>
-          <div className={styles.mainColumn}>
-        <StreamDraftHeader state={streamDraft} />
+      <div className={styles.columns}>
+        <div className={styles.mainColumn}>
+          <StreamDraftHeader state={streamDraft} />
 
-        <section aria-labelledby="committed-section-heading" className={styles.section}>
-          <h2 id="committed-section-heading">Committed state</h2>
-          {committedQuery.isPending && (
-            <output>Loading committed stream state…</output>
-          )}
-          {committedQuery.isError && (
-            <ReadErrorPanel
-              heading="Committed state unavailable"
-              message={describeFailure(committedQuery.error).message}
-              code={describeFailure(committedQuery.error).code}
-              retryLabel="Retry committed read"
-              onRetry={() => committedQuery.refetch()}
-              retryDisabled={committedQuery.isFetching}
-            />
-          )}
-          {committedQuery.isSuccess && <CommittedPanel state={committedQuery.data} />}
-        </section>
+          <StreamDraftSection
+            state={streamDraft}
+            workspacePath={`/campaigns/${campaignId}`}
+            showSectionHeading
+            diffOpen={diffOpen}
+          />
 
-        <StreamDraftSection
-          state={streamDraft}
-          workspacePath={`/campaigns/${campaignId}`}
-          showSectionHeading
-        />
+          <section aria-labelledby="committed-section-heading" className={styles.section}>
+            <h2 id="committed-section-heading">Committed state</h2>
+            {committedQuery.isPending && (
+              <output>Loading committed stream state…</output>
+            )}
+            {committedQuery.isError && (
+              <ReadErrorPanel
+                heading="Committed state unavailable"
+                message={describeFailure(committedQuery.error).message}
+                code={describeFailure(committedQuery.error).code}
+                retryLabel="Retry committed read"
+                onRetry={() => committedQuery.refetch()}
+                retryDisabled={committedQuery.isFetching || recoveryRequired}
+              />
+            )}
+            {committedQuery.isSuccess && <CommittedPanel state={committedQuery.data} />}
+          </section>
         </div>
 
         <StreamStatusSide
           state={streamDraft}
           withPublicationCancel
-          showInspectorTitle
+          showInspectorTitle={false}
+          diffOpen={diffOpen}
+          onToggleDiff={() => setDiffOpen((open) => !open)}
         />
       </div>
 
-      <ReviewPanel draft={draft} />
       <StreamActionBar state={streamDraft} />
     </section>
   );

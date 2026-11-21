@@ -2,6 +2,8 @@ import { QueryClient } from "@tanstack/react-query";
 
 export const queryKeys = {
   health: ["health"] as const,
+  campaigns: ["campaigns"] as const,
+  campaign: (campaignId: number) => ["campaign", campaignId] as const,
   operation: (operationUuid: string) =>
     ["campaign-creation-operation", operationUuid] as const,
   campaignStreams: (campaignId: number) =>

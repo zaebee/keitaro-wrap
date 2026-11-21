@@ -1314,4 +1314,52 @@ describe("OfferEditorPage", () => {
       within(main).queryByRole("button", { name: "Fetch streams" }),
     ).toBeNull();
   });
+
+  it("exposes unique share labels, aria-pressed toggles, remote state badges, and closes Actions on Escape or outside click", async () => {
+    serveReads(
+      committedFixture(),
+      draftStateFixture(
+        draftViewFixture({
+          offers: draftViewFixture().offers.map((offer) =>
+            offer.offer_id === 8
+              ? { ...offer, state: "paused" }
+              : offer,
+          ),
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderApp(EDITOR_PATH);
+
+    const share7 = await screen.findByLabelText("Share for offer 7, 0 to 100%");
+    const share8 = screen.getByLabelText("Share for offer 8, 0 to 100%");
+    expect(share7).toBeInTheDocument();
+    expect(share8).toBeInTheDocument();
+
+    expect(screen.getByText("Keitaro: paused")).toBeInTheDocument();
+
+    const row7 = share7.closest("tr") as HTMLElement;
+    const row8 = share8.closest("tr") as HTMLElement;
+    expect(within(row7).getByRole("button", { name: "Pinned" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(within(row8).getByRole("button", { name: "Auto" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+
+    const kebab8 = screen.getByRole("button", { name: "More actions for offer 8" });
+    await user.click(kebab8);
+    expect(screen.getByRole("button", { name: "Remove offer 8" })).toBeVisible();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("button", { name: "Remove offer 8" })).toBeNull();
+    expect(kebab8).toHaveFocus();
+
+    await user.click(kebab8);
+    expect(screen.getByRole("button", { name: "Remove offer 8" })).toBeVisible();
+    await user.click(screen.getByRole("heading", { name: "Offer Editor" }));
+    expect(screen.queryByRole("button", { name: "Remove offer 8" })).toBeNull();
+  });
 });

@@ -10,16 +10,19 @@ import {
   getDraftState,
   getPublicationState,
   pinDraftOffer,
+  pushCampaignStreams,
   removeDraftOffer,
   restoreDraftOffer,
   setDraftShare,
   unpinDraftOffer,
   type ConflictDetailResponse,
+  type PushResultResponse,
 } from "../../api/operations";
 import { queryKeys } from "../../queries/queryClient";
 import { useFocusOnChange } from "../../shared/hooks/useFocusOnChange";
 import { usePublicationRecoveryLock } from "../publication/usePublicationRecoveryLock";
 import { parsePositiveId } from "../campaign-workspace/campaignId";
+import { evaluatePushReadiness } from "./allocationSummary";
 import type { DraftActionRequest } from "./EditorPanels";
 
 export type Failure = { message: string; code: string | null; status: number | null };
@@ -105,6 +108,7 @@ export function useStreamDraft(campaignId: number, streamRef: number) {
   const [acceptingConflict, setAcceptingConflict] = useState(false);
   const [recoveryRequired, setRecoveryRequired] = useState(false);
   const [announcement, setAnnouncement] = useState<string | null>(null);
+  const [pushOutcomeError, setPushOutcomeError] = useState<string | null>(null);
   const statusRef = useFocusOnChange<HTMLParagraphElement>(announcement);
   const publicationLock = usePublicationRecoveryLock();
 
@@ -174,6 +178,7 @@ export function useStreamDraft(campaignId: number, streamRef: number) {
       setShareInputs({});
       setShareErrors({});
       setConfirmingCancel(false);
+      setPushOutcomeError(null);
       setAnnouncement("Draft command verified. The server view has been refreshed.");
     },
     onError: (error: unknown) => {
@@ -214,6 +219,7 @@ export function useStreamDraft(campaignId: number, streamRef: number) {
       void committedQuery.refetch();
       void publicationQuery.refetch();
       setAcceptingConflict(false);
+      setPushOutcomeError(null);
       setAnnouncement("Remote state accepted. The draft is clean on the new baseline.");
       acceptRemoteMutation.reset();
     },
@@ -227,14 +233,70 @@ export function useStreamDraft(campaignId: number, streamRef: number) {
     },
   });
 
+  const pushMutation = useMutation({
+    mutationFn: () => pushCampaignStreams(campaignId, [streamRef]),
+    onSuccess: async (result: PushResultResponse) => {
+      const outcome =
+        result.outcomes.find((item) => item.stream_ref === streamRef) ??
+        result.outcomes[0] ??
+        null;
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.committed(campaignId, streamRef),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.draft(campaignId, streamRef),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.publication(campaignId, streamRef),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.campaignStreams(campaignId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.recoverablePublications,
+        }),
+      ]);
+      if (outcome?.status === "succeeded") {
+        setPushOutcomeError(null);
+        setAnnouncement(
+          `Pushed stream #${streamRef} to Keitaro. Committed state is now synced.`,
+        );
+      } else {
+        setAnnouncement(null);
+        setPushOutcomeError(
+          outcome?.reason ??
+            "Push completed without confirmation. Check publication status before retrying.",
+        );
+      }
+    },
+    onError: (error: unknown) => {
+      setAnnouncement(null);
+      setPushOutcomeError(describeFailure(error).message);
+      void publicationQuery.refetch();
+      void draftQuery.refetch();
+    },
+  });
+
   const draft = draftQuery.data?.draft ?? null;
   const mutationFailure = describeFailure(mutation.error ?? acceptRemoteMutation.error);
   const publicationFailure = describeFailure(publicationQuery.error);
   const staleConflicts = conflictDetails(mutation.error);
-  const busy = mutation.isPending || acceptRemoteMutation.isPending;
+  const busy =
+    mutation.isPending ||
+    acceptRemoteMutation.isPending ||
+    pushMutation.isPending;
   const blocked = draft?.is_stale === true || (draft?.conflicts.length ?? 0) > 0;
   const snapshot = committedQuery.data?.snapshot;
   const baselineReady = Boolean(snapshot && snapshot.offers.length > 0);
+  const latestPublicationStatus = publicationQuery.data?.operation?.status ?? null;
+  const pushReadiness = evaluatePushReadiness({
+    draft,
+    busy: mutation.isPending || acceptRemoteMutation.isPending,
+    pushing: pushMutation.isPending,
+    recoveryRequired,
+    latestPublicationStatus,
+  });
 
   const rereadDraft = async () => {
     const result = await draftQuery.refetch();
@@ -301,6 +363,15 @@ export function useStreamDraft(campaignId: number, streamRef: number) {
     mutation.mutate({ kind: "share", offerId, share });
   };
 
+  const handlePush = () => {
+    if (!pushReadiness.canPush) {
+      return;
+    }
+    setAnnouncement(null);
+    setPushOutcomeError(null);
+    pushMutation.mutate();
+  };
+
   const streamMissing =
     isStreamNotFound(committedQuery.error) || isStreamNotFound(draftQuery.error);
 
@@ -327,6 +398,9 @@ export function useStreamDraft(campaignId: number, streamRef: number) {
     publicationLock,
     mutation,
     acceptRemoteMutation,
+    pushMutation,
+    pushReadiness,
+    pushOutcomeError,
     mutationFailure,
     publicationFailure,
     staleConflicts,
@@ -348,6 +422,7 @@ export function useStreamDraft(campaignId: number, streamRef: number) {
     onAcceptRemote: () => void requestAcceptRemote(),
     onConfirmAcceptRemote: () => acceptRemoteMutation.mutate(),
     onKeepConflict: () => setAcceptingConflict(false),
+    onPush: handlePush,
     rereadDraft,
   };
 }

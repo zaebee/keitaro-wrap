@@ -8,22 +8,19 @@ import type {
   StagedOfferResponse,
 } from "../../api/operations";
 import { ErrorSummary } from "../../shared/ui/ErrorSummary";
+import {
+  buildAllocationSummary,
+  resolveEffectiveOffersSource,
+  summarizeDraftChanges,
+} from "./allocationSummary";
 import { draftChanges, hasDraftChanges } from "./draftChanges";
+import {
+  computeActionMenuPlacement,
+  describeOfferStatus,
+  describeShareEditState,
+  type ActionMenuPlacement,
+} from "./offerRowModel";
 import { failureMessage, hintFor, type Failure } from "./useStreamDraft";
-
-function stagedChangeCount(draft: DraftViewResponse | null): number {
-  if (draft === null) {
-    return 0;
-  }
-  const changes = draftChanges(draft);
-  return (
-    changes.additions.length +
-    changes.archives.length +
-    changes.restores.length +
-    changes.pinToggles.length +
-    changes.shareEdits.length
-  );
-}
 import styles from "./OfferEditorPage.module.css";
 
 export type DraftActionRequest =
@@ -64,13 +61,17 @@ export function ReadErrorPanel({
 
 export function StreamSyncBadge({
   draft,
-}: Readonly<{ draft: DraftViewResponse | null }>) {
+  baselineReady = false,
+}: Readonly<{ draft: DraftViewResponse | null; baselineReady?: boolean }>) {
   let tone = styles.syncMuted;
   let label = "No draft";
   if (draft !== null) {
     const drifted = draft.is_stale || draft.conflicts.length > 0;
     tone = drifted ? styles.syncWarn : styles.syncGood;
     label = drifted ? "Drift detected" : "✓ Synced";
+  } else if (baselineReady) {
+    tone = styles.syncGood;
+    label = "✓ Synced";
   }
   return <span className={`${styles.syncBadge} ${tone}`}>{label}</span>;
 }
@@ -169,8 +170,7 @@ export function CommittedPanel({
       className={`${styles.panel} ${styles.committed}`}
     >
       <h2 id="committed-heading">
-        Committed baseline{" "}
-        <span className={styles.tag}>read-only</span>
+        Committed baseline <span className={styles.tag}>read-only</span>
       </h2>
       <p className={styles.hint}>
         Durable wrapper bindings and the last backend-cached remote observation.
@@ -264,27 +264,24 @@ export function PolicyCard({
   );
 }
 
-const SEGMENT_COLORS = ["#2563eb", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899"];
-
 export function AllocationSummary({
   draft,
-}: Readonly<{ draft: DraftViewResponse | null }>) {
-  const baselineShares = new Map(
-    (draft?.baseline_offers ?? []).map((offer) => [offer.offer_id, offer.share]),
-  );
-  const activeOffers =
-    draft?.offers.filter((offer) => offer.lifecycle === "ACTIVE") ?? [];
-  if (activeOffers.length === 0) {
+  committed,
+}: Readonly<{
+  draft: DraftViewResponse | null;
+  committed?: CommittedStateResponse | null;
+}>) {
+  const effectiveSource = resolveEffectiveOffersSource(draft, committed);
+  const summary = buildAllocationSummary(effectiveSource);
+  if (summary.segments.length === 0) {
     return null;
   }
-  const stagedTotal = activeOffers.reduce((sum, offer) => sum + offer.share, 0);
-  const modifiedCount = stagedChangeCount(draft);
-  const unallocated = draft?.unallocated ?? 100 - stagedTotal;
+  const changeSummary = summarizeDraftChanges(draft);
 
   return (
     <section
       aria-labelledby="allocation-summary-heading"
-      className={`${styles.panel} ${styles.allocationCard}`}
+      className={styles.allocationBlock}
     >
       <div className={styles.allocationHeader}>
         <h2 id="allocation-summary-heading">
@@ -294,72 +291,63 @@ export function AllocationSummary({
           </span>
         </h2>
         <div className={`${styles.allocationTotal} tnum`}>
-          <span className={styles.allocationTotalValue}>{stagedTotal}%</span>
-          <span className={styles.allocationTotalDivider}>/ 100%</span>
-          <span
-            className={`${styles.balanceBadge} ${
-              unallocated === 0 ? styles.balanceBalanced : styles.balanceUnbalanced
-            }`}
-          >
-            {unallocated === 0 ? "Balanced" : `Unallocated: ${unallocated}%`}
+          <span className={styles.allocationTotalValue}>
+            {summary.allocatedPercent}%
           </span>
+          <span className={styles.allocationTotalDivider}>/ 100%</span>
+          {!summary.isBalanced && (
+            <span className={`${styles.balanceBadge} ${styles.balanceUnbalanced}`}>
+              Unallocated: {summary.unallocatedPercent}%
+            </span>
+          )}
         </div>
       </div>
       <div
         className={styles.allocationBar}
         role="img"
-        aria-label={`Traffic allocation across ${activeOffers.length} offers: ${stagedTotal}% allocated`}
+        aria-label={`Traffic allocation across ${summary.segments.length} offers: ${summary.allocatedPercent}% allocated`}
       >
-        {activeOffers.map((offer, index) => (
+        {summary.segments.map((segment) => (
           <div
-            key={offer.offer_id}
+            key={segment.offerId}
             className={styles.allocationSegment}
             style={{
-              width: `${offer.share}%`,
-              background: SEGMENT_COLORS[index % SEGMENT_COLORS.length],
+              width: `${segment.share}%`,
+              background: segment.color,
             }}
-            title={`Offer #${offer.offer_id}: ${offer.share}%`}
+            title={`Offer #${segment.offerId}: ${segment.share}%`}
           />
         ))}
       </div>
       <div className={styles.allocationLegend}>
-        {activeOffers.map((offer, index) => {
-          const baseline = baselineShares.get(offer.offer_id);
-          return (
-            <div key={offer.offer_id} className={styles.legendItem}>
+        <div className={styles.legendItems}>
+          {summary.segments.map((segment) => (
+            <div key={segment.offerId} className={styles.legendItem}>
               <span
                 className={styles.legendDot}
-                style={{
-                  background: SEGMENT_COLORS[index % SEGMENT_COLORS.length],
-                }}
+                style={{ background: segment.color }}
               />
               <span className={styles.legendName}>
-                Offer #{offer.offer_id} —
+                Offer #{segment.offerId} —
               </span>
               <span className={`${styles.legendShare} tnum`}>
-                {baseline !== undefined && baseline !== offer.share
-                  ? `${baseline}% → ${offer.share}%`
-                  : `${offer.share}%`}
-              </span>
-              <span
-                className={`${styles.legendMode} ${
-                  offer.is_pinned ? styles.legendPinned : styles.legendAuto
-                }`}
-              >
-                {offer.is_pinned ? "Pinned" : "Auto"}
+                {segment.changed && segment.baselineShare !== null
+                  ? `${segment.baselineShare}% → ${segment.share}%`
+                  : `${segment.share}%`}
               </span>
             </div>
-          );
-        })}
-        <div className={styles.legendUnallocated}>
-          Unallocated:{" "}
-          <span>{unallocated}%</span>
+          ))}
         </div>
+        {summary.unallocatedPercent > 0 && (
+          <div className={styles.legendUnallocated}>
+            Unallocated: <span>{summary.unallocatedPercent}%</span>
+          </div>
+        )}
       </div>
       {draft?.is_dirty && (
         <p className={styles.allocationHint}>
-          {modifiedCount} staged modification
-          {modifiedCount === 1 ? "" : "s"} awaiting commit.
+          {changeSummary.totalChanges} staged modification
+          {changeSummary.totalChanges === 1 ? "" : "s"} awaiting commit.
         </p>
       )}
     </section>
@@ -368,6 +356,7 @@ export function AllocationSummary({
 
 type DraftPanelProps = Readonly<{
   draft: DraftViewResponse | null;
+  committed?: CommittedStateResponse | null;
   busy: boolean;
   recoveryRequired: boolean;
   baselineReady: boolean;
@@ -388,6 +377,7 @@ type DraftPanelProps = Readonly<{
 
 export function DraftPanel({
   draft,
+  committed,
   busy,
   recoveryRequired,
   baselineReady,
@@ -407,22 +397,28 @@ export function DraftPanel({
 }: DraftPanelProps) {
   const blocked = draft?.is_stale === true || (draft?.conflicts.length ?? 0) > 0;
   const commandsDisabled = busy || recoveryRequired || blocked || !baselineReady;
+  const effectiveOffersView = resolveEffectiveOffersSource(draft, committed);
 
   return (
     <section
       aria-labelledby="draft-heading"
-      className={`${styles.panel} ${styles.draft}`}
+      className={`${styles.panel} ${styles.draftPanel}`}
     >
-      <h2 id="draft-heading">
-        Staged draft{" "}
-        <span className={styles.tag}>local, unpublished</span>
-      </h2>
-      {draft === null ? (
+      <div className={styles.draftHeadingRow}>
+        <h2 id="draft-heading">
+          Staged draft{" "}
+          <span className={styles.tag}>
+            {draft ? "local, unpublished" : "baseline preview · v0"}
+          </span>
+        </h2>
+      </div>
+      {draft === null && !effectiveOffersView && (
         <p className={styles.empty}>
           No local draft exists. The first staging command creates one from the
           committed baseline using version 0.
         </p>
-      ) : (
+      )}
+      {draft !== null && (
         <dl className={styles.draftMeta}>
           <dt>Version</dt>
           <dd>{draft.version}</dd>
@@ -488,7 +484,11 @@ export function DraftPanel({
             aria-describedby={addError ? "add-offer-error" : undefined}
             disabled={commandsDisabled}
           />
-          <button type="submit" disabled={commandsDisabled}>
+          <button
+            type="submit"
+            className={styles.addOfferButton}
+            disabled={commandsDisabled}
+          >
             <span aria-hidden="true">+</span> Add offer
           </button>
           {addError && (
@@ -499,46 +499,47 @@ export function DraftPanel({
         </form>
       </div>
 
-      {draft && (
+      {effectiveOffersView && (
         <div className={styles.offerGroups}>
           {(() => {
-            const activeOffers = draft.offers.filter(
+            const activeOffers = effectiveOffersView.offers.filter(
               (offer) => offer.lifecycle === "ACTIVE",
             );
-            const archivedOffers = draft.offers.filter(
+            const archivedOffers = effectiveOffersView.offers.filter(
               (offer) => offer.lifecycle === "ARCHIVED",
             );
             const renderOfferTable = (offers: typeof activeOffers) => (
-              <div className={styles.tableScroll}>
-              <table className={styles.offerTable}>
-                <thead>
-                  <tr>
-                    <th scope="col">Offer</th>
-                    <th scope="col">Share</th>
-                    <th scope="col">Allocation</th>
-                    <th scope="col">Status</th>
-                    <th scope="col">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {offers.map((offer) => (
-                    <OfferRow
-                      key={offer.offer_id}
-                      offer={offer}
-                      disabled={commandsDisabled}
-                      baselineShare={draft.baseline_offers.find(
-                        (baseline) => baseline.offer_id === offer.offer_id,
-                      )?.share}
-                      shareInput={shareInputs[offer.offer_id] ?? ""}
-                      shareError={shareErrors[offer.offer_id]}
-                      onAction={onAction}
-                      onShareInput={onShareInput}
-                      onShareSubmit={onShareSubmit}
-                    />
-                  ))}
-                </tbody>
-              </table>
-              </div>
+              <section className={styles.tableScroll} aria-label="Offers table" tabIndex={0} /* NOSONAR */ >
+                <table className={styles.offerTable}>
+                  <thead>
+                    <tr>
+                      <th scope="col">Offer</th>
+                      <th scope="col">Share</th>
+                      <th scope="col">Allocation</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {offers.map((offer, idx) => (
+                      <OfferRow
+                        key={offer.offer_id}
+                        offer={offer}
+                        colorIndex={idx}
+                        disabled={commandsDisabled}
+                        baselineShare={effectiveOffersView.baseline_offers.find(
+                          (baseline) => baseline.offer_id === offer.offer_id,
+                        )?.share}
+                        shareInput={shareInputs[offer.offer_id] ?? ""}
+                        shareError={shareErrors[offer.offer_id]}
+                        onAction={onAction}
+                        onShareInput={onShareInput}
+                        onShareSubmit={onShareSubmit}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </section>
             );
             return (
               <>
@@ -549,24 +550,23 @@ export function DraftPanel({
                     renderOfferTable(activeOffers)
                   )}
                 </div>
-                <div>
-                  <h3 className={styles.archivedHeading}>
-                    Archived offers
-                  </h3>
+                <div className={styles.archivedBlock}>
+                  <h3 className={styles.srOnly}>Archived offers</h3>
                   {archivedOffers.length === 0 ? (
-                    <p className={styles.empty}>No archived offers.</p>
+                    <p className={styles.archivedZeroHint}>
+                      Archived offers (0)
+                    </p>
                   ) : (
                     <details className={styles.archivedTray}>
                       <summary className={styles.archivedSummary}>
+                        <ChevronDownIcon className={styles.archivedChevron} />
                         <span>
                           Archived offers in baseline{" "}
                           <span className={styles.archivedCount}>
                             {archivedOffers.length}
                           </span>
                         </span>
-                        <span className={styles.archivedHint}>
-                          Click to expand
-                        </span>
+                        <span className={styles.archivedHint}>Click to expand</span>
                       </summary>
                       {renderOfferTable(archivedOffers)}
                     </details>
@@ -577,8 +577,37 @@ export function DraftPanel({
           })()}
         </div>
       )}
-
     </section>
+  );
+}
+
+const THUMB_PALETTES = [
+  ["#e0f2fe", "#0284c7", "#38bdf8"],
+  ["#dcfce7", "#15803d", "#4ade80"],
+  ["#fef3c7", "#b45309", "#fbbf24"],
+  ["#ede9fe", "#6d28d9", "#a78bfa"],
+  ["#fce7f3", "#be185d", "#f472b6"],
+] as const;
+
+function OfferThumbnail({ index }: Readonly<{ index: number }>) {
+  const [bg, fg, accent] = THUMB_PALETTES[index % THUMB_PALETTES.length];
+  return (
+    <span className={styles.offerThumb} aria-hidden="true" style={{ background: bg }}>
+      <svg fill="none" height="28" viewBox="0 0 42 28" width="42">
+        <rect fill={bg} height="28" rx="6" width="42" />
+        <circle cx="31" cy="9" fill={accent} opacity="0.7" r="4" />
+        <path
+          d="M2 24l11-10 7 6 7-5 13 9H2z"
+          fill={fg}
+          opacity="0.22"
+        />
+        <path
+          d="M2 26l14-9 8 5 6-4 10 8H2z"
+          fill={fg}
+          opacity="0.38"
+        />
+      </svg>
+    </span>
   );
 }
 
@@ -628,24 +657,63 @@ function AutoIcon() {
   );
 }
 
+function PencilIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="none"
+      height="15"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.9"
+      viewBox="0 0 24 24"
+      width="15"
+    >
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+    </svg>
+  );
+}
+
 function KebabIcon() {
   return (
     <svg
       aria-hidden="true"
       fill="currentColor"
-      height="20"
+      height="16"
       viewBox="0 0 24 24"
-      width="20"
+      width="16"
     >
-      <circle cx="12" cy="4.5" r="2.6" />
-      <circle cx="12" cy="12" r="2.6" />
-      <circle cx="12" cy="19.5" r="2.6" />
+      <circle cx="12" cy="5" r="2" />
+      <circle cx="12" cy="12" r="2" />
+      <circle cx="12" cy="19" r="2" />
+    </svg>
+  );
+}
+
+function ChevronDownIcon({ className }: Readonly<{ className?: string }>) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      fill="none"
+      height="15"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      viewBox="0 0 24 24"
+      width="15"
+    >
+      <path d="M6 9l6 6 6-6" />
     </svg>
   );
 }
 
 type OfferRowProps = Readonly<{
   offer: StagedOfferResponse;
+  colorIndex: number;
   disabled: boolean;
   baselineShare?: number;
   shareInput: string;
@@ -655,8 +723,86 @@ type OfferRowProps = Readonly<{
   onShareSubmit: (offerId: number) => void;
 }>;
 
-function OfferRow({
+function useOfferRowMenu() {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPlacement, setMenuPlacement] = useState<ActionMenuPlacement>({
+    mode: "absolute",
+  });
+  const menuContainerRef = useRef<HTMLDivElement>(null);
+  const kebabButtonRef = useRef<HTMLButtonElement>(null);
+
+  const closeMenu = (restoreFocus = false) => {
+    setMenuOpen(false);
+    if (restoreFocus) {
+      kebabButtonRef.current?.focus();
+    }
+  };
+
+  useEffect(() => {
+    if (!menuOpen) {
+      return undefined;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (target && !menuContainerRef.current?.contains(target)) {
+        setMenuOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setMenuOpen(false);
+        kebabButtonRef.current?.focus();
+      }
+    };
+
+    const handleViewportChange = () => {
+      setMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("resize", handleViewportChange);
+    window.addEventListener("scroll", handleViewportChange, true);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("resize", handleViewportChange);
+      window.removeEventListener("scroll", handleViewportChange, true);
+    };
+  }, [menuOpen]);
+
+  const toggleMenu = () => {
+    if (menuOpen) {
+      setMenuOpen(false);
+      return;
+    }
+    const rect = kebabButtonRef.current?.getBoundingClientRect() ?? null;
+    setMenuPlacement(
+      computeActionMenuPlacement(rect, {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      }),
+    );
+    setMenuOpen(true);
+  };
+
+  return {
+    menuOpen,
+    menuPlacement,
+    menuContainerRef,
+    kebabButtonRef,
+    closeMenu,
+    toggleMenu,
+  };
+}
+
+function OfferRow({ // NOSONAR
   offer,
+  colorIndex,
   disabled,
   baselineShare,
   shareInput,
@@ -665,81 +811,191 @@ function OfferRow({
   onShareInput,
   onShareSubmit,
 }: OfferRowProps) {
-  const shareModified =
-    baselineShare !== undefined && baselineShare !== offer.share;
-  const [menuOpen, setMenuOpen] = useState(false);
-  const closeMenu = () => setMenuOpen(false);
+  const shareState = describeShareEditState({
+    offerShare: offer.share,
+    baselineShare,
+    draftInput: shareInput,
+  });
+  const statusInfo = describeOfferStatus({
+    lifecycle: offer.lifecycle,
+    remoteState: offer.state,
+  });
+
+  const {
+    menuOpen,
+    menuPlacement,
+    menuContainerRef,
+    kebabButtonRef,
+    closeMenu,
+    toggleMenu,
+  } = useOfferRowMenu();
+
   const runAction = (kind: "remove" | "restore" | "pin" | "unpin") => {
-    closeMenu();
+    closeMenu(false);
     onAction({ kind, offerId: offer.offer_id });
   };
+
+  const focusShareInput = () => {
+    const el = document.getElementById(
+      `share-${offer.offer_id}`,
+    ) as HTMLInputElement | null;
+    if (el) {
+      el.focus();
+      el.select();
+    }
+  };
+
+  const floatingMenuStyle =
+    menuPlacement.mode === "fixed"
+      ? {
+          position: "fixed" as const,
+          top: menuPlacement.top,
+          bottom: menuPlacement.bottom,
+          right: menuPlacement.right,
+          zIndex: 60,
+        }
+      : undefined;
+
   return (
     <tr className={offer.lifecycle === "ARCHIVED" ? styles.offerArchived : ""}>
       <th scope="row" className={styles.offerIdCell}>
-        <span className={styles.offerIdValue}>Offer #{offer.offer_id}</span>
-        {shareModified && (
-          <span className={styles.modifiedDot} title="Share modified in draft" />
-        )}
+        <OfferThumbnail index={colorIndex} />
+        <div className={styles.offerIdentityText}>
+          <span className={styles.offerTitleRow}>
+            <span className={`${styles.offerIdValue} tnum`}>
+              Offer #{offer.offer_id}
+            </span>
+            {shareState.shareModified && (
+              <span
+                className={styles.modifiedPill}
+                title="Share modified in local draft"
+              >
+                <span className={styles.modifiedDot} aria-hidden="true" />{" "}
+                Modified
+              </span>
+            )}
+          </span>
+        </div>
       </th>
       <td className={styles.offerShareCell}>
-        <span className="tnum">
-          {shareModified ? (
-            <>
-              <s>{baselineShare}</s> <span className={styles.shareArrow}>→</span>{" "}
-              {offer.share}
-            </>
-          ) : (
-            offer.share
-          )}
-        </span>
-        {offer.lifecycle === "ACTIVE" && (
-          <form
-            className={styles.shareForm}
-            noValidate
-            onSubmit={(event) => {
-              event.preventDefault();
-              onShareSubmit(offer.offer_id);
-            }}
+        <div className={styles.shareCellRow}>
+          <span
+            className={`${styles.shareBadgeText} tnum`}
+            title={
+              shareState.shareModified
+                ? `Baseline: ${shareState.baselinePercentLabel} → Draft: ${shareState.currentPercentLabel}`
+                : `Current share: ${shareState.currentPercentLabel}`
+            }
           >
-            <span className={styles.shareInputWrap}>
-              <input
-                id={`share-${offer.offer_id}`}
-                type="text"
-                inputMode="numeric"
-                aria-label="Share 0–100"
-                placeholder={String(offer.share)}
-                value={shareInput}
-                onChange={(event) => onShareInput(offer.offer_id, event.target.value)}
-                aria-invalid={Boolean(shareError)}
-                aria-describedby={
-                  shareError ? `share-${offer.offer_id}-error` : undefined
-                }
-                disabled={disabled}
-              />
-              <span aria-hidden="true" className={styles.shareSuffix}>
-                %
-              </span>
-            </span>
-            <button type="submit" disabled={disabled}>
-              Set share
-            </button>
-            {shareError && (
-              <p className={styles.fieldError} id={`share-${offer.offer_id}-error`}>
-                {shareError}
-              </p>
+            {shareState.shareModified ? (
+              <>
+                <s>{baselineShare}</s>
+                <span aria-hidden="true">%</span>{" "}
+                <span className={styles.shareArrow}>→</span>{" "}
+                <strong className={styles.shareCurrentValue}>
+                  {offer.share}
+                </strong>
+                <span className={styles.shareCurrentUnit}>%</span>
+              </>
+            ) : (
+              <>
+                <strong className={styles.shareCurrentValue}>
+                  {offer.share}
+                </strong>
+                <span className={styles.shareCurrentUnit}>%</span>
+              </>
             )}
-          </form>
-        )}
+          </span>
+          {offer.lifecycle === "ACTIVE" && (
+            <form
+              className={styles.shareForm}
+              noValidate
+              onSubmit={(event) => {
+                event.preventDefault();
+                onShareSubmit(offer.offer_id);
+              }}
+            >
+              <span
+                className={`${styles.shareInputWrap} ${
+                  shareState.inputDiffersFromCurrent
+                    ? styles.shareInputWrapDirty
+                    : ""
+                }`}
+              >
+                <input
+                  id={`share-${offer.offer_id}`}
+                  type="text"
+                  inputMode="numeric"
+                  aria-label={`Share for offer ${offer.offer_id}, 0 to 100%`}
+                  placeholder={String(offer.share)}
+                  value={shareInput}
+                  onChange={(event) =>
+                    onShareInput(offer.offer_id, event.target.value)
+                  }
+                  aria-invalid={Boolean(shareError)}
+                  aria-describedby={
+                    shareError ? `share-${offer.offer_id}-error` : undefined
+                  }
+                  disabled={disabled}
+                />
+                <span aria-hidden="true" className={styles.shareSuffix}>
+                  %
+                </span>
+              </span>
+              <button
+                type="submit"
+                className={`${styles.setShareBtn} ${
+                  shareState.inputDiffersFromCurrent
+                    ? styles.setShareBtnReady
+                    : ""
+                }`}
+                title={shareState.submitTitle}
+                disabled={disabled}
+              >
+                Set share
+              </button>
+              {shareError && (
+                <p
+                  className={styles.fieldError}
+                  id={`share-${offer.offer_id}-error`}
+                >
+                  {shareError}
+                </p>
+              )}
+            </form>
+          )}
+        </div>
       </td>
       <td>
-        <span
-          className={`${styles.allocationMode} ${
-            offer.is_pinned ? styles.allocationPinned : styles.allocationAuto
-          }`}
-        >
-          {offer.is_pinned ? <LockIcon /> : <AutoIcon />}
-          {offer.is_pinned ? "Pinned" : "Auto"}
-        </span>
+        {offer.lifecycle === "ACTIVE" ? (
+          <button
+            type="button"
+            className={`${styles.allocationModeBtn} ${
+              offer.is_pinned ? styles.allocationPinned : styles.allocationAuto
+            }`}
+            aria-pressed={offer.is_pinned}
+            disabled={disabled}
+            onClick={() =>
+              onAction({
+                kind: offer.is_pinned ? "unpin" : "pin",
+                offerId: offer.offer_id,
+              })
+            }
+            title={
+              offer.is_pinned
+                ? `Pinned at ${offer.share}% — click to unlock for automatic balancing`
+                : `Auto-balanced (${offer.share}%) — click to pin share`
+            }
+          >
+            {offer.is_pinned ? <LockIcon /> : <AutoIcon />}
+            <span>{offer.is_pinned ? "Pinned" : "Auto"}</span>
+          </button>
+        ) : (
+          <span className={`${styles.allocationMode} ${styles.allocationAuto}`}>
+            {offer.is_pinned ? <LockIcon /> : <AutoIcon />}
+            <span>{offer.is_pinned ? "Pinned" : "Auto"}</span>
+          </span>
+        )}
       </td>
       <td>
         <span className={styles.offerStatusCell}>
@@ -751,31 +1007,61 @@ function OfferRow({
             }`}
             aria-hidden="true"
           />
-          {offer.lifecycle === "ACTIVE" ? "Active" : "Archived"}
-          <span className={styles.offerLifecycle}>
-            {offer.state ?? "not provided"}
+          <span className={styles.statusPrimaryText}>
+            {statusInfo.primaryLabel}
           </span>
+          {statusInfo.remoteBadgeLabel && (
+            <span className={styles.offerRemoteBadge}>
+              {statusInfo.remoteBadgeLabel}
+            </span>
+          )}
         </span>
       </td>
       <td>
-        <div className={styles.inlineActions}>
+        <div className={styles.inlineActions} ref={menuContainerRef}>
+          {offer.lifecycle === "ACTIVE" && (
+            <button
+              type="button"
+              className={styles.iconActionBtn}
+              disabled={disabled}
+              aria-label={`Edit share for offer ${offer.offer_id}`}
+              onClick={focusShareInput}
+              title="Focus share input"
+            >
+              <PencilIcon />
+            </button>
+          )}
           <button
+            ref={kebabButtonRef}
             type="button"
             className={styles.kebabButton}
             disabled={disabled}
             aria-label={`More actions for offer ${offer.offer_id}`}
             aria-expanded={menuOpen}
-            onClick={() => setMenuOpen((open) => !open)}
+            aria-haspopup="true"
+            onClick={toggleMenu}
+            title="More actions"
           >
             <KebabIcon />
           </button>
           {menuOpen && (
-            <div className={styles.actionMenu}>
+            <div className={styles.actionMenu} style={floatingMenuStyle}>
+              <button
+                type="button"
+                disabled={disabled}
+                aria-label={`${offer.is_pinned ? "Unpin" : "Pin"} offer ${offer.offer_id}`}
+                onClick={() => runAction(offer.is_pinned ? "unpin" : "pin")}
+              >
+                {offer.is_pinned ? "Unpin offer" : "Pin offer"}
+              </button>
+              <hr className={styles.menuDivider} />
               {offer.lifecycle === "ACTIVE" ? (
                 <button
                   type="button"
+                  className={styles.actionMenuDanger}
                   disabled={disabled}
                   aria-label={`Remove offer ${offer.offer_id}`}
+                  title="Moves offer to Archived in local draft (does not delete in Keitaro yet)"
                   onClick={() => runAction("remove")}
                 >
                   Remove offer
@@ -790,14 +1076,6 @@ function OfferRow({
                   Restore offer
                 </button>
               )}
-              <button
-                type="button"
-                disabled={disabled}
-                aria-label={`${offer.is_pinned ? "Unpin" : "Pin"} offer ${offer.offer_id}`}
-                onClick={() => runAction(offer.is_pinned ? "unpin" : "pin")}
-              >
-                {offer.is_pinned ? "Unpin offer" : "Pin offer"}
-              </button>
             </div>
           )}
         </div>
@@ -852,12 +1130,20 @@ export function ConflictPanel({
             >
               Confirm accept remote
             </button>
-            <button type="button" className={styles.secondary} onClick={onKeepConflict}>
+            <button
+              type="button"
+              className={styles.secondary}
+              onClick={onKeepConflict}
+            >
               Keep conflict
             </button>
           </fieldset>
         ) : (
-          <button type="button" className={styles.secondary} onClick={onAcceptRemote}>
+          <button
+            type="button"
+            className={styles.secondary}
+            onClick={onAcceptRemote}
+          >
             Accept remote
           </button>
         ))}
@@ -883,7 +1169,11 @@ export function ReviewPanel({
   );
 
   return (
-    <section aria-labelledby="review-heading" className={styles.panel}>
+    <section
+      id="staged-review-diff"
+      aria-labelledby="review-heading"
+      className={styles.panel}
+    >
       <h2 id="review-heading">Review</h2>
       <dl className={styles.draftMeta}>
         <dt>Draft version</dt>

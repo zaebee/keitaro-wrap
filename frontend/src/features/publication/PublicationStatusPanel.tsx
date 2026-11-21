@@ -34,6 +34,61 @@ export function PublicationReadError({
   );
 }
 
+function StatusSummaryBanner({
+  status,
+}: Readonly<{ status: NonNullable<PublicationStateResponse["operation"]>["status"] }>) {
+  const labelMap: Record<string, string> = {
+    succeeded: "Succeeded",
+    pending: "Pending",
+    in_progress: "In progress",
+    failed: "Failed",
+    ambiguous: "Ambiguous",
+    abandoned: "Abandoned",
+  };
+  const label = labelMap[status] ?? status;
+  const isOk = status === "succeeded";
+  const isErr = status === "failed" || status === "ambiguous";
+
+  let circleClass = styles.pubCirclePending;
+  if (isOk) {
+    circleClass = styles.pubCircleOk;
+  } else if (isErr) {
+    circleClass = styles.pubCircleErr;
+  }
+  let textClass = styles.pubTextPending;
+  if (isOk) {
+    textClass = styles.pubTextOk;
+  } else if (isErr) {
+    textClass = styles.pubTextErr;
+  }
+  let circleContent = "…";
+  if (isOk) {
+    circleContent = "✓";
+  } else if (isErr) {
+    circleContent = "!";
+  }
+
+  return (
+    <div className={styles.pubSummaryRow}>
+      <span
+        className={`${styles.pubStatusCircle} ${circleClass}`}
+        aria-hidden="true"
+      >
+        {circleContent}
+      </span>
+      <div className={styles.pubSummaryText}>
+        <span className={styles.pubSummaryLabel}>Latest publication:</span>
+        <span
+          className={`${styles.pubSummaryState} ${textClass}`}
+          data-status={status}
+        >
+          {label}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export function PublicationStatusPanel({
   state,
   expectedCampaignId,
@@ -96,8 +151,9 @@ export function PublicationStatusPanel({
 
   return (
     <div>
+      <StatusSummaryBanner status={state.operation.status} />
       <ul className={styles.operationList}>
-        <PublicationOperationCard operation={state.operation} />
+        <PublicationOperationCard operation={state.operation} hideStatusBadge />
       </ul>
       <p className={styles.hint}>
         This is the latest backend status for this stream at read time. It is a

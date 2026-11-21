@@ -22,12 +22,18 @@ export function PublicationStatusBadge({
 
 export function PublicationOperationCard({
   operation,
-}: Readonly<{ operation: PublicPublicationResponse }>) {
+  hideStatusBadge = false,
+}: Readonly<{ operation: PublicPublicationResponse; hideStatusBadge?: boolean }>) {
   return (
     <li className={styles.operationCard}>
       <h3>
-        Stream {operation.stream_ref} ·{" "}
-        <PublicationStatusBadge status={operation.status} />
+        Stream {operation.stream_ref}
+        {!hideStatusBadge && (
+          <>
+            {" · "}
+            <PublicationStatusBadge status={operation.status} />
+          </>
+        )}
       </h3>
       <dl className={styles.meta}>
         <dt>Operation UUID</dt>

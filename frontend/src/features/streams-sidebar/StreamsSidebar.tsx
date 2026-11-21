@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, NavLink, useParams } from "react-router-dom";
+import { Link, NavLink, useLocation, useParams } from "react-router-dom";
 
 import {
   fetchCampaignStreams,
@@ -15,10 +15,7 @@ import styles from "./StreamsSidebar.module.css";
 
 type StreamState = "staged" | "synced" | "idle";
 
-function streamState(
-  staged: boolean,
-  synced: boolean,
-): StreamState {
+function streamState(staged: boolean, synced: boolean): StreamState {
   if (staged) {
     return "staged";
   }
@@ -52,6 +49,85 @@ function formatSyncTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString();
 }
 
+function BrandMark() {
+  return (
+    <span className={styles.brandMark} aria-hidden="true">
+      <svg fill="none" height="22" viewBox="0 0 24 24" width="22">
+        <rect fill="#2563EB" height="24" rx="6" width="24" />
+        <path
+          d="M7 6.5v11M16.5 6.5L10.5 12l6 5.5"
+          stroke="#FFFFFF"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="2.4"
+        />
+      </svg>
+    </span>
+  );
+}
+
+function CampaignsIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className={styles.navIcon}
+      fill="none"
+      height="16"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.9"
+      viewBox="0 0 24 24"
+      width="16"
+    >
+      <rect height="7" rx="1.5" width="7" x="3" y="3" />
+      <rect height="7" rx="1.5" width="7" x="14" y="3" />
+      <rect height="7" rx="1.5" width="7" x="3" y="14" />
+      <rect height="7" rx="1.5" width="7" x="14" y="14" />
+    </svg>
+  );
+}
+
+function PlusSquareIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className={styles.navIcon}
+      fill="none"
+      height="16"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.9"
+      viewBox="0 0 24 24"
+      width="16"
+    >
+      <rect height="18" rx="3" width="18" x="3" y="3" />
+      <path d="M12 8v8M8 12h8" />
+    </svg>
+  );
+}
+
+function RecoveryIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className={styles.navIcon}
+      fill="none"
+      height="16"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.9"
+      viewBox="0 0 24 24"
+      width="16"
+    >
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.6.82 1 1.51 1H21a2 2 0 0 1 0 4h-.09c-.69 0-1.25.4-1.51 1z" />
+    </svg>
+  );
+}
+
 function StreamNavItem({
   campaignId,
   streamRef,
@@ -69,8 +145,9 @@ function StreamNavItem({
   });
 
   const staged = draft.data?.draft ?? null;
+  const hasStaged = staged !== null && (staged.is_dirty || staged.version > 0);
   const synced = committed.data?.snapshot != null;
-  const state = streamState(staged !== null, synced);
+  const state = streamState(hasStaged, synced);
 
   return (
     <li className={styles.streamItem}>
@@ -81,11 +158,9 @@ function StreamNavItem({
         }
       >
         <span className={dotClassName(state)} aria-hidden="true" />
-        <span className={styles.streamName} title={name}>
-          {name}
-        </span>
+        <span className={styles.streamName}>{name}</span>
         <span className={styles.streamMeta}>
-          {staged && (
+          {hasStaged && staged && (
             <span className={styles.chip}>v{staged.version} staged</span>
           )}
           <span className={styles.visuallyHidden} data-stream-state={state}>
@@ -97,9 +172,7 @@ function StreamNavItem({
   );
 }
 
-function CampaignSidebar({
-  campaignId,
-}: Readonly<{ campaignId: number }>) {
+function CampaignSidebar({ campaignId }: Readonly<{ campaignId: number }>) {
   const queryClient = useQueryClient();
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
 
@@ -184,46 +257,78 @@ function SidebarFooter() {
     queryKey: queryKeys.health,
     queryFn: getHealth,
   });
-  const environment = import.meta.env.MODE === "production"
-    ? "production"
-    : "development";
 
   return (
     <footer className={styles.statusFooter} aria-label="Environment status">
-      <p className={styles.statusLine}>
-        <span
-          className={`${styles.statusDot} ${isError ? styles.statusDotError : styles.statusDotOk}`}
-          aria-hidden="true"
-        />
-        {isError ? "API unavailable" : `API ${data?.status ?? "checking"}`}
-      </p>
-      <p className={styles.statusLine}>
-        <span className={styles.envChip}>{environment}</span>
-        {" "}
-        Keitaro core: unknown
-      </p>
+      <div className={styles.statusRow}>
+        <p className={styles.statusLine}>
+          <span
+            className={`${styles.statusDot} ${isError ? styles.statusDotError : styles.statusDotOk}`}
+            aria-hidden="true"
+          />
+          {isError ? "API unavailable" : "API Connected"}
+        </p>
+        <Link
+          to="/recovery"
+          className={styles.helpIconLink}
+          aria-label="Recovery queue help"
+          title="Inspect recovery queue"
+        >
+          ?
+        </Link>
+      </div>
+      {data?.mode && (
+        <p className={styles.statusSubline}>
+          <span className={styles.envChip}>
+            {data.mode === "live" ? "Live Keitaro" : "Sandbox"}
+          </span>
+        </p>
+      )}
     </footer>
   );
 }
 
 export function StreamsSidebar() {
   const { campaignId: rawCampaignId } = useParams();
+  const location = useLocation();
   const campaignId = parsePositiveId(rawCampaignId);
+  const campaignsActive =
+    location.pathname.startsWith("/campaigns") &&
+    location.pathname !== "/campaigns/new";
 
   return (
     <aside className={styles.sidebar} aria-label="App sidebar">
       <div className={styles.brandBlock}>
-        <Link className={styles.brand} to="/campaigns/new">
-          <span className={styles.brandMark} aria-hidden="true">
-            K
-          </span>
-          <span className={styles.brandName}>Keitaro Wrap</span>
+        <Link className={styles.brand} to="/campaigns/open">
+          <BrandMark />
+          <span>Keitaro Wrap</span>
         </Link>
-        <p className={styles.wordmark}>OFFER DISPATCH</p>
         <nav aria-label="Primary" className={styles.primaryNav}>
-          <Link to="/campaigns/new">Create campaign</Link>
-          <Link to="/campaigns/open">Open campaign</Link>
-          <Link to="/recovery">Recovery queue</Link>
+          <Link
+            to="/campaigns/open"
+            className={`${styles.navLink} ${campaignsActive ? styles.navLinkActive : ""}`}
+          >
+            <CampaignsIcon />
+            <span>Open campaign</span>
+          </Link>
+          <NavLink
+            to="/campaigns/new"
+            className={({ isActive }) =>
+              `${styles.navLink} ${isActive ? styles.navLinkActive : ""}`
+            }
+          >
+            <PlusSquareIcon />
+            <span>Create campaign</span>
+          </NavLink>
+          <NavLink
+            to="/recovery"
+            className={({ isActive }) =>
+              `${styles.navLink} ${isActive ? styles.navLinkActive : ""}`
+            }
+          >
+            <RecoveryIcon />
+            <span>Recovery queue</span>
+          </NavLink>
         </nav>
       </div>
       {campaignId !== null ? (
@@ -232,8 +337,10 @@ export function StreamsSidebar() {
         <section className={styles.campaignBlock} aria-label="Campaign">
           <p className={styles.streamsHint}>
             No campaign open.{" "}
-            <Link to="/campaigns/open">Open a campaign</Link> to see its
-            streams.
+            <Link className={styles.inlineLink} to="/campaigns/open">
+              Open a campaign
+            </Link>{" "}
+            to see its streams.
           </p>
         </section>
       )}
