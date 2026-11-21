@@ -1416,3 +1416,43 @@ button:disabled {
     display: none;
   }
 }
+
+.checksList {
+  margin: 8px 0 0;
+  display: grid;
+  gap: 4px;
+}
+
+.checkRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.checkRow dt {
+  color: var(--color-text-muted);
+}
+
+.checkGood {
+  color: #15803d;
+  font-weight: 600;
+}
+
+.checkWarn {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.techDetails {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.techDetailLine {
+  margin: 4px 0 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  word-break: break-all;
+}
