@@ -303,7 +303,7 @@ describe("CampaignWorkspacePage", () => {
     expect(getCount).toBe(2);
   });
 
-  it("renders the inline offer table for the expanded stream and collapses it", async () => {
+  it("shows a compact stream card with a link to the full editor", async () => {
     serveStreams([streamFixture({ stream_ref: 101, name: "Main stream" })]);
     server.use(
       http.get("*/api/campaigns/42/streams/101/committed", () =>
@@ -316,27 +316,16 @@ describe("CampaignWorkspacePage", () => {
         HttpResponse.json(publicationStateFixture()),
       ),
     );
-    const user = userEvent.setup();
     renderApp("/campaigns/42");
     const main = within(screen.getByRole("main"));
 
-    expect(
-      await main.findByRole("heading", { name: /Traffic allocation/ }),
-    ).toBeInTheDocument();
-    expect(
-      await main.findByRole("row", { name: /Offer #8/ }),
-    ).toBeInTheDocument();
-    expect(
-      await main.findByText("Latest publication status"),
-    ).toBeInTheDocument();
-
-    const toggle = main.getByRole("button", {
-      name: /Main stream · regular #101/,
+    const link = await main.findByRole("link", {
+      name: "Open editor for stream 101",
     });
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await user.click(toggle);
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(main.queryByRole("row", { name: /Offer #8/ })).toBeNull();
+    expect(link).toHaveAttribute("href", "/campaigns/42/streams/101");
+    expect(
+      main.queryByRole("heading", { name: /Traffic allocation/ }),
+    ).toBeNull();
   });
 
   it("keeps the URL campaign ID on direct navigation and a simulated reload", async () => {
