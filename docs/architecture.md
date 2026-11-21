@@ -79,7 +79,7 @@ The pure allocation, operation state machine, reconciliation, draft-planning and
 
 ## Frontend (implemented S8-A–S8-E)
 - `frontend/` is a local/trusted SPA (Vite + React + TypeScript, React Router, TanStack Query, CSS Modules). It is a client of the wrapper API and never touches Keitaro, the database or backend internals directly.
-- Screens cover durable campaign creation/recovery, campaign workspace with explicit Fetch, offer editor with versioned local draft commands, Accept-remote conflict resolution, latest publication status, status-aware publication Cancel and the bounded recovery queue. Push is intentionally not exposed by the UI; the endpoint exists in the runtime API and `KEITARO_ALLOW_PUBLICATION_WRITES=false` remains the server fail-closed gate.
+- Screens cover durable campaign creation/recovery, campaign workspace with explicit Fetch, offer editor with versioned local draft commands, Accept-remote conflict resolution, latest publication status, status-aware publication Cancel and the bounded recovery queue. Push has no active UI path: it is exposed only as a disabled, non-interactive control with an accessible explanation, and the frontend never calls the push endpoint; `KEITARO_ALLOW_PUBLICATION_WRITES=false` remains the server fail-closed gate.
 - The frontend renders server projections only: no allocation, eligibility, reconciliation or publication rules are reimplemented in the browser. See `docs/implementation/module-boundaries.md` and the approved S8 specs linked from issue #37 / #59.
 - `frontend/README.md` owns the local setup, generated-contract source and API contract map; `docs/test-plan.md` records S8 unit, contract, E2E, axe and responsive coverage.
 

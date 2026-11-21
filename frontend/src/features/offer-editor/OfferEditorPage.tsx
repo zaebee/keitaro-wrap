@@ -1,6 +1,5 @@
 import { Link, useParams } from "react-router-dom";
 
-import type { DraftViewResponse } from "../../api/operations";
 import { useNarrowViewport } from "../../shared/hooks/useNarrowViewport";
 import { parsePositiveId } from "../campaign-workspace/campaignId";
 import {
@@ -11,24 +10,13 @@ import {
   StreamSyncBadge,
 } from "./EditorPanels";
 import {
+  StreamActionBar,
   StreamDraftHeader,
   StreamDraftSection,
   StreamStatusSide,
 } from "./StreamDraftWorkspace";
 import styles from "./OfferEditorPage.module.css";
-import { draftChanges } from "./draftChanges";
 import { describeFailure, useStreamDraft } from "./useStreamDraft";
-
-function draftChangesCount(draft: DraftViewResponse): number {
-  const changes = draftChanges(draft);
-  return (
-    changes.additions.length +
-    changes.archives.length +
-    changes.restores.length +
-    changes.pinToggles.length +
-    changes.shareEdits.length
-  );
-}
 
 function Editor({
   campaignId,
@@ -152,26 +140,7 @@ function Editor({
       </div>
 
       <ReviewPanel draft={draft} />
-      <footer className={styles.actionBar}>
-        <div className={styles.stagedSummary}>
-          <span
-            className={`${styles.stagedDot} ${
-              (draft?.is_dirty && styles.stagedDotActive) || ""
-            }`}
-            aria-hidden="true"
-          />
-          <span className={styles.stagedCount}>
-            {draft ? draftChangesCount(draft) : 0} staged changes
-          </span>
-          <span className={styles.stagedMeta}>
-            · Stream {streamRef} (v{draft?.version ?? 0} draft)
-          </span>
-        </div>
-        <p className={styles.actionBarHint}>
-          Local / trusted environment only. No Keitaro request is made by
-          opening this editor.
-        </p>
-      </footer>
+      <StreamActionBar state={streamDraft} />
     </section>
   );
 }

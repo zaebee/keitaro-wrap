@@ -376,14 +376,11 @@ type DraftPanelProps = Readonly<{
   addError: string | null;
   shareInputs: Record<number, string>;
   shareErrors: Record<number, string>;
-  confirmingCancel: boolean;
   acceptingConflict: boolean;
   onNewOfferInput: (value: string) => void;
   onAction: (action: DraftActionRequest) => void;
   onShareInput: (offerId: number, value: string) => void;
   onShareSubmit: (offerId: number) => void;
-  onConfirmCancel: () => void;
-  onKeepDraft: () => void;
   onAcceptRemote: () => void;
   onConfirmAcceptRemote: () => void;
   onKeepConflict: () => void;
@@ -399,25 +396,15 @@ export function DraftPanel({
   addError,
   shareInputs,
   shareErrors,
-  confirmingCancel,
   acceptingConflict,
   onNewOfferInput,
   onAction,
   onShareInput,
   onShareSubmit,
-  onConfirmCancel,
-  onKeepDraft,
   onAcceptRemote,
   onConfirmAcceptRemote,
   onKeepConflict,
 }: DraftPanelProps) {
-  const cancelConfirmRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (confirmingCancel) {
-      cancelConfirmRef.current?.focus();
-    }
-  }, [confirmingCancel]);
-
   const blocked = draft?.is_stale === true || (draft?.conflicts.length ?? 0) > 0;
   const commandsDisabled = busy || recoveryRequired || blocked || !baselineReady;
 
@@ -589,40 +576,6 @@ export function DraftPanel({
         </div>
       )}
 
-      <div className={styles.cancelArea}>
-        {!confirmingCancel ? (
-          <button
-            type="button"
-            className={styles.secondary}
-            onClick={() => onAction({ kind: "cancel" })}
-            disabled={draft === null || busy || recoveryRequired}
-          >
-            Discard Draft
-          </button>
-        ) : (
-          <fieldset className={styles.confirm}>
-            <legend>Confirm local cancel</legend>
-            <p>
-              Discard local staged changes for this stream? Keitaro is not
-              changed, and sticky conflict data is preserved.
-            </p>
-            <button
-              type="button"
-              ref={cancelConfirmRef}
-              onClick={onConfirmCancel}
-              disabled={busy || recoveryRequired}
-            >
-              Confirm local cancel
-            </button>
-            <button type="button" className={styles.secondary} onClick={onKeepDraft}>
-              Keep draft
-            </button>
-          </fieldset>
-        )}
-        <p className={styles.hint}>
-          Cancel affects only this local draft. It is not a publication cancel.
-        </p>
-      </div>
     </section>
   );
 }
@@ -752,6 +705,7 @@ function OfferRow({
                 type="text"
                 inputMode="numeric"
                 aria-label="Share 0–100"
+                placeholder={String(offer.share)}
                 value={shareInput}
                 onChange={(event) => onShareInput(offer.offer_id, event.target.value)}
                 aria-invalid={Boolean(shareError)}

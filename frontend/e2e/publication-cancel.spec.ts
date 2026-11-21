@@ -36,7 +36,7 @@ async function mockEditor(page: Page, status = "pending") {
   );
 }
 
-test("publication cancel has a separate confirmation and no Push control", async ({
+test("publication cancel has a separate confirmation and no active Push", async ({
   page,
 }) => {
   await mockEditor(page);
@@ -51,7 +51,9 @@ test("publication cancel has a separate confirmation and no Push control", async
   await expect(
     page.getByRole("button", { name: "Cancel publication" }),
   ).toBeVisible();
-  await expect(page.getByRole("button", { name: /Push/ })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Push to Keitaro" }),
+  ).toBeDisabled();
 
   const results = await new AxeBuilder({ page }).analyze();
   expect(

@@ -75,7 +75,7 @@ The UI is a client of the wrapper API only. It never calls Keitaro directly.
 | `POST .../draft/accept-remote` | Explicit Accept-remote conflict resolution |
 | `GET .../publication`, `POST .../publication/cancel` | Latest publication status and status-aware publication Cancel |
 | `GET /publications/recoverable`, `POST /publications/recover` | Bounded recovery queue and explicit recovery pass |
-| `POST /campaigns/{id}/push` | **Exists in the runtime API, but the frontend deliberately provides no Push control and never calls it.** `KEITARO_ALLOW_PUBLICATION_WRITES=false` remains the server-side fail-closed gate. These are three separate facts.
+| `POST /campaigns/{id}/push` | **Exists in the runtime API; the frontend exposes only a disabled, non-interactive "Push to Keitaro" control with an accessible explanation and never calls the endpoint.** `KEITARO_ALLOW_PUBLICATION_WRITES=false` remains the server-side fail-closed gate. These remain separate facts.
 
 Local/trusted-environment boundary: no auth, public deployment, CORS or static-serving
 change is part of this frontend. Contract and no-live-write behavior are covered by
