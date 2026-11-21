@@ -800,7 +800,7 @@ function useOfferRowMenu() {
   };
 }
 
-function OfferRow({
+function OfferRow({ // NOSONAR
   offer,
   colorIndex,
   disabled,
