@@ -113,7 +113,6 @@ export function StreamDraftHeader({ state }: Readonly<{ state: StreamDraftState 
     committedQuery,
     busy,
     announcement,
-    statusRef,
     mutation,
     acceptRemoteMutation,
     pushMutation,
@@ -135,7 +134,6 @@ export function StreamDraftHeader({ state }: Readonly<{ state: StreamDraftState 
       <DraftCommandFeedback
         busy={busy && !pushMutation.isPending}
         announcement={announcement}
-        statusRef={statusRef}
         isError={mutation.isError || acceptRemoteMutation.isError}
         recoveryRequired={recoveryRequired}
         failure={mutationFailure}

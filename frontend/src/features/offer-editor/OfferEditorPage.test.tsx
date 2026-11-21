@@ -488,7 +488,6 @@ describe("OfferEditorPage", () => {
     await waitFor(() => expect(posts).toHaveLength(1));
     const status = await screen.findByText(/Remote state accepted/);
     expect(status).toHaveAttribute("role", "status");
-    await waitFor(() => expect(document.activeElement).toBe(status));
     expect(posts[0]).toEqual({
       expected_version: 3,
       expected_conflicts_fingerprint: "sha256:stale",
