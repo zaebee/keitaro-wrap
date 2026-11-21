@@ -5,6 +5,7 @@ import {
   StreamSyncBadge,
 } from "../offer-editor/EditorPanels";
 import {
+  StreamActionBar,
   StreamDraftHeader,
   StreamDraftSection,
   StreamStatusSide,
@@ -52,6 +53,7 @@ export function CampaignStreamCard({
         </div>
         <StreamStatusSide state={streamDraft} />
       </div>
+      <StreamActionBar state={streamDraft} />
     </div>
   );
 }

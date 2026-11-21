@@ -95,14 +95,15 @@ describe("S8-D4 Push unavailable presentation", () => {
     expect(panel).toHaveAttribute("data-push-state", "disabled");
     expect(
       within(panel).getByText(
-        "This interface does not provide a Push action. Publication writes are disabled. Refreshing, retrying, or navigating will not enable publication.",
+        "Push is shown only as a disabled control: live Keitaro writes are off in this environment and this interface never calls the publish endpoint. Refreshing, retrying, or navigating will not enable publication.",
       ),
     ).toBeInTheDocument();
     expect(
       within(panel).getByRole("link", { name: "inspect the recoverable queue" }),
     ).toHaveAttribute("href", "/recovery");
-    expect(within(panel).queryAllByRole("button")).toEqual([]);
-    expect(screen.queryByRole("button", { name: /Push/ })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Push to Keitaro" }),
+    ).toBeDisabled();
     expect(counters.push()).toBe(0);
     expect(counters.recovery()).toBe(0);
     expect(counters.cancel()).toBe(0);

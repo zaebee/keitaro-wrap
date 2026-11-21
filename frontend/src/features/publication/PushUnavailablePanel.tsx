@@ -15,9 +15,9 @@ export function PushUnavailablePanel() {
     >
       <h3 id="push-unavailable-heading">Push unavailable</h3>
       <p id="push-unavailable-copy">
-        This interface does not provide a Push action. Publication writes are
-        disabled. Refreshing, retrying, or navigating will not enable
-        publication.
+        Push is shown only as a disabled control: live Keitaro writes are off in
+        this environment and this interface never calls the publish endpoint.
+        Refreshing, retrying, or navigating will not enable publication.
       </p>
       <p className={styles.hint}>
         Read-only alternatives: refresh the publication status shown above, or{" "}

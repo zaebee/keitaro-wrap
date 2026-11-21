@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react";
+
 import { PublicationCancelPanel } from "../publication/PublicationCancelPanel";
 import { PublicationStatusPanel } from "../publication/PublicationStatusPanel";
 import { PushUnavailablePanel } from "../publication/PushUnavailablePanel";
@@ -113,14 +115,11 @@ export function StreamDraftSection({
           addError={state.addError}
           shareInputs={state.shareInputs}
           shareErrors={state.shareErrors}
-          confirmingCancel={state.confirmingCancel}
           acceptingConflict={state.acceptingConflict}
           onNewOfferInput={state.onNewOfferInput}
           onAction={state.onAction}
           onShareInput={state.onShareInput}
           onShareSubmit={state.onShareSubmit}
-          onConfirmCancel={state.onConfirmCancel}
-          onKeepDraft={state.onKeepDraft}
           onAcceptRemote={state.onAcceptRemote}
           onConfirmAcceptRemote={state.onConfirmAcceptRemote}
           onKeepConflict={state.onKeepConflict}
@@ -136,6 +135,95 @@ export function StreamDraftSection({
       <h2 id="draft-section-heading">Draft state</h2>
       {panel}
     </section>
+  );
+}
+
+export function StreamActionBar({ state }: Readonly<{ state: StreamDraftState }>) {
+  const {
+    draft,
+    busy,
+    recoveryRequired,
+    confirmingCancel,
+    onAction,
+    onConfirmCancel,
+    onKeepDraft,
+    streamRef,
+  } = state;
+  const cancelConfirmRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (confirmingCancel) {
+      cancelConfirmRef.current?.focus();
+    }
+  }, [confirmingCancel]);
+  const changes = draft ? draftChangesCount(draft) : 0;
+  const archived = draft
+    ? draft.offers.filter((offer) => offer.lifecycle === "ARCHIVED").length
+    : 0;
+  return (
+    <footer className={styles.streamActionBar}>
+      <div className={styles.stagedSummary}>
+        <span
+          className={`${styles.stagedDot} ${
+            (draft?.is_dirty && styles.stagedDotActive) || ""
+          }`}
+          aria-hidden="true"
+        />
+        <span className={styles.stagedCount}>{changes} staged changes</span>
+        <span className={styles.stagedMeta}>· {archived} archived</span>
+        <span className={`${styles.stagedMeta} tnum`}>
+          · Stream {streamRef} (v{draft?.version ?? 0} draft)
+        </span>
+      </div>
+      <div className={styles.actionBarControls}>
+        {confirmingCancel ? (
+          <fieldset className={styles.confirm}>
+            <legend>Confirm local cancel</legend>
+            <p>
+              Discard local staged changes for this stream? Keitaro is not
+              changed, and sticky conflict data is preserved.
+            </p>
+            <button
+              type="button"
+              ref={cancelConfirmRef}
+              onClick={onConfirmCancel}
+              disabled={busy || recoveryRequired}
+            >
+              Confirm local cancel
+            </button>
+            <button
+              type="button"
+              className={styles.secondary}
+              onClick={onKeepDraft}
+            >
+              Keep draft
+            </button>
+          </fieldset>
+        ) : (
+          <button
+            type="button"
+            className={styles.secondary}
+            onClick={() => onAction({ kind: "cancel" })}
+            disabled={draft === null || busy || recoveryRequired}
+          >
+            Discard Draft
+          </button>
+        )}
+        <button
+          type="button"
+          className={styles.pushButton}
+          disabled
+          aria-describedby="push-disabled-reason"
+        >
+          Push to Keitaro
+        </button>
+      </div>
+      <p className={styles.actionBarHint} id="push-disabled-reason">
+        Push is disabled: live Keitaro writes are off in this environment
+        (KEITARO_ALLOW_PUBLICATION_WRITES=false), and this interface never calls
+        the publish endpoint. Cancel affects only this local draft. It is not a
+        publication cancel.
+      </p>
+    </footer>
   );
 }
 

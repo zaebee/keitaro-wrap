@@ -25,7 +25,7 @@ async function mockEditor(page: Page, pushRequests: () => void) {
   );
 }
 
-test("editor explains disabled Push accessibly without exposing a control", async ({
+test("editor exposes only a disabled Push control with an accessible explanation", async ({
   page,
 }) => {
   let pushes = 0;
@@ -39,10 +39,12 @@ test("editor explains disabled Push accessibly without exposing a control", asyn
   ).toBeVisible();
   await expect(
     page.getByText(
-      "This interface does not provide a Push action. Publication writes are disabled. Refreshing, retrying, or navigating will not enable publication.",
+      "Push is shown only as a disabled control: live Keitaro writes are off in this environment and this interface never calls the publish endpoint. Refreshing, retrying, or navigating will not enable publication.",
     ),
   ).toBeVisible();
-  await expect(page.getByRole("button", { name: /Push/ })).toHaveCount(0);
+  const push = page.getByRole("button", { name: "Push to Keitaro" });
+  await expect(push).toBeVisible();
+  await expect(push).toBeDisabled();
   expect(pushes).toBe(0);
 
   const results = await new AxeBuilder({ page }).analyze();
