@@ -349,6 +349,10 @@ export function StreamStatusSide({
   } = state;
   const summary = summarizeDraftChanges(draft);
   const dirty = Boolean(draft?.is_dirty);
+  const stagedPlural = summary.totalChanges === 1 ? "" : "s";
+  const stagedLabel = dirty
+    ? `${summary.totalChanges} staged change${stagedPlural}`
+    : "No staged changes";
 
   return (
     <aside className={styles.inspector} aria-label="Backend inspector">
@@ -392,11 +396,7 @@ export function StreamStatusSide({
             aria-hidden="true"
           />
           <div>
-            <p className={styles.draftStatusValue}>
-              {dirty
-                ? `${summary.totalChanges} staged change${summary.totalChanges === 1 ? "" : "s"}`
-                : "No staged changes"}
-            </p>
+            <p className={styles.draftStatusValue}>{stagedLabel}</p>
             <p className={`${styles.draftStatusVersion} tnum`}>
               v{draft?.version ?? 0}
             </p>

@@ -509,7 +509,7 @@ export function DraftPanel({
               (offer) => offer.lifecycle === "ARCHIVED",
             );
             const renderOfferTable = (offers: typeof activeOffers) => (
-              <div className={styles.tableScroll} role="region" aria-label="Offers table" tabIndex={0}>
+              <section className={styles.tableScroll} aria-label="Offers table" tabIndex={0} /* NOSONAR */ >
                 <table className={styles.offerTable}>
                   <thead>
                     <tr>
@@ -539,7 +539,7 @@ export function DraftPanel({
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </section>
             );
             return (
               <>
@@ -723,27 +723,7 @@ type OfferRowProps = Readonly<{
   onShareSubmit: (offerId: number) => void;
 }>;
 
-function OfferRow({
-  offer,
-  colorIndex,
-  disabled,
-  baselineShare,
-  shareInput,
-  shareError,
-  onAction,
-  onShareInput,
-  onShareSubmit,
-}: OfferRowProps) {
-  const shareState = describeShareEditState({
-    offerShare: offer.share,
-    baselineShare,
-    draftInput: shareInput,
-  });
-  const statusInfo = describeOfferStatus({
-    lifecycle: offer.lifecycle,
-    remoteState: offer.state,
-  });
-
+function useOfferRowMenu() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPlacement, setMenuPlacement] = useState<ActionMenuPlacement>({
     mode: "absolute",
@@ -810,6 +790,46 @@ function OfferRow({
     setMenuOpen(true);
   };
 
+  return {
+    menuOpen,
+    menuPlacement,
+    menuContainerRef,
+    kebabButtonRef,
+    closeMenu,
+    toggleMenu,
+  };
+}
+
+function OfferRow({
+  offer,
+  colorIndex,
+  disabled,
+  baselineShare,
+  shareInput,
+  shareError,
+  onAction,
+  onShareInput,
+  onShareSubmit,
+}: OfferRowProps) {
+  const shareState = describeShareEditState({
+    offerShare: offer.share,
+    baselineShare,
+    draftInput: shareInput,
+  });
+  const statusInfo = describeOfferStatus({
+    lifecycle: offer.lifecycle,
+    remoteState: offer.state,
+  });
+
+  const {
+    menuOpen,
+    menuPlacement,
+    menuContainerRef,
+    kebabButtonRef,
+    closeMenu,
+    toggleMenu,
+  } = useOfferRowMenu();
+
   const runAction = (kind: "remove" | "restore" | "pin" | "unpin") => {
     closeMenu(false);
     onAction({ kind, offerId: offer.offer_id });
@@ -850,7 +870,7 @@ function OfferRow({
                 className={styles.modifiedPill}
                 title="Share modified in local draft"
               >
-                <span className={styles.modifiedDot} aria-hidden="true" />
+                <span className={styles.modifiedDot} aria-hidden="true" />{" "}
                 Modified
               </span>
             )}
@@ -1034,7 +1054,7 @@ function OfferRow({
               >
                 {offer.is_pinned ? "Unpin offer" : "Pin offer"}
               </button>
-              <div className={styles.menuDivider} role="separator" />
+              <hr className={styles.menuDivider} />
               {offer.lifecycle === "ACTIVE" ? (
                 <button
                   type="button"

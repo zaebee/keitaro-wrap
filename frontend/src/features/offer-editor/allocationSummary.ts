@@ -185,7 +185,7 @@ export function evaluatePushReadiness(params: {
       reason: "Resolve or cancel the active publication before pushing.",
     };
   }
-  if (!draft || !draft.is_dirty) {
+  if (!draft?.is_dirty) {
     return {
       canPush: false,
       reason: "Stage at least one draft change before pushing to Keitaro.",

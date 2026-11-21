@@ -1104,7 +1104,7 @@ button:disabled {
 .pushButton:disabled {
   background: #bfdbfe;
   border-color: #bfdbfe;
-  color: #ffffff;
+  color: #1e3a8a;
   box-shadow: none;
   cursor: not-allowed;
   opacity: 0.9;

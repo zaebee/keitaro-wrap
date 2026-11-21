@@ -49,30 +49,37 @@ function StatusSummaryBanner({
   const isOk = status === "succeeded";
   const isErr = status === "failed" || status === "ambiguous";
 
+  let circleClass = styles.pubCirclePending;
+  if (isOk) {
+    circleClass = styles.pubCircleOk;
+  } else if (isErr) {
+    circleClass = styles.pubCircleErr;
+  }
+  let textClass = styles.pubTextPending;
+  if (isOk) {
+    textClass = styles.pubTextOk;
+  } else if (isErr) {
+    textClass = styles.pubTextErr;
+  }
+  let circleContent = "…";
+  if (isOk) {
+    circleContent = "✓";
+  } else if (isErr) {
+    circleContent = "!";
+  }
+
   return (
     <div className={styles.pubSummaryRow}>
       <span
-        className={`${styles.pubStatusCircle} ${
-          isOk
-            ? styles.pubCircleOk
-            : isErr
-              ? styles.pubCircleErr
-              : styles.pubCirclePending
-        }`}
+        className={`${styles.pubStatusCircle} ${circleClass}`}
         aria-hidden="true"
       >
-        {isOk ? "✓" : isErr ? "!" : "…"}
+        {circleContent}
       </span>
       <div className={styles.pubSummaryText}>
         <span className={styles.pubSummaryLabel}>Latest publication:</span>
         <span
-          className={`${styles.pubSummaryState} ${
-            isOk
-              ? styles.pubTextOk
-              : isErr
-                ? styles.pubTextErr
-                : styles.pubTextPending
-          }`}
+          className={`${styles.pubSummaryState} ${textClass}`}
           data-status={status}
         >
           {label}
