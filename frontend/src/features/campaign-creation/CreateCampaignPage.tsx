@@ -72,7 +72,7 @@ export function CreateCampaignPage() {
     >
       <h1 id="create-heading">Create campaign</h1>
       <p className={styles.lead}>
-        A durable operation is created before any campaign resource is changed.
+        Create a campaign with one primary offer.
       </p>
 
       {errorList.length > 0 && (
