@@ -483,10 +483,6 @@ button:disabled {
 }
 
 .dirtyBannerHint {
-  margin-top: 0;
-}
-
-.dirtyBannerHint {
   color: #b45309;
   font-size: 11px;
   margin: 0;
@@ -1113,9 +1109,9 @@ button:disabled {
 }
 
 .pushButton:disabled {
-  background: color-mix(in srgb, var(--color-primary) 55%, #ffffff);
+  background: #c7d7fe;
   border-color: transparent;
-  color: #f5f7ff;
+  color: #1e3a8a;
   cursor: not-allowed;
 }
 
