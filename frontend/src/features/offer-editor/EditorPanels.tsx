@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import type {
@@ -92,7 +92,6 @@ export function LastFetchMeta({
 export function DraftCommandFeedback({
   busy,
   announcement,
-  statusRef,
   isError,
   recoveryRequired,
   failure,
@@ -102,7 +101,6 @@ export function DraftCommandFeedback({
 }: Readonly<{
   busy: boolean;
   announcement: string | null;
-  statusRef: RefObject<HTMLParagraphElement>;
   isError: boolean;
   recoveryRequired: boolean;
   failure: Failure;
@@ -118,13 +116,7 @@ export function DraftCommandFeedback({
         </output>
       )}
       {announcement && (
-        <p
-          ref={statusRef}
-          className={styles.pending}
-          role="status"
-          aria-live="polite"
-          tabIndex={-1}
-        >
+        <p className={styles.pending} role="status" aria-live="polite">
           {announcement}
         </p>
       )}

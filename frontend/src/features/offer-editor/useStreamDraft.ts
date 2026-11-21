@@ -19,7 +19,6 @@ import {
   type PushResultResponse,
 } from "../../api/operations";
 import { queryKeys } from "../../queries/queryClient";
-import { useFocusOnChange } from "../../shared/hooks/useFocusOnChange";
 import { usePublicationRecoveryLock } from "../publication/usePublicationRecoveryLock";
 import { parsePositiveId } from "../campaign-workspace/campaignId";
 import { evaluatePushReadiness } from "./allocationSummary";
@@ -109,7 +108,6 @@ export function useStreamDraft(campaignId: number, streamRef: number) {
   const [recoveryRequired, setRecoveryRequired] = useState(false);
   const [announcement, setAnnouncement] = useState<string | null>(null);
   const [pushOutcomeError, setPushOutcomeError] = useState<string | null>(null);
-  const statusRef = useFocusOnChange<HTMLParagraphElement>(announcement);
   const publicationLock = usePublicationRecoveryLock();
 
   const committedQuery = useQuery({
@@ -386,7 +384,6 @@ export function useStreamDraft(campaignId: number, streamRef: number) {
     confirmingCancel,
     acceptingConflict,
     announcement,
-    statusRef,
     newOfferId,
     addError,
     shareInputs,
