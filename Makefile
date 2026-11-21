@@ -42,3 +42,11 @@ doc-coverage:
 check: format-check lint type-check coverage doc-coverage
 
 all-checks: check
+
+
+up:
+	@echo "Starting backend (8000) and frontend (5173)..."
+	@trap 'kill 0' EXIT; uv run uvicorn app.main:app --reload --port 8000 & cd frontend && bun run dev
+
+down:
+	@echo "Stop processes manually (Ctrl+C in the terminal running make up)."

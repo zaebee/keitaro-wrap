@@ -16,6 +16,25 @@ FastAPI + SQLAlchemy application with the Slice 0–7 workflows and HTTP API.
 4. Run migrations: `uv run alembic upgrade head`
 5. Start app: `uv run uvicorn app.main:app --reload`
 
+   Or run the full local stack (backend + frontend) with:
+
+   ```bash
+   make up
+   ```
+
+   Backend: http://localhost:8000, frontend: http://localhost:5173 (Vite proxies `/api` to the backend).
+
+## Frontend
+
+```bash
+cd frontend
+bun ci
+bun run check        # typecheck + lint + tests + build
+bun run test:e2e     # Playwright E2E + axe
+```
+
+See `frontend/README.md` for additional frontend details.
+
 `requirements.txt` is a compatibility shim for pip users and installs the runtime package only
 (`pip install -r requirements.txt`); development tools are installed with `uv sync`.
 uv is the canonical workflow.
