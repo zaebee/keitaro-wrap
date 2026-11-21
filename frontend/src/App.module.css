@@ -21,7 +21,7 @@
 .main {
   flex: 1;
   min-width: 0;
-  width: min(100%, 960px);
+  width: min(100%, 1440px);
   margin: 0 auto;
   padding: var(--space-8) var(--space-6);
 }

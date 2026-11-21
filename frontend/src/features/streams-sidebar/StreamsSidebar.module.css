@@ -1,11 +1,11 @@
 .sidebar {
-  width: 240px;
+  width: 264px;
   flex-shrink: 0;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  gap: var(--space-6);
-  padding: var(--space-4);
+  gap: var(--space-5);
+  padding: var(--space-5) var(--space-4);
   background: var(--color-surface);
   border-right: 1px solid var(--color-border);
 }
@@ -13,68 +13,103 @@
 .brandBlock {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--space-2);
 }
 
 .brand {
-  font-weight: 600;
-  font-size: 16px;
+  align-items: center;
   color: var(--color-text);
+  display: inline-flex;
+  font-size: 16px;
+  font-weight: 700;
+  gap: var(--space-2);
   text-decoration: none;
 }
 
+.brandMark {
+  align-items: center;
+  background: var(--color-primary);
+  border-radius: 8px;
+  color: #fff;
+  display: inline-flex;
+  font-size: 15px;
+  font-weight: 700;
+  height: 30px;
+  justify-content: center;
+  width: 30px;
+}
+
+.brandName {
+  letter-spacing: -0.01em;
+}
+
 .wordmark {
-  font-size: 10px;
-  letter-spacing: 0.12em;
   color: var(--color-text-muted);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  margin: 0;
 }
 
 .primaryNav {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: 2px;
   margin-top: var(--space-2);
   font-size: 13px;
 }
 
 .primaryNav a {
+  border-radius: 8px;
   color: var(--color-text-muted);
+  padding: 6px var(--space-2);
   text-decoration: none;
 }
 
 .primaryNav a:hover,
 .primaryNav a:focus {
-  color: var(--color-primary);
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+}
+
+.primaryNav a:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
 }
 
 .campaignBlock {
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
   flex: 1;
+  gap: var(--space-3);
   min-height: 0;
+  padding: var(--space-3);
 }
 
 .campaignHeader {
-  display: flex;
   align-items: center;
+  display: flex;
   gap: var(--space-2);
 }
 
 .campaignTitle {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 700;
   margin: 0;
 }
 
 .activeBadge {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-primary);
   border: 1px solid var(--color-primary);
   border-radius: 999px;
+  color: var(--color-primary);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  margin-left: auto;
   padding: 0 var(--space-2);
+  text-transform: uppercase;
 }
 
 .campaignActions {
@@ -84,14 +119,21 @@
 }
 
 .refreshButton {
-  align-self: flex-start;
-  font-size: 12px;
-  padding: var(--space-1) var(--space-3);
+  align-self: stretch;
+  background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: 4px;
-  background: transparent;
+  border-radius: 8px;
   color: var(--color-text);
   cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px var(--space-3);
+  text-align: center;
+}
+
+.refreshButton:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
 }
 
 .refreshButton:disabled {
@@ -111,34 +153,50 @@
   overflow-y: auto;
 }
 
+.streamsNav::before {
+  color: var(--color-text-muted);
+  content: "STREAMS";
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  margin-bottom: var(--space-1);
+}
+
 .streamList {
-  list-style: none;
-  margin: 0;
-  padding: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
 .streamLink {
-  display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
-  border-radius: 4px;
-  font-size: 13px;
+  border-radius: 8px;
   color: var(--color-text);
+  display: flex;
+  font-size: 13px;
+  gap: var(--space-2);
+  padding: 6px var(--space-2);
   text-decoration: none;
 }
 
 .streamLink:hover,
 .streamLink:focus {
-  background: var(--color-border);
+  background: var(--color-surface);
 }
 
 .streamLinkActive {
-  background: var(--color-border);
+  background: #e8efff;
+  color: #1d4ed8;
   font-weight: 600;
+}
+
+.streamLinkActive:hover,
+.streamLinkActive:focus {
+  background: #dbe6ff;
 }
 
 .dot {
@@ -172,10 +230,11 @@
 }
 
 .chip {
-  font-size: 10px;
-  color: var(--color-text);
-  background: var(--color-accent-amber);
+  background: #fde68a;
   border-radius: 999px;
+  color: #92400e;
+  font-size: 10px;
+  font-weight: 600;
   padding: 0 var(--space-2);
   white-space: nowrap;
 }
@@ -187,11 +246,12 @@
 }
 
 .statusFooter {
+  border-top: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+  margin-top: auto;
   padding-top: var(--space-3);
-  border-top: 1px solid var(--color-border);
 }
 
 .statusLine {
