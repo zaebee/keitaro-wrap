@@ -509,7 +509,7 @@ export function DraftPanel({
               (offer) => offer.lifecycle === "ARCHIVED",
             );
             const renderOfferTable = (offers: typeof activeOffers) => (
-              <div className={styles.tableScroll}>
+              <div className={styles.tableScroll} role="region" aria-label="Offers table" tabIndex={0}>
                 <table className={styles.offerTable}>
                   <thead>
                     <tr>

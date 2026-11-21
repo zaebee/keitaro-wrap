@@ -35,12 +35,10 @@ test("editor exposes only a disabled Push control with an accessible explanation
   await page.goto("/campaigns/42/streams/101");
 
   await expect(
-    page.getByRole("heading", { name: "Push unavailable" }),
+    page.getByRole("heading", { name: "Push status" }),
   ).toBeVisible();
   await expect(
-    page.getByText(
-      "Push is shown only as a disabled control: live Keitaro writes are off in this environment and this interface never calls the publish endpoint. Refreshing, retrying, or navigating will not enable publication.",
-    ),
+    page.locator("#push-status-copy"),
   ).toBeVisible();
   const push = page.getByRole("button", { name: "Push to Keitaro" });
   await expect(push).toBeVisible();

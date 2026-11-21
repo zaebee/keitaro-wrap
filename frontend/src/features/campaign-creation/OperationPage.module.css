@@ -36,7 +36,7 @@
 }
 
 .status[data-status="created"] {
-  background: #e7f5ef;
+  background: #dcfce7;
   color: var(--color-success);
 }
 

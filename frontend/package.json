@@ -18,7 +18,8 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "generate:api": "node scripts/generate-api.mjs",
-    "check": "bun run typecheck && bun run lint && bun run test && bun run build"
+    "check": "bun run typecheck && bun run lint && bun run test && bun run test:node && bun run build",
+    "test:node": "find src -name '*.node.test.ts' -print0 | xargs -0 bun test"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.66.0",

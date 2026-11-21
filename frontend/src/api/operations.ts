@@ -19,11 +19,9 @@ import type {
   RestoreDraftRequest,
   SetShareDraftRequest,
   StreamRefResponse,
-  CampaignSummaryResponse,
 } from "./generated/openapi";
 
 export type {
-  CampaignSummaryResponse,
   CancelResultResponse,
   ConflictResolutionResponse,
   ConflictDetailResponse,
@@ -72,6 +70,14 @@ export async function getHealth(): Promise<HealthResponse> {
   const result = await apiRequest<HealthResponse>("/health");
   return result.data;
 }
+
+export type CampaignSummaryResponse = {
+  id: number;
+  name: string | null;
+  alias?: string | null;
+  state?: string | null;
+  group_id?: number | null;
+};
 
 export async function listCampaigns(limit = 100): Promise<CampaignSummaryResponse[]> {
   const result = await apiRequest<CampaignSummaryResponse[]>(

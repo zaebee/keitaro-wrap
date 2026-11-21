@@ -34,7 +34,7 @@
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  background: #94a3b8;
+  background: #475569;
   color: #ffffff;
   font-size: 12px;
   font-weight: 700;
@@ -281,7 +281,7 @@
 }
 
 .shareForm input::placeholder {
-  color: #64748b;
+  color: #475569;
   opacity: 0.9;
 }
 
@@ -929,7 +929,7 @@ button:disabled {
 }
 
 .draftStatusDotClean {
-  background: #94a3b8;
+  background: #475569;
 }
 
 .draftStatusValue {
